@@ -1,0 +1,10 @@
+company_name,domain,industry,employee_count_range,contact_full_name,contact_role,contact_email,contact_phone,notes
+Acme Robotics,acme-robotics.com,Software,51-200,Sarah Chen,CEO,sarah.chen@acme-robotics.com,555-0101,Met at trade show
+Acme Robotics,acme-robotics.com,,,Mike Torres,CTO,mike.torres@acme-robotics.com,555-0102,Second contact same company
+Globex Corporation,https://www.globex.com,Manufacturing,1000+,Diane Foster,VP of Operations,diane.foster@globex.com,555-0201,
+Globex Corp,www.globex.com/,,,James Kim,Head of Procurement,james.kim@globex.com,,Duplicate domain in different format - should merge with row above
+Initech LLC,initech.io,Finance,11-50,,,,,Company only no contact yet
+Umbrella Health,umbrella-health.org,Healthcare,201-500,Laura Nguyen,Director of IT,laura.nguyen@umbrella-health.org,555-0301,
+Stellar Analytics,,Data & Analytics,11-50,Tom Reyes,Founder,tom@stellaranalytics.io,555-0401,No domain - dedup by name
+  Stellar Analytics  ,,,,Amy Park,COO,amy@stellaranalytics.io,555-0402,Same company different casing/whitespace - should merge with row above
+,,,,John Doe,Manager,john@nowhere.com,,Bad row - no company name or domain - should be skipped with an error

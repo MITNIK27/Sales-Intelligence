@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* =============================================================================
+   InfoBeans theme for shadcn/ui — brand tokens mapped onto shadcn's variable
+   contract. Light-only (the brand defines no dark ramp).
+   ============================================================================= */
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Lexend Variable', 'Lexend', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-primary-hover: var(--primary-hover);
+    --color-primary-text: var(--primary-text);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    /* status extensions */
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    /* status chips — AA-tuned fg/bg pairs (≥4.5:1 for 12px text) */
+    --color-chip-warning-fg: var(--chip-warning-fg);
+    --color-chip-warning-bg: var(--chip-warning-bg);
+    --color-chip-success-fg: var(--chip-success-fg);
+    --color-chip-success-bg: var(--chip-success-bg);
+    --color-chip-rejected-fg: var(--chip-rejected-fg);
+    --color-chip-rejected-bg: var(--chip-rejected-bg);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+    /* Surfaces — cream-forward page, white cards */
+    --background: #fff9ed;
+    --foreground: #373742;
+    --card: #ffffff;
+    --card-foreground: #373742;
+    --popover: #ffffff;
+    --popover-foreground: #373742;
+    /* Brand — exact InfoBeans crimson, used everywhere. White-on-crimson is
+       4.45:1: a documented, accepted AA exception (standards §3). Labels stay 16px. */
+    --primary: #ea1b3d;
+    --primary-hover: #c53030;
+    --primary-foreground: #ffffff;
+    --primary-text: #ea1b3d;        /* crimson text on light grounds */
+    --secondary: #ffefd1;
+    --secondary-foreground: #373742;
+    --muted: #f2eee4;
+    --muted-foreground: #676775;
+    --accent: #ffefd1;
+    --accent-foreground: #373742;
+    --destructive: #ea1b3d;
+    --border: #e6e6ed;
+    --input: #82828c;               /* AA-tuned control border: 3.8:1 on white */
+    --ring: #ea1b3d;                /* brand focus ring */
+    /* Status */
+    --success: #0d8244;
+    --success-foreground: #edfff5;
+    --warning: #bf8208;
+    --warning-foreground: #fff9ed;
+    /* Status chips — AA-tuned */
+    --chip-warning-fg: #8c681f; --chip-warning-bg: #fff3d6;   /* 4.63:1 */
+    --chip-success-fg: #0a6636; --chip-success-bg: #edfff5;   /* 6.82:1 */
+    --chip-rejected-fg: #aa142d; --chip-rejected-bg: #fde3e7; /* 6.08:1 */
+    /* Charts — InfoBeans palette */
+    --chart-1: #ea1b3d;
+    --chart-2: #0fa958;
+    --chart-3: #ecb547;
+    --chart-4: #676775;
+    --chart-5: #eb4c5e;
+    /* InfoBeans standard: 0px on cards AND controls */
+    --radius: 0;
+    /* Motion */
+    --motion-fast: 0.2s;
+    --motion-base: 0.25s;
+    --motion-long: 0.5s;
+    --ease-standard: ease-in-out;
+    --ease-decelerate: cubic-bezier(0.25, 1, 0.5, 1);
+    /* Sidebar / dark chrome */
+    --sidebar: #2f2f39;
+    --sidebar-foreground: #d7d7de;
+    --sidebar-primary: #ea1b3d;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #373742;
+    --sidebar-accent-foreground: #ffffff;
+    --sidebar-border: #373742;
+    --sidebar-ring: #ea1b3d;
+}
+
+/* Light-only. `.dark` is intentionally left at shadcn defaults — do not ship it
+   as "InfoBeans dark mode" without a brand-defined dark ramp. */
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground; }
+  html { @apply font-sans; }
+}
