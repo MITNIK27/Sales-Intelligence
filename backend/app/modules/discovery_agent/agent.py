@@ -5,6 +5,7 @@ produced a given run, and a failure in one stage can never propagate a partially
 into `IngestionRun`/`Company`. No silent fallback to raw search links on failure — that would
 reintroduce the bug this module exists to fix; the caller sees a clear error instead."""
 
+from dataclasses import replace
 from typing import Protocol
 
 from app.core.config import Settings, get_settings
@@ -13,8 +14,9 @@ from app.modules.discovery_agent.extractor import (
     ExtractionModelError,
     GeminiCompanyExtractionModel,
 )
+from app.modules.discovery_agent.heuristics import classify_candidate_name
 from app.modules.discovery_agent.resolver import CompanyResolver
-from app.modules.discovery_agent.schemas import DiscoveryResult, MarketCriteria
+from app.modules.discovery_agent.schemas import DiscoveryResult, ExtractedCompany, MarketCriteria
 from app.modules.discovery_agent.search_gatherer import SearchGatherer
 
 
@@ -52,6 +54,29 @@ class CompanyDiscoveryAgent:
             raise DiscoveryAgentError(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001
             raise DiscoveryAgentError(f"company extraction failed: {exc}") from exc
+
+        checked: list[ExtractedCompany] = []
+        for item in extracted:
+            verdict, reason = classify_candidate_name(item.name)
+            if verdict == "reject" and item.accepted:
+                # Confidently listicle-shaped — override the LLM's accept and force it into
+                # `rejected`, same as a `grounded_in_source=False` verdict, so it never reaches
+                # domain resolution or becomes a Company row at all.
+                checked.append(
+                    replace(
+                        item,
+                        grounded_in_source=False,
+                        reasoning=f"{item.reasoning} | {reason}",
+                    )
+                )
+            elif verdict == "flag" and item.accepted:
+                # Structurally suspicious but not certain — kept, but flagged so it survives as a
+                # Company row with needs_review=True + a specific reason, instead of being
+                # silently lost or silently trusted.
+                checked.append(replace(item, needs_review=True, needs_review_reason=reason))
+            else:
+                checked.append(item)
+        extracted = checked
 
         accepted = [e for e in extracted if e.accepted]
         rejected = [e for e in extracted if not e.accepted]

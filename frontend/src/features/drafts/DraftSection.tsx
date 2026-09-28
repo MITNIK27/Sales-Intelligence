@@ -21,14 +21,17 @@ const DRAFT_TYPE_LABELS: Record<DraftType, string> = {
 export function DraftSection({
   contact,
   companyId,
+  companyNeedsReview,
   products,
   onLogAsSent,
 }: {
   contact: Contact;
   companyId: string;
+  companyNeedsReview: boolean;
   products: Product[];
   onLogAsSent: (draft: Draft) => void;
 }) {
+  const blockedByReview = companyNeedsReview || contact.needs_review;
   const [selectedProductId, setSelectedProductId] = useState("");
   const [draftType, setDraftType] = useState<DraftType>("first_touch");
   const [generating, setGenerating] = useState(false);
@@ -162,7 +165,8 @@ export function DraftSection({
         <Button
           type="button"
           onClick={handleGenerate}
-          disabled={!selectedProductId || generating}
+          disabled={!selectedProductId || generating || blockedByReview}
+          title={blockedByReview ? "Confirm the flagged company/contact before drafting" : undefined}
           size="sm"
           className="h-9"
         >
@@ -170,6 +174,11 @@ export function DraftSection({
         </Button>
       </div>
       {generateError && <p className="text-sm text-destructive">{generateError}</p>}
+      {blockedByReview && !draft && (
+        <p className="text-sm text-muted-foreground">
+          Confirm the flagged company or contact above before generating a draft.
+        </p>
+      )}
 
       {draft && (
         <div className="flex flex-col gap-2 rounded-md border border-border p-3">

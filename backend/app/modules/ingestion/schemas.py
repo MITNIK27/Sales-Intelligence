@@ -23,6 +23,11 @@ class MarketDiscoveryConfirmRequest(BaseModel):
     industry_keywords: list[str] = []
     location: str | None = None
     employee_size_range: str | None = None
+    # Which product the auto-pipeline's drafting stage should pitch. Optional — omitted (and the
+    # org doesn't have exactly one product to default to) means the pipeline still discovers,
+    # qualifies, and classifies roles, but the drafting stage reports itself skipped rather than
+    # guessing which product to pitch.
+    product_id: uuid.UUID | None = None
 
 
 class MarketDiscoveryStarted(BaseModel):

@@ -21,6 +21,7 @@ export default [
         HTMLElement: "readonly",
         File: "readonly",
         FormData: "readonly",
+        URLSearchParams: "readonly",
       },
     },
     plugins: {

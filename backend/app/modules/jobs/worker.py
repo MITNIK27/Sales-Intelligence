@@ -18,6 +18,12 @@ from app.modules.jobs.service import (
     report_job_progress,
     requeue_stale_jobs,
 )
+from app.modules.orchestrator.service import (
+    JOB_TYPE_AUTO_PIPELINE,
+    JOB_TYPE_BULK_CONFIRM,
+    run_auto_pipeline_job,
+    run_bulk_confirm_job,
+)
 from app.modules.qualification.service import (
     JOB_TYPE_ADHOC_QUALIFY,
     JOB_TYPE_BULK_QUALIFY,
@@ -40,6 +46,8 @@ _HANDLERS = {
     JOB_TYPE_VERIFY_CONTACTS: process_verify_contacts_job,
     JOB_TYPE_BULK_QUALIFY: run_bulk_qualification_job,
     JOB_TYPE_ADHOC_QUALIFY: run_adhoc_qualification_job,
+    JOB_TYPE_AUTO_PIPELINE: run_auto_pipeline_job,
+    JOB_TYPE_BULK_CONFIRM: run_bulk_confirm_job,
 }
 
 

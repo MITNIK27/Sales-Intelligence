@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 
 from app.core.config import Settings
 from app.modules.enrichment.providers.base import (
+    DECISION_MAKER_KEYWORDS,
     CompanyDataProvider,
     ContactDataProvider,
     FetchedPage,
@@ -21,6 +22,7 @@ from app.modules.enrichment.providers.base import (
     ScrapedContact,
     ScrapedSignal,
     SignalDataProvider,
+    looks_like_person_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,13 +41,6 @@ _EMPLOYEE_COUNT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Only headings followed by one of these role keywords are treated as a decision-maker contact —
-# a team page listing every employee shouldn't import every employee, only plausible sales
-# targets.
-_DECISION_MAKER_KEYWORDS = (
-    "ceo", "cto", "coo", "cfo", "founder", "co-founder", "president", "vp",
-    "vice president", "director", "head of", "owner", "manager",
-)
 _MAILTO_RE = re.compile(r"^mailto:", re.IGNORECASE)
 
 # News/press and careers pages are fetched independently of the about/team candidates above —
@@ -197,7 +192,7 @@ def extract_contacts(html: str) -> list[ScrapedContact]:
     contacts: list[ScrapedContact] = []
     for heading in soup.find_all(["h1", "h2", "h3", "h4"]):
         name = heading.get_text(strip=True)
-        if not name or len(name.split()) > 5:
+        if not name or not looks_like_person_name(name):
             continue
 
         role_el = heading.find_next_sibling()
@@ -209,7 +204,7 @@ def extract_contacts(html: str) -> list[ScrapedContact]:
         # unbounded text into a VARCHAR(255) column.
         if len(role) > 200:
             continue
-        if not any(kw in role.lower() for kw in _DECISION_MAKER_KEYWORDS):
+        if not any(kw in role.lower() for kw in DECISION_MAKER_KEYWORDS):
             continue
 
         # Only look for a mailto: link within this heading's immediate container, so we don't

@@ -1,9 +1,9 @@
-import { Building2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Building2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { apiGet, apiPost } from "@/api/client";
-import type { CompanyList, ScrapeAllStarted } from "@/api/types";
+import type { CompanyList, CompanySortField, ScrapeAllStarted, SortDirection } from "@/api/types";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/PageHeader";
@@ -30,6 +30,14 @@ import {
 const REFRESH_INTERVAL_MS = 3000;
 const REFRESH_WINDOW_MS = 60000;
 
+const SORT_LABELS: Record<CompanySortField, string> = {
+  name: "Name",
+  created_at: "Discovered",
+  last_enriched_at: "Last enriched",
+  enrichment_status: "Enrichment",
+  qualification: "Qualification",
+};
+
 export function CompaniesListPage() {
   const [data, setData] = useState<CompanyList | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,11 +45,19 @@ export function CompaniesListPage() {
   const [scrapeMessage, setScrapeMessage] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [sortBy, setSortBy] = useState<CompanySortField>("name");
+  const [sortDir, setSortDir] = useState<SortDirection>("asc");
   const refreshRef = useRef<number | null>(null);
 
   function loadCompanies() {
     setError(null);
-    return apiGet<CompanyList>("/companies")
+    const params = new URLSearchParams({
+      limit: String(pageSize),
+      offset: String((page - 1) * pageSize),
+      sort_by: sortBy,
+      sort_dir: sortDir,
+    });
+    return apiGet<CompanyList>(`/companies?${params}`)
       .then(setData)
       .catch((err) => setError(err instanceof Error ? err.message : "failed to load companies"));
   }
@@ -51,7 +67,38 @@ export function CompaniesListPage() {
     return () => {
       if (refreshRef.current) window.clearInterval(refreshRef.current);
     };
-  }, []);
+  }, [page, pageSize, sortBy, sortDir]);
+
+  function handleSort(field: CompanySortField) {
+    if (field === sortBy) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(field);
+      setSortDir("asc");
+    }
+    setPage(1);
+  }
+
+  function SortableHead({ field }: { field: CompanySortField }) {
+    const active = field === sortBy;
+    return (
+      <TableHead>
+        <button
+          type="button"
+          onClick={() => handleSort(field)}
+          className="flex items-center gap-1 hover:text-foreground"
+        >
+          {SORT_LABELS[field]}
+          {active &&
+            (sortDir === "asc" ? (
+              <ArrowUp className="size-3.5" />
+            ) : (
+              <ArrowDown className="size-3.5" />
+            ))}
+        </button>
+      </TableHead>
+    );
+  }
 
   async function handleScrapeAll() {
     setScraping(true);
@@ -105,25 +152,26 @@ export function CompaniesListPage() {
     );
   }
 
-  const pageCount = Math.max(1, Math.ceil(data.items.length / pageSize));
-  const currentPage = Math.min(page, pageCount);
-  const rows = data.items.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-
   return (
     <div>
       <PageHeader eyebrow="Companies" title={`Companies (${data.total})`} action={scrapeAction} />
       {scrapeMessage && <p className="mb-4 text-sm text-muted-foreground">{scrapeMessage}</p>}
 
       <Card className="p-0">
-        {data.items.length === 0 ? (
+        {data.total === 0 ? (
           <EmptyState
             icon={Building2}
             title="No companies yet"
-            description="Upload a CSV to bring in a list of companies and contacts."
+            description="Describe a target market on the Market Discovery page and the system finds, qualifies, and drafts outreach for matching companies automatically — or upload a CSV if you already have a list."
             action={
-              <Button asChild>
-                <Link to="/upload">Upload a CSV</Link>
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button asChild>
+                  <Link to="/market-discovery">Start Market Discovery</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link to="/upload">Upload a CSV</Link>
+                </Button>
+              </div>
             }
           />
         ) : (
@@ -131,16 +179,18 @@ export function CompaniesListPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
+                  <SortableHead field="name" />
                   <TableHead>Domain</TableHead>
                   <TableHead>Industry</TableHead>
                   <TableHead>Contacts</TableHead>
-                  <TableHead>Enrichment</TableHead>
-                  <TableHead>Qualification</TableHead>
+                  <SortableHead field="created_at" />
+                  <SortableHead field="last_enriched_at" />
+                  <SortableHead field="enrichment_status" />
+                  <SortableHead field="qualification" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((company) => (
+                {data.items.map((company) => (
                   <TableRow key={company.id}>
                     <TableCell className="whitespace-normal">
                       <Link to={`/companies/${company.id}`} className="text-primary-text hover:underline">
@@ -150,6 +200,12 @@ export function CompaniesListPage() {
                     <TableCell>{company.domain ?? "—"}</TableCell>
                     <TableCell>{company.industry ?? "—"}</TableCell>
                     <TableCell>{company.contact_count}</TableCell>
+                    <TableCell>{new Date(company.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      {company.last_enriched_at
+                        ? new Date(company.last_enriched_at).toLocaleDateString()
+                        : "—"}
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <EnrichmentStatusBadge status={company.enrichment_status} />
@@ -168,8 +224,8 @@ export function CompaniesListPage() {
               </TableBody>
             </Table>
             <TablePagination
-              total={data.items.length}
-              page={currentPage}
+              total={data.total}
+              page={page}
               pageSize={pageSize}
               onPageChange={setPage}
               onPageSizeChange={setPageSize}

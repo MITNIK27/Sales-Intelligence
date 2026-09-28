@@ -72,6 +72,21 @@ class Settings(BaseSettings):
     # Bounded fan-out for per-company domain resolution after extraction.
     discovery_agent_resolution_concurrency: int = 5
 
+    # In-house search-based contact discovery (enrichment/providers/search_contacts.py) — reuses
+    # SerperSearchProvider.search_raw, already paid-for infra, rather than a new vendor. Reads
+    # only what a search engine already indexed about a trusted domain (never fetches/scrapes the
+    # domain itself) — deliberately NOT a freeform user-edited query string, so the site scope
+    # stays a controlled, reviewable allowlist rather than something a rep can widen by accident.
+    contact_search_trusted_domains: list[str] = ["linkedin.com"]
+    contact_search_enabled: bool = True  # off skips the extra Serper call entirely
+
+    # One-Prompt Pipeline Orchestration (orchestrator/service.py). Safety cap on how many
+    # qualified companies get carried through to role-classification and drafting in one
+    # automatic run — protects the shared Gemini free-tier daily quota from one broad market
+    # prompt exhausting it. Discovery and qualification themselves still process everything
+    # found; only these two later, more Gemini-call-heavy stages are capped.
+    auto_pipeline_max_companies_to_draft: int = 5
+
     # Phase C — Tracker & Cadence Mechanics (outreach/cadence.py). How many business days after a
     # "sent" outreach activity the next follow-up gets auto-scheduled, when not overridden.
     default_follow_up_gap_business_days: int = 3

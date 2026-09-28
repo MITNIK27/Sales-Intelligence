@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from app.modules.companies.models import Company
 from app.modules.companies.service import (
+    confirm_company,
     get_or_create_company,
     list_companies,
     list_company_ids_by_source_run,
@@ -181,6 +182,98 @@ async def test_list_companies_returns_latest_verdict_only(db_session, organizati
     assert verdict == "qualified"  # the newer row, not the first one inserted
 
 
+async def test_list_companies_default_sort_is_name_ascending(db_session, organization_id) -> None:
+    db_session.add_all(
+        [
+            Company(organization_id=organization_id, name="Zeta", domain="zeta.com"),
+            Company(organization_id=organization_id, name="Acme", domain="acme.com"),
+        ]
+    )
+    await db_session.commit()
+
+    rows, _ = await list_companies(db_session, organization_id)
+    assert [c.name for c, _, _ in rows] == ["Acme", "Zeta"]
+
+
+async def test_list_companies_sort_by_name_desc(db_session, organization_id) -> None:
+    db_session.add_all(
+        [
+            Company(organization_id=organization_id, name="Acme", domain="acme.com"),
+            Company(organization_id=organization_id, name="Zeta", domain="zeta.com"),
+        ]
+    )
+    await db_session.commit()
+
+    rows, _ = await list_companies(db_session, organization_id, sort_by="name", sort_dir="desc")
+    assert [c.name for c, _, _ in rows] == ["Zeta", "Acme"]
+
+
+async def test_list_companies_sort_by_created_at(db_session, organization_id) -> None:
+    older = Company(
+        organization_id=organization_id, name="Older", domain="older.com",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    newer = Company(
+        organization_id=organization_id, name="Newer", domain="newer.com",
+        created_at=datetime(2026, 1, 2, tzinfo=UTC),
+    )
+    db_session.add_all([older, newer])
+    await db_session.commit()
+
+    rows, _ = await list_companies(
+        db_session, organization_id, sort_by="created_at", sort_dir="desc"
+    )
+    assert [c.name for c, _, _ in rows] == ["Newer", "Older"]
+
+
+async def test_list_companies_sort_by_last_enriched_at_nulls_last(
+    db_session, organization_id
+) -> None:
+    enriched = Company(
+        organization_id=organization_id, name="Enriched", domain="enriched.com",
+        last_enriched_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    never_enriched = Company(
+        organization_id=organization_id, name="NeverEnriched", domain="never.com",
+    )
+    db_session.add_all([enriched, never_enriched])
+    await db_session.commit()
+
+    asc_rows, _ = await list_companies(
+        db_session, organization_id, sort_by="last_enriched_at", sort_dir="asc"
+    )
+    desc_rows, _ = await list_companies(
+        db_session, organization_id, sort_by="last_enriched_at", sort_dir="desc"
+    )
+    # The never-enriched (null) company sorts last regardless of direction.
+    assert [c.name for c, _, _ in asc_rows] == ["Enriched", "NeverEnriched"]
+    assert [c.name for c, _, _ in desc_rows] == ["Enriched", "NeverEnriched"]
+
+
+async def test_list_companies_sort_by_qualification_nulls_last(
+    db_session, organization_id
+) -> None:
+    qualified = Company(organization_id=organization_id, name="Qualified", domain="q.com")
+    unqualified_yet = Company(organization_id=organization_id, name="Unjudged", domain="u.com")
+    db_session.add_all([qualified, unqualified_yet])
+    await db_session.flush()
+    db_session.add(
+        QualificationResult(
+            organization_id=organization_id,
+            company_id=qualified.id,
+            overall_verdict="qualified",
+            criteria_results=[],
+            model_used="fake-model",
+        )
+    )
+    await db_session.commit()
+
+    rows, _ = await list_companies(
+        db_session, organization_id, sort_by="qualification", sort_dir="asc"
+    )
+    assert [c.name for c, _, _ in rows] == ["Qualified", "Unjudged"]
+
+
 async def test_list_company_ids_by_source_run_scopes_by_run_and_org(
     db_session, organization_id
 ) -> None:
@@ -200,3 +293,31 @@ async def test_list_company_ids_by_source_run_scopes_by_run_and_org(
 
     ids = await list_company_ids_by_source_run(db_session, organization_id, run_id)
     assert ids == [matching.id]
+
+
+async def test_confirm_company_clears_needs_review_and_reason(
+    db_session, organization_id
+) -> None:
+    company = Company(
+        organization_id=organization_id,
+        name="Acme",
+        domain="acme.com",
+        needs_review=True,
+        needs_review_reason="found via Market Discovery search, not confirmed",
+    )
+    db_session.add(company)
+    await db_session.commit()
+
+    confirmed = await confirm_company(db_session, organization_id, company.id)
+    await db_session.commit()
+
+    assert confirmed is not None
+    assert confirmed.needs_review is False
+    assert confirmed.needs_review_reason is None
+
+
+async def test_confirm_company_returns_none_for_missing_company(
+    db_session, organization_id
+) -> None:
+    result = await confirm_company(db_session, organization_id, uuid.uuid4())
+    assert result is None

@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { apiPatch } from "@/api/client";
-import { FOLLOW_UP_CHANNELS, TRACKING_STATUSES } from "@/api/types";
+import { CHANNEL_LABELS, FOLLOW_UP_CHANNELS, TRACKING_STATUSES } from "@/api/types";
 import type { Contact, ContactTrackingUpdate, FollowUpChannel, TrackingStatus } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useToast } from "@/components/ui/toast";
+
+const TRACKING_STATUS_LABELS: Record<TrackingStatus, string> = {
+  not_contacted: "Not contacted",
+  contacted: "Contacted",
+  follow_up_scheduled: "Follow-up scheduled",
+  responded: "Responded",
+  not_a_fit: "Not a fit",
+};
 
 function toDateInputValue(iso: string | null): string {
   if (!iso) return "";
@@ -27,11 +36,10 @@ export function ContactTracking({ contact }: { contact: Contact }) {
   const [timezone, setTimezone] = useState(contact.timezone ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   async function handleSave() {
     setSaving(true);
-    setError(null);
     setSaved(false);
     try {
       const update: ContactTrackingUpdate = {
@@ -43,7 +51,7 @@ export function ContactTracking({ contact }: { contact: Contact }) {
       await apiPatch(`/contacts/${contact.id}/tracking`, update);
       setSaved(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to save");
+      showToast({ description: err instanceof Error ? err.message : "failed to save" });
     } finally {
       setSaving(false);
     }
@@ -57,8 +65,8 @@ export function ContactTracking({ contact }: { contact: Contact }) {
         </SelectTrigger>
         <SelectContent>
           {TRACKING_STATUSES.map((s) => (
-            <SelectItem key={s} value={s} className="capitalize">
-              {s.replace(/_/g, " ")}
+            <SelectItem key={s} value={s}>
+              {TRACKING_STATUS_LABELS[s]}
             </SelectItem>
           ))}
         </SelectContent>
@@ -78,10 +86,10 @@ export function ContactTracking({ contact }: { contact: Contact }) {
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="none">— channel —</SelectItem>
+          <SelectItem value="none">No channel selected</SelectItem>
           {FOLLOW_UP_CHANNELS.map((c) => (
-            <SelectItem key={c} value={c} className="capitalize">
-              {c}
+            <SelectItem key={c} value={c}>
+              {CHANNEL_LABELS[c]}
             </SelectItem>
           ))}
         </SelectContent>
@@ -98,7 +106,6 @@ export function ContactTracking({ contact }: { contact: Contact }) {
         {saving ? "Saving…" : "Save"}
       </Button>
       {saved && <span className="text-sm text-success">Saved</span>}
-      {error && <span className="text-sm text-destructive">{error}</span>}
     </div>
   );
 }

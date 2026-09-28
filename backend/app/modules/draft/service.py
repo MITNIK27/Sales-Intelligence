@@ -34,6 +34,12 @@ class DraftNotFoundError(Exception):
     """Raised when the draft doesn't exist or belongs to a different organization."""
 
 
+class NeedsReviewError(Exception):
+    """Raised when the company or the specific contact is still flagged `needs_review` — an
+    unreviewed contact must not receive a drafted (and potentially sent) outreach message.
+    Cleared only via `companies.service.confirm_company` / `contacts.service.confirm_contact`."""
+
+
 async def _get_latest_recommendation(
     session: AsyncSession, organization_id: uuid.UUID, company_id: uuid.UUID, product_id: uuid.UUID
 ) -> Recommendation | None:
@@ -75,6 +81,11 @@ async def generate_draft(
     contact = next((c for c in company.contacts if c.id == contact_id), None)
     if contact is None:
         raise ContactNotFoundError(f"contact {contact_id} not found on this company")
+
+    if company.needs_review:
+        raise NeedsReviewError(f"company {company_id} needs review before drafting")
+    if contact.needs_review:
+        raise NeedsReviewError(f"contact {contact_id} needs review before drafting")
 
     product = await get_product(session, organization_id, product_id)
     if product is None:

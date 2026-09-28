@@ -1,14 +1,18 @@
+import { Loader2, Sparkles } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { apiGet, apiPost } from "@/api/client";
 import type {
+  AutoPipelineResult,
   MarketDiscoveryConfirmRequest,
   MarketDiscoveryParsed,
   MarketDiscoveryRun,
   MarketDiscoveryStarted,
   JobStatus,
+  Product,
+  ProductList,
   QualificationCriterionList,
 } from "@/api/types";
 import { CouldNotDetermineBadge } from "@/components/StatusBadge";
@@ -17,6 +21,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 const POLL_INTERVAL_MS = 1500;
@@ -54,9 +65,21 @@ export function MarketDiscoveryPage() {
   const [qualifyJob, setQualifyJob] = useState<JobStatus | null>(null);
   const qualifyPollRef = useRef<number | null>(null);
 
+  const [products, setProducts] = useState<Product[] | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+
   useEffect(() => {
     apiGet<QualificationCriterionList>("/qualification/criteria")
       .then((list) => setActiveCriteriaCount(list.items.filter((c) => c.is_active).length))
+      .catch(() => {
+        // Supplementary — a failure here shouldn't block the rest of the page.
+      });
+    apiGet<ProductList>("/products")
+      .then((list) => {
+        setProducts(list.items);
+        // Unambiguous default: exactly one product means there's nothing to choose between.
+        if (list.items.length === 1) setSelectedProductId(list.items[0].id);
+      })
       .catch(() => {
         // Supplementary — a failure here shouldn't block the rest of the page.
       });
@@ -105,6 +128,7 @@ export function MarketDiscoveryPage() {
           .filter(Boolean),
         location: location.trim() || null,
         employee_size_range: employeeSizeRange.trim() || null,
+        product_id: selectedProductId || null,
       };
       const started = await apiPost<MarketDiscoveryStarted>(
         `/market-discovery/${runId}/confirm`,
@@ -151,6 +175,12 @@ export function MarketDiscoveryPage() {
 
   const showConfirmForm = runId !== null && !job;
   const qualifyResult = (qualifyJob?.result as unknown as BulkQualifyResult | null) ?? null;
+  const pipelineResult =
+    job?.status === "done" ? ((job.result as unknown as AutoPipelineResult | null) ?? null) : null;
+  // The pipeline already ran qualification automatically unless it was skipped (e.g. no active
+  // criteria existed yet at confirm time) — only offer the manual catch-up button in that case.
+  const showManualQualifyButton =
+    pipelineResult !== null && pipelineResult.qualification.ran !== true;
 
   return (
     <div>
@@ -159,6 +189,33 @@ export function MarketDiscoveryPage() {
         title="Market Discovery"
         description='Describe a target market in plain text — e.g. "SaaS companies in Bangalore, 50-200 employees" — and confirm the parsed interpretation before any scraping runs.'
       />
+
+      <Card className="mb-6 border-primary/30 bg-primary/5">
+        <CardContent>
+          <div className="flex items-start gap-3">
+            <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" />
+            <div>
+              <p className="font-semibold">What this does</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                This is how new companies enter Sales Intelligence — the whole prospecting engine
+                starts here.
+              </p>
+              <ol className="mt-3 flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
+                <li>You describe the market you're targeting, in plain English.</li>
+                <li>
+                  We parse it into structured filters and show you exactly what we understood —
+                  you correct anything before any search runs.
+                </li>
+                <li>
+                  Once you confirm, we automatically search for matching companies, judge whether
+                  each one is worth pursuing, figure out who to talk to there, and draft outreach
+                  messages ready for your review.
+                </li>
+              </ol>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent>
@@ -229,6 +286,28 @@ export function MarketDiscoveryPage() {
                   onChange={(e) => setEmployeeSizeRange(e.target.value)}
                 />
               </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="pipeline-product">Product to pitch (for automatic drafting)</Label>
+                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                  <SelectTrigger id="pipeline-product" className="h-9 bg-card">
+                    <SelectValue placeholder="No product selected" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(products ?? []).map((product) => (
+                      <SelectItem key={product.id} value={product.id}>
+                        {product.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!selectedProductId && (
+                  <p className="text-xs text-muted-foreground">
+                    {products && products.length === 0
+                      ? "No products configured yet — discovery, qualification, and role classification will still run automatically, but drafting will be skipped."
+                      : "Leaving this unselected skips automatic drafting — discovery, qualification, and role classification still run."}
+                  </p>
+                )}
+              </div>
             </div>
 
             <Button type="button" onClick={handleConfirm} disabled={confirming} className="mt-6">
@@ -241,12 +320,21 @@ export function MarketDiscoveryPage() {
       {job && (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">Discovery status: {job.status}</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-lg font-bold">
+              {job.status === "running" && <Loader2 className="size-4 animate-spin text-primary" />}
+              Pipeline status: {job.status}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {job.status === "running" && job.progress && (
               <p className="text-sm text-muted-foreground">
-                Processed {job.progress.done} of {job.progress.total} candidates…
+                Stage {job.progress.done} of {job.progress.total}
+                {job.progress.done === 1 &&
+                  " — searching the web for companies matching your target market"}
+                {job.progress.done === 2 &&
+                  " — checking which companies are a good fit for your product"}
+                {job.progress.done === 3 && " — figuring out who at each company to talk to"}
+                {job.progress.done === 4 && " — writing draft outreach messages for you to review"}
               </p>
             )}
             {job.status === "failed" && <p className="text-sm text-destructive">{job.error}</p>}
@@ -256,6 +344,59 @@ export function MarketDiscoveryPage() {
                 <li>New companies created: {run.summary.companies_created}</li>
               </ul>
             )}
+
+            {pipelineResult && (
+              <div className="mt-3 flex flex-col gap-3 text-sm">
+                <div>
+                  <p className="font-semibold">Qualification</p>
+                  {pipelineResult.qualification.ran ? (
+                    <ul className="list-inside list-disc text-muted-foreground">
+                      <li>Qualified: {pipelineResult.qualification.qualified}</li>
+                      <li>Not qualified: {pipelineResult.qualification.not_qualified}</li>
+                      <li>
+                        Could not determine: {pipelineResult.qualification.could_not_determine}
+                      </li>
+                    </ul>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      Skipped — {pipelineResult.qualification.skipped_reason}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="font-semibold">Role classification</p>
+                  {pipelineResult.role_classification.ran ? (
+                    <p className="text-muted-foreground">
+                      Companies classified: {pipelineResult.role_classification.companies_classified}
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      Skipped — {pipelineResult.role_classification.skipped_reason}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="font-semibold">Drafting</p>
+                  {pipelineResult.drafting.ran ? (
+                    <p className="text-muted-foreground">
+                      Drafts generated: {pipelineResult.drafting.drafts_generated}
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground">
+                      Skipped — {pipelineResult.drafting.skipped_reason}
+                    </p>
+                  )}
+                </div>
+                {pipelineResult.capped && (
+                  <p className="text-xs text-muted-foreground">
+                    More companies qualified than this run's automatic cap allows through to role
+                    classification and drafting — the rest are qualified only; classify/draft them
+                    individually from their company pages if needed.
+                  </p>
+                )}
+              </div>
+            )}
+
             {job.status === "done" && (
               <p className="mt-3 text-sm">
                 <Link to="/companies" className="text-primary-text hover:underline">
@@ -268,8 +409,11 @@ export function MarketDiscoveryPage() {
               </p>
             )}
 
-            {job.status === "done" && run?.summary && run.summary.companies_created > 0 && (
-              <div className="mt-4 border-t border-border pt-4">
+            {job.status === "done" &&
+              run?.summary &&
+              run.summary.companies_created > 0 &&
+              showManualQualifyButton && (
+                <div className="mt-4 border-t border-border pt-4">
                 <Button
                   type="button"
                   size="sm"

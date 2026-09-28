@@ -16,6 +16,7 @@ from app.modules.role_relevance.schemas import (
     RoleRelevanceResultOut,
 )
 from app.modules.role_relevance.service import (
+    CompanyNeedsReviewError,
     CompanyNotFoundError,
     NoCategoriesConfiguredError,
     NoContactsError,
@@ -109,6 +110,8 @@ async def run_role_relevance_check_endpoint(
         )
     except CompanyNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CompanyNeedsReviewError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (NoContactsError, NoCategoriesConfiguredError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except GeminiClientError as exc:

@@ -24,6 +24,10 @@ from app.modules.enrichment.providers.base import (
     DomainDiscoveryProvider,
     SignalDataProvider,
 )
+from app.modules.enrichment.providers.search_contacts import (
+    ContactSearchProvider,
+    SerperContactSearchProvider,
+)
 from app.modules.enrichment.providers.search_serper import SerperSearchProvider
 from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvider
 from app.modules.enrichment.service import _enrich_company
@@ -36,7 +40,6 @@ from app.modules.ingestion.models import (
     IngestionRun,
 )
 from app.modules.jobs.models import Job
-from app.modules.jobs.service import enqueue_job
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +90,12 @@ async def confirm_market_discovery(
     industry_keywords: list[str],
     location: str | None,
     employee_size_range: str | None,
-) -> Job | None:
+) -> IngestionRun | None:
+    """Confirming is the one remaining manual gate before the One-Prompt Pipeline runs. Enqueuing
+    the actual `auto_pipeline` job is the router's job (`api/v1/market_discovery.py`), not this
+    function's — it needs `JOB_TYPE_AUTO_PIPELINE` from `orchestrator/service.py`, which itself
+    imports `_run_market_discovery` from this module, so enqueuing here would be a circular
+    import. This function only validates and records the confirmed criteria."""
     run = await get_market_discovery_run(session, organization_id, run_id)
     if run is None:
         return None
@@ -99,9 +107,7 @@ async def confirm_market_discovery(
     run.confirmed_at = datetime.now(UTC)
     run.status = STATUS_PENDING
     await session.flush()
-    return await enqueue_job(
-        session, organization_id, JOB_TYPE_MARKET_DISCOVERY, {"ingestion_run_id": str(run.id)}
-    )
+    return run
 
 
 def _build_search_query(parsed_fields: dict[str, Any]) -> str:
@@ -133,6 +139,7 @@ async def _run_market_discovery(
     contact_provider: ContactDataProvider,
     signal_provider: SignalDataProvider,
     progress_callback: ProgressCallback | None = None,
+    contact_search_provider: ContactSearchProvider | None = None,
 ) -> dict[str, Any]:
     """The testable core of the Market Discovery job — takes providers/the discovery agent
     explicitly so tests can inject fakes. See `process_market_discovery_job` for the real
@@ -199,8 +206,16 @@ async def _run_market_discovery(
                 source_ingestion_run_id=run.id,
             )
             if created:
-                company.needs_review = True
-                company.needs_review_reason = "found via Market Discovery search, not confirmed"
+                # Honor the discovery agent's own per-candidate confidence signal
+                # (`ExtractedCompany.needs_review`, threaded through resolution in
+                # `resolver.py`) instead of flagging every created company unconditionally —
+                # only names the listicle-name heuristic backstop actually flagged as
+                # structurally suspicious need a rep's eyes before role classification/drafting
+                # proceed. Previously this always set True with a generic fallback reason,
+                # which meant 100% of Market Discovery output blocked downstream automation
+                # regardless of match confidence.
+                company.needs_review = candidate.needs_review
+                company.needs_review_reason = candidate.needs_review_reason
                 companies_created += 1
                 await session.flush()
                 await _enrich_company(
@@ -211,6 +226,7 @@ async def _run_market_discovery(
                     company_provider,
                     contact_provider,
                     signal_provider,
+                    contact_search_provider=contact_search_provider,
                 )
         if progress_callback:
             await progress_callback(i, total)
@@ -235,6 +251,7 @@ async def process_market_discovery_job(
     discovery_agent = get_default_discovery_agent(settings)
     domain_provider = SerperSearchProvider(settings)
     scraper = WebsiteScraperProvider(settings)
+    contact_search_provider = SerperContactSearchProvider(settings, domain_provider)
     try:
         return await _run_market_discovery(
             session,
@@ -245,6 +262,7 @@ async def process_market_discovery_job(
             scraper,
             scraper,
             progress_callback,
+            contact_search_provider,
         )
     finally:
         await scraper.aclose()

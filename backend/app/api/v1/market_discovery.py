@@ -21,6 +21,8 @@ from app.modules.ingestion.schemas import (
     MarketDiscoveryStarted,
 )
 from app.modules.jobs.service import enqueue_job
+from app.modules.orchestrator.service import JOB_TYPE_AUTO_PIPELINE
+from app.modules.products.service import list_products
 from app.modules.qualification.service import JOB_TYPE_BULK_QUALIFY
 
 router = APIRouter(prefix="/market-discovery", tags=["market-discovery"])
@@ -47,7 +49,7 @@ async def confirm_market_discovery_endpoint(
     body: MarketDiscoveryConfirmRequest,
     session: AsyncSession = Depends(get_db),
 ) -> MarketDiscoveryStarted:
-    job = await confirm_market_discovery(
+    run = await confirm_market_discovery(
         session,
         DEFAULT_ORGANIZATION_ID,
         run_id,
@@ -55,8 +57,27 @@ async def confirm_market_discovery_endpoint(
         location=body.location,
         employee_size_range=body.employee_size_range,
     )
-    if job is None:
+    if run is None:
         raise HTTPException(status_code=404, detail="market discovery run not found")
+
+    # Confirming is the one remaining manual gate before the One-Prompt Pipeline: from here,
+    # discovery, qualification, role classification, and (when a product is known) drafting all
+    # run automatically as a single auto_pipeline job.
+    product_id = body.product_id
+    if product_id is None:
+        products, total = await list_products(session, DEFAULT_ORGANIZATION_ID, limit=2)
+        if total == 1:
+            product_id = products[0].id  # unambiguous default; >1 or 0 leaves drafting skipped
+
+    job = await enqueue_job(
+        session,
+        DEFAULT_ORGANIZATION_ID,
+        JOB_TYPE_AUTO_PIPELINE,
+        {
+            "ingestion_run_id": str(run.id),
+            "product_id": str(product_id) if product_id else None,
+        },
+    )
     await session.commit()
     return MarketDiscoveryStarted(job_id=job.id)
 

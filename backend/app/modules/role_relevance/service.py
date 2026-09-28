@@ -123,6 +123,14 @@ class NoCategoriesConfiguredError(Exception):
     classifying against nothing isn't a classification. The router surfaces this as a 422."""
 
 
+class CompanyNeedsReviewError(Exception):
+    """Raised by `run_role_relevance_check` when the company is still flagged `needs_review` —
+    classifying a company nobody has vetted (a listicle/article title, a wrong domain match, etc.)
+    risks acting on bad data. Cleared only via `companies.service.confirm_company`. The router
+    surfaces this as a 409; the auto-pipeline orchestrator catches it and records the company as
+    skipped, not failed."""
+
+
 def _compute_priority(matched: RoleCategory | None) -> str:
     """Deterministic — never decided by the LLM. A contact matched to a primary-target category
     is "primary"; matched to any other active category is "secondary"; no genuine match at all is
@@ -180,6 +188,9 @@ async def run_role_relevance_check(
     company = await get_company_detail(session, organization_id, company_id)
     if company is None:
         raise CompanyNotFoundError(f"company {company_id} not found")
+
+    if company.needs_review:
+        raise CompanyNeedsReviewError(f"company {company_id} needs review before classification")
 
     if not company.contacts:
         raise NoContactsError("this company has no contacts to classify")

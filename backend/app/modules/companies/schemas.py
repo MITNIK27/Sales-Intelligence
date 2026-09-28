@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -17,6 +18,8 @@ class CompanyListItem(BaseModel):
     enrichment_status: str
     needs_review: bool
     qualification_verdict: str | None
+    created_at: datetime
+    last_enriched_at: datetime | None
 
 
 class CompanyList(BaseModel):
@@ -41,3 +44,17 @@ class CompanyDetail(BaseModel):
     last_enriched_at: datetime | None
     enrichment_error: str | None
     contacts: list[ContactOut]
+
+
+class CompanyConfirmRequest(BaseModel):
+    product_id: uuid.UUID | None = None
+
+
+class CompanyConfirmResult(BaseModel):
+    """Result of confirming a company: it's no longer `needs_review`, and — since that's exactly
+    what was blocking it — role classification and drafting have already been (re-)attempted for
+    it as part of the same call, not left as a separate manual step."""
+
+    company: CompanyDetail
+    role_classification: dict[str, Any]
+    drafting: dict[str, Any]

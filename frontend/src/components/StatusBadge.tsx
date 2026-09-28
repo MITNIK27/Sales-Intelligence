@@ -1,5 +1,7 @@
 import type { EnrichmentStatus, QualificationVerdict, RolePriority } from "@/api/types";
+import { explainNeedsReviewReason } from "@/lib/needsReview";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const ENRICHMENT_MAP: Record<EnrichmentStatus, { label: string; cls: string }> = {
   never_enriched: { label: "Not enriched", cls: "bg-muted text-muted-foreground" },
@@ -55,10 +57,23 @@ export function EnrichmentStatusBadge({ status }: { status: EnrichmentStatus }) 
 }
 
 export function NeedsReviewBadge({ reason }: { reason?: string | null }) {
+  const explanation = explainNeedsReviewReason(reason);
+  if (!explanation) {
+    return <Chip label="Needs review" cls="bg-chip-warning-bg text-chip-warning-fg" />;
+  }
   return (
-    <span title={reason ?? undefined}>
-      <Chip label="Needs review" cls="bg-chip-warning-bg text-chip-warning-fg" />
-    </span>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger className="cursor-default" asChild>
+          <span>
+            <Chip label="Needs review" cls="bg-chip-warning-bg text-chip-warning-fg" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent className="block max-w-sm whitespace-normal text-left">
+          {explanation}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

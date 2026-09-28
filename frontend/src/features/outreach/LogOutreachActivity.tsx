@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPost } from "@/api/client";
-import { OUTREACH_ACTIVITY_TYPES, OUTREACH_CHANNELS } from "@/api/types";
+import { CHANNEL_LABELS, OUTREACH_ACTIVITY_TYPES, OUTREACH_CHANNELS } from "@/api/types";
 import type {
   Contact,
   LogOutreachActivityRequest,
@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useToast } from "@/components/ui/toast";
 
 const ACTIVITY_TYPE_LABELS: Record<OutreachActivityType, string> = {
   sent: "Sent",
@@ -56,7 +57,7 @@ export function LogOutreachActivity({
   const [templateVariant, setTemplateVariant] = useState(prefilledDraft?.templateVariant ?? "");
   const [urgent, setUrgent] = useState(false);
   const [logging, setLogging] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   const [history, setHistory] = useState<OutreachActivity[] | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -82,7 +83,6 @@ export function LogOutreachActivity({
 
   async function handleLog() {
     setLogging(true);
-    setError(null);
     try {
       const body: LogOutreachActivityRequest = {
         channel,
@@ -100,7 +100,7 @@ export function LogOutreachActivity({
       if (prefilledDraft) onDraftSent?.();
       if (showHistory) await loadHistory();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to log activity");
+      showToast({ description: err instanceof Error ? err.message : "failed to log activity" });
     } finally {
       setLogging(false);
     }
@@ -132,8 +132,8 @@ export function LogOutreachActivity({
           </SelectTrigger>
           <SelectContent>
             {OUTREACH_CHANNELS.map((c) => (
-              <SelectItem key={c} value={c} className="capitalize">
-                {c}
+              <SelectItem key={c} value={c}>
+                {CHANNEL_LABELS[c]}
               </SelectItem>
             ))}
           </SelectContent>
@@ -168,7 +168,6 @@ export function LogOutreachActivity({
           {showHistory ? "Hide history" : "Show history"}
         </button>
       </div>
-      {error && <p className="text-sm text-destructive">{error}</p>}
       {showHistory && (
         <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
           {history === null ? (

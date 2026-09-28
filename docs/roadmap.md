@@ -115,6 +115,130 @@ summary. `OutreachActivity.template_variant` (Phase C) now actually gets populat
 accumulating — but the aggregate response-rate-per-variant stats endpoint/UI remains deliberately
 out of scope until a dedicated pass is worth it.
 
+## One-Prompt Pipeline Orchestration — **Done**
+
+Every phase above existed as an independent, manually-triggered step — going from a market
+description to a drafted email required, per company: Parse → Confirm → bulk-qualify button →
+Classify Roles button (per company) → Generate Draft button (per contact). This is the actual
+"give the system a prompt and it works on its own" automation Abhas asked for, closing the gap
+A2.4 only partially addressed (it automated discovery→qualification, not what came after).
+
+A single orchestrator (`orchestrator/service.py`, job type `auto_pipeline`) now runs
+`market_discovery` → `qualification` → `role_relevance` → `draft` in sequence automatically. It
+owns none of their logic — each stays independently callable exactly as before (a rep can still
+classify one company or draft one contact by hand). The **only remaining manual step** is the
+existing "Confirm & Start Discovery" click (reviewing parsed criteria before any real work starts,
+by explicit choice — not auto-confirmed); everything after that one click is automatic:
+- If a later stage's prerequisites are missing (no active qualification criteria, no active role
+  categories, no product specified), the pipeline **continues and reports what was skipped**
+  rather than failing the whole run over one optional later stage.
+- A safety cap (`settings.auto_pipeline_max_companies_to_draft`, default 5) limits how many
+  qualified companies get carried through to role-classification and drafting in one run —
+  protects the shared Gemini free-tier daily quota from one broad prompt exhausting it. Discovery
+  and qualification themselves still process everything found; only the two more Gemini-call-heavy
+  later stages are capped.
+- This is the system's second genuine multi-step "agent" (after `discovery_agent/`) — it decides
+  what to run next based on each stage's actual outcome. The simpler modules underneath it
+  (`qualification/`, `role_relevance/`, `draft/`) correctly stay generator+service pairs, not
+  agents themselves.
+
+`orchestrator/`, [ADR 0009](decisions/0009-auto-pipeline-orchestration.md).
+
+## Phase D — Workflow Generalization — **Not started, deliberately deferred**
+
+Raised explicitly: could this become a domain-agnostic workflow platform (e.g. reconfigured for
+vendor management, not just sales prospecting) rather than a sales-specific tool? The
+org-configurable pieces (qualification criteria, role categories, products) are already database
+rows, not hardcoded logic, so *what* gets judged already doesn't require code changes. What's still
+sales-specific and hardcoded is the pipeline shape itself (discover → qualify → classify → draft)
+and the entity names throughout the code (`Company`, `Contact`, `QualificationResult`, ...).
+Generalizing that into a true domain-agnostic workflow engine is real, substantial work — decided
+explicitly to do the sales pipeline correctly first and treat this as its own deliberate future
+phase, not an afterthought bolted onto the orchestrator above.
+
+Also deferred, same reasoning: once Abhas shares his own cold-email/LinkedIn templates, `draft/`'s
+prompts should incorporate them as a style/structure *reference* the LLM adapts to the specific
+recipient — never fully relied on (the LLM still grounds in real company/contact data and takes
+ideation from the template) nor fully ignored — while continuing to avoid overclaiming and never
+reading as AI-written. Not implemented now since no templates exist yet to design against; noted
+here so the intent isn't lost.
+
+## Companies List Sorting — **Done**
+
+The companies list was hardcoded to alphabetical with no sort option, and — a coupled bug found
+while fixing this — the frontend never sent real pagination to the backend at all, so companies
+past the first 50 were silently unreachable regardless of sort. Both fixed together: `GET
+/companies` now takes `sort_by` (`name`/`created_at`/`last_enriched_at`/`enrichment_status`/
+`qualification`) and `sort_dir`, with nullable sort keys (never-enriched, never-qualified) always
+sorting last; the frontend does real server-side paging and clickable sortable column headers
+instead of client-side slicing over one fetched page.
+
+## In-House Search-Based Contact Discovery — **Done**
+
+The website scraper is the only automated contact source — many real decision-makers are never
+listed on a company's own `/about`/`/team` pages. Rather than a paid vendor (Apollo/Hunter —
+researched, viable, deliberately deferred to their own pass) or scraping LinkedIn directly
+(excluded per ADR 0001), this reuses already-built, already-paid-for search infrastructure
+(`SerperSearchProvider.search_raw`) to find public mentions of a company's people on an
+org-configurable, curated allowlist of trusted sites (default: `linkedin.com`) — reading only what
+a search engine already indexed, never fetching the trusted sites themselves. Runs automatically
+during enrichment alongside the website scraper, and on demand per company
+(`POST /companies/{id}/search-contacts`). Every result is heuristic and low-confidence by nature,
+so it's flagged `needs_review` like every other search-derived record in this app — and, new,
+contacts can now actually be deleted (`DELETE /contacts/{id}`, refused with a clear error if real
+outreach/draft/role-relevance history depends on the contact) so a rep can remove a bad match.
+
+`enrichment/providers/search_contacts.py`, [ADR 0010](decisions/0010-search-based-contact-discovery.md).
+
+## Phase E — Channel Integrations — **Not started, deliberately scoped**
+
+Raised directly: connect a rep's LinkedIn and/or Gmail account for better results — more accurate
+contacts, and outreach that's actually sent rather than manually logged. Neither is built. This
+phase is deliberately scoped, not silently deferred: **do not** connect a rep's personal LinkedIn
+account (reaffirms ADR 0001's ToS/account-ban concern; a paid enrichment vendor — Apollo.io/
+Hunter.io, already researched in ADR 0010 — is the right lever if contact accuracy needs to
+improve). **Gmail send** is identified as the higher-value next step instead — real OAuth2 send
+would remove the last manual step in the draft-to-send flow ("Log as Sent" today) and let
+`OutreachActivity` capture a real thread id, enabling automatic reply detection instead of a rep
+manually logging responses. Not built now — this phase exists so the choice is explicit.
+[ADR 0011](decisions/0011-linkedin-gmail-integration-scope.md).
+
+## Company Page UX — Pipeline Visibility — **Done**
+
+The backend orchestration (One-Prompt Pipeline Orchestration, above) was real but invisible outside
+the Market Discovery page — `CompanyDetailPage` presented the same automated stages as five
+disconnected manual buttons in an order that didn't match the pipeline (Qualification, a
+company-level gate, rendered below Contacts). Fixed: a `PipelineStatusStepper` at the top of the
+company page now shows Discovered → Enriched → Qualified → Roles classified → Drafted derived from
+data the page already loads, sections were reordered to match pipeline order (Qualification now
+precedes Contacts), the Signals empty state distinguishes "never scraped" from "scraped, found
+nothing," and the "Search for Contacts" action is labeled to make clear it reads public search
+results, never logs into LinkedIn. No backend or data-model changes.
+
+## `needs_review` Over-Flagging Fix + Bulk Confirm — **Done**
+
+A real defect, not just confusing UX: `ingestion/market_discovery.py` flagged **every** company
+created by Market Discovery as `needs_review=True` unconditionally, discarding the discovery
+agent's own per-candidate confidence signal (`ExtractedCompany.needs_review`, set only by the
+listicle-name heuristic backstop in `discovery_agent/heuristics.py` — most candidates are never
+flagged there). Since the auto-pipeline orchestrator skips role classification for any
+`needs_review` company and drafting for any `needs_review` contact, this meant a Market Discovery
+run's companies routinely could not proceed past qualification without a rep manually confirming
+every single one — and confirming was strictly one-at-a-time
+(`POST /companies/{id}/confirm`/`POST /contacts/{id}/confirm`), with no bulk option anywhere.
+
+Fixed two ways:
+- `market_discovery.py` now sets `company.needs_review`/`needs_review_reason` from the discovery
+  agent's own candidate-level signal instead of forcing `True` for everything — a confidently
+  resolved company now proceeds straight through role classification and drafting, matching what
+  the confidence signal was already computing and discarding.
+- Added `POST /enrichment/needs-review/confirm-bulk` (`orchestrator/service.py`,
+  `JOB_TYPE_BULK_CONFIRM`) — confirms any given set of companies/contacts in one background job,
+  resuming role classification/drafting per company exactly like the single-company confirm
+  endpoint does. The Needs Review page now has a "Confirm all" action wired to this, and its
+  description text was corrected — it previously read "nothing here is blocking the pipeline",
+  which was simply false given the orchestrator's actual skip behavior.
+
 ## Known mismatches vs. the meeting notes
 
 Called out explicitly here so they don't get silently carried forward:

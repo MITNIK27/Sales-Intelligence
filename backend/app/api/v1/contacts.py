@@ -12,7 +12,13 @@ from app.modules.contacts.schemas import (
     ContactTrackingUpdate,
     FollowUpItem,
 )
-from app.modules.contacts.service import list_due_follow_ups, update_contact_tracking
+from app.modules.contacts.service import (
+    ContactHasHistoryError,
+    confirm_contact,
+    delete_contact,
+    list_due_follow_ups,
+    update_contact_tracking,
+)
 from app.modules.enrichment.schemas import ScrapeJobStarted
 from app.modules.verification.providers.dns_smtp import DnsSmtpEmailVerificationProvider
 from app.modules.verification.providers.format_check import PatternPhoneVerificationProvider
@@ -51,6 +57,34 @@ async def update_contact_tracking_endpoint(
         raise HTTPException(status_code=404, detail="contact not found")
     await session.commit()
     return ContactOut.model_validate(contact)
+
+
+@router.post("/{contact_id}/confirm", response_model=ContactOut)
+async def confirm_contact_endpoint(
+    contact_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> ContactOut:
+    """A rep vouching for a contact the pipeline flagged `needs_review` (no verified email,
+    search/scrape noise) — the only way that flag is cleared, unblocking drafting for this
+    contact specifically (`draft.service.generate_draft` refuses to draft to a needs_review
+    contact)."""
+    contact = await confirm_contact(session, DEFAULT_ORGANIZATION_ID, contact_id)
+    if contact is None:
+        raise HTTPException(status_code=404, detail="contact not found")
+    await session.commit()
+    return ContactOut.model_validate(contact)
+
+
+@router.delete("/{contact_id}", status_code=204)
+async def delete_contact_endpoint(
+    contact_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> None:
+    try:
+        deleted = await delete_contact(session, DEFAULT_ORGANIZATION_ID, contact_id)
+    except ContactHasHistoryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="contact not found")
+    await session.commit()
 
 
 @router.post(

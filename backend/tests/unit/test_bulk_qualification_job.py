@@ -92,6 +92,7 @@ async def test_bulk_qualify_splits_counts_and_captures_per_company_errors(
     assert result["qualified"] == 1
     assert result["not_qualified"] == 0
     assert result["could_not_determine"] == 0
+    assert result["qualified_company_ids"] == [str(good_company.id)]
     assert len(result["errors"]) == 1
     assert result["errors"][0]["company_id"] == str(bad_company.id)
     assert progress_calls == [(1, 2), (2, 2)]

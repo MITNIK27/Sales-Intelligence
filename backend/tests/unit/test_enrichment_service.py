@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import select
 
 from app.modules.companies.models import ENRICHMENT_STATUS_ENRICHED, ENRICHMENT_STATUS_FAILED
@@ -14,6 +16,7 @@ from app.modules.enrichment.providers.base import (
 from app.modules.enrichment.providers.mock import (
     MockCompanyDataProvider,
     MockContactDataProvider,
+    MockContactSearchProvider,
     MockDomainDiscoveryProvider,
     MockSignalDataProvider,
 )
@@ -21,6 +24,7 @@ from app.modules.enrichment.service import (
     JOB_TYPE_SCRAPE_COMPANY,
     _run_scrape,
     list_company_signals,
+    search_company_contacts,
 )
 from app.modules.jobs.service import enqueue_job
 
@@ -67,6 +71,99 @@ async def test_scrape_with_existing_domain_and_verified_contact_is_not_flagged(
     records = (await db_session.execute(select(EnrichmentRecord))).scalars().all()
     assert len(records) == 1
     assert records[0].source == "scraper:companysite:https://acme.com/"
+
+
+async def test_contact_search_provider_supplements_website_scraped_contacts(
+    db_session, organization_id
+) -> None:
+    company, _ = await get_or_create_company(
+        db_session, organization_id, name="Acme", domain="acme.com"
+    )
+    await db_session.commit()
+    job = await _make_job(db_session, organization_id, company.id)
+
+    result = await _run_scrape(
+        db_session,
+        job,
+        domain_provider=MockDomainDiscoveryProvider(),
+        company_provider=MockCompanyDataProvider(ScrapedCompanyData(pages_fetched=[_PAGE])),
+        contact_provider=MockContactDataProvider(
+            [ScrapedContact(full_name="Jane Doe", role_title="CEO", email="jane@acme.com")]
+        ),
+        signal_provider=MockSignalDataProvider(),
+        contact_search_provider=MockContactSearchProvider(
+            [ScrapedContact(full_name="John Smith", role_title="VP Sales")]
+        ),
+    )
+
+    assert result["contacts_found"] == 2  # one scraped, one search-found
+    assert result["contacts_flagged"] == 1  # only the search-found one lacks a verified email
+
+    contacts = (await db_session.execute(select(Contact))).scalars().all()
+    by_name = {c.full_name: c for c in contacts}
+    assert set(by_name) == {"Jane Doe", "John Smith"}
+    assert by_name["John Smith"].needs_review is True
+    assert by_name["John Smith"].needs_review_reason == "found via contact search, not confirmed"
+
+
+async def test_contact_search_provider_dedupes_against_already_scraped_contact(
+    db_session, organization_id
+) -> None:
+    company, _ = await get_or_create_company(
+        db_session, organization_id, name="Acme", domain="acme.com"
+    )
+    await db_session.commit()
+    job = await _make_job(db_session, organization_id, company.id)
+
+    result = await _run_scrape(
+        db_session,
+        job,
+        domain_provider=MockDomainDiscoveryProvider(),
+        company_provider=MockCompanyDataProvider(ScrapedCompanyData(pages_fetched=[_PAGE])),
+        contact_provider=MockContactDataProvider(
+            [ScrapedContact(full_name="Jane Doe", role_title="CEO", email="jane@acme.com")]
+        ),
+        signal_provider=MockSignalDataProvider(),
+        # Same person, found again via search — should dedupe by (company, normalized name)
+        # rather than creating a second row.
+        contact_search_provider=MockContactSearchProvider(
+            [ScrapedContact(full_name="jane doe", role_title="Chief Executive Officer")]
+        ),
+    )
+
+    assert result["contacts_found"] == 1  # not 2 — the search hit matched the existing contact
+    contacts = (await db_session.execute(select(Contact))).scalars().all()
+    assert len(contacts) == 1
+    assert contacts[0].needs_review is False  # the original, verified-email contact untouched
+
+
+async def test_search_company_contacts_returns_none_for_missing_company(
+    db_session, organization_id
+) -> None:
+    result = await search_company_contacts(
+        db_session, organization_id, uuid.uuid4(), MockContactSearchProvider([])
+    )
+    assert result is None
+
+
+async def test_search_company_contacts_creates_and_flags_new_contacts(
+    db_session, organization_id
+) -> None:
+    company, _ = await get_or_create_company(
+        db_session, organization_id, name="Acme", domain="acme.com"
+    )
+    await db_session.commit()
+
+    provider = MockContactSearchProvider(
+        [ScrapedContact(full_name="Alex Chen", role_title="Head of Procurement")]
+    )
+    result = await search_company_contacts(db_session, organization_id, company.id, provider)
+
+    assert result is not None
+    assert len(result) == 1
+    assert result[0].full_name == "Alex Chen"
+    assert result[0].needs_review is True
+    assert result[0].channels == []  # eager-loaded, not a lazy attribute needing a later fetch
 
 
 async def test_domain_discovered_via_search_flags_company_needs_review(

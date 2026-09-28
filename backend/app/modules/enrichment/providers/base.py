@@ -2,6 +2,44 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Literal
 
+# Shared between WebsiteScraperProvider's on-page heading heuristic and the search-based contact
+# provider — same "which titles count as a decision-maker worth surfacing" vocabulary either way,
+# a team page listing every employee shouldn't import every employee, only plausible sales
+# targets.
+DECISION_MAKER_KEYWORDS = (
+    "ceo", "cto", "coo", "cfo", "founder", "co-founder", "president", "vp",
+    "vice president", "director", "head of", "owner", "manager",
+)
+
+_PERSON_NAME_MIN_WORDS = 2
+_PERSON_NAME_MAX_WORDS = 4
+
+# Common company-name words that would otherwise pass the "2-4 capitalized words, no digits"
+# shape check (e.g. "Acme Inc") — reject a candidate containing any of these rather than
+# accepting an organization name as if it were a person.
+_COMPANY_WORD_STOPLIST = frozenset(
+    {
+        "inc", "inc.", "llc", "ltd", "ltd.", "corp", "corp.", "co", "co.", "company",
+        "group", "technologies", "solutions", "services", "partners", "holdings",
+        "enterprises", "industries", "consulting",
+    }
+)
+
+
+def looks_like_person_name(candidate: str) -> bool:
+    """Shape-only heuristic for "is this plausibly a person's name, not a company/product/nav
+    label/page title": 2-4 capitalized words, no digits, none of them a common company-suffix
+    word. Shared by `website_scraper.py` (on-page headings) and `search_contacts.py`
+    (search-result titles) — same noise, same guardrail, one implementation."""
+    words = candidate.split()
+    if not (_PERSON_NAME_MIN_WORDS <= len(words) <= _PERSON_NAME_MAX_WORDS):
+        return False
+    if any(ch.isdigit() for ch in candidate):
+        return False
+    if any(word.lower().strip(".,") in _COMPANY_WORD_STOPLIST for word in words):
+        return False
+    return all(word[0].isupper() for word in words if word)
+
 
 @dataclass(frozen=True)
 class DomainMatch:

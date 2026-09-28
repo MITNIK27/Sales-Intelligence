@@ -12,6 +12,7 @@ from app.modules.enrichment.providers.base import (
     ScrapedSignal,
     SignalDataProvider,
 )
+from app.modules.enrichment.providers.search_contacts import ContactSearchProvider
 
 
 class MockDomainDiscoveryProvider(DomainDiscoveryProvider):
@@ -46,6 +47,16 @@ class MockSignalDataProvider(SignalDataProvider):
 
     async def fetch_signals(self, domain: str) -> list[ScrapedSignal]:
         return self._signals
+
+
+class MockContactSearchProvider(ContactSearchProvider):
+    def __init__(self, contacts: list[ScrapedContact] | None = None) -> None:
+        self._contacts = contacts or []
+
+    async def search_contacts(
+        self, company_name: str, domain: str | None
+    ) -> list[ScrapedContact]:
+        return self._contacts
 
 
 class MockCompanyDiscoveryProvider(CompanyDiscoveryProvider):

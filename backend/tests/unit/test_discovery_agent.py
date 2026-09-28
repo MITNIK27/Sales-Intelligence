@@ -52,6 +52,19 @@ class _StubResolver:
         return self._resolved
 
 
+class _CapturingResolver:
+    """Records exactly what it was asked to resolve, so a test can assert on the accepted list's
+    contents (e.g. `needs_review` flags) rather than only on the resolver's canned output."""
+
+    def __init__(self, resolved: list[DiscoveredCompany] | None = None) -> None:
+        self.received: list[ExtractedCompany] = []
+        self._resolved = resolved or []
+
+    async def resolve(self, extracted: list[ExtractedCompany]) -> list[DiscoveredCompany]:
+        self.received = list(extracted)
+        return self._resolved
+
+
 def _extracted(name: str, accepted: bool = True) -> ExtractedCompany:
     return ExtractedCompany(
         name=name,
@@ -111,6 +124,37 @@ async def test_discover_wraps_extraction_failure() -> None:
     )
     with pytest.raises(DiscoveryAgentError, match="company extraction failed"):
         await agent.discover(_CRITERIA, limit=10)
+
+
+async def test_discover_overrides_llm_accept_for_confident_listicle_title() -> None:
+    """The extraction prompt already tells the model not to treat a listicle as a company, but
+    that's the model's own self-report — this proves the deterministic backstop in `agent.py`
+    (`heuristics.classify_candidate_name`) actually overrides an LLM `accepted=True` verdict
+    rather than just documenting the intent."""
+    extracted = [_extracted("Top 10 Courier Companies", accepted=True)]
+    resolver = _CapturingResolver([])
+    agent = CompanyDiscoveryAgent(_StubGatherer([]), _StubExtractionModel(extracted), resolver)
+
+    result = await agent.discover(_CRITERIA, limit=10)
+
+    assert result.accepted_count == 0
+    assert resolver.received == []
+    assert [r.name for r in result.rejected] == ["Top 10 Courier Companies"]
+    assert result.rejected[0].accepted is False
+
+
+async def test_discover_flags_but_keeps_structurally_suspicious_candidate() -> None:
+    extracted = [_extracted("Best Logistics Companies in 2026", accepted=True)]
+    resolver = _CapturingResolver([])
+    agent = CompanyDiscoveryAgent(_StubGatherer([]), _StubExtractionModel(extracted), resolver)
+
+    result = await agent.discover(_CRITERIA, limit=10)
+
+    assert result.accepted_count == 1
+    assert len(resolver.received) == 1
+    flagged = resolver.received[0]
+    assert flagged.needs_review is True
+    assert flagged.needs_review_reason is not None
 
 
 async def test_discover_wraps_resolution_failure() -> None:

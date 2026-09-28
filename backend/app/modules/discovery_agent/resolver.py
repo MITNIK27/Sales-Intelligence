@@ -39,5 +39,9 @@ class CompanyResolver:
         if match is None or is_denylisted_domain(match.domain, self._denylist):
             return None
         return DiscoveredCompany(
-            name=extracted.name, domain=match.domain, source_snippet=extracted.source_snippet
+            name=extracted.name,
+            domain=match.domain,
+            source_snippet=extracted.source_snippet,
+            needs_review=extracted.needs_review,
+            needs_review_reason=extracted.needs_review_reason,
         )

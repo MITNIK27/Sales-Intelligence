@@ -15,6 +15,7 @@ from app.modules.draft.models import (
 from app.modules.draft.service import (
     CompanyNotFoundError,
     ContactNotFoundError,
+    NeedsReviewError,
     ProductNotFoundError,
     discard_draft,
     generate_draft,
@@ -78,6 +79,44 @@ async def test_generate_draft_raises_for_missing_product(db_session, organizatio
             company.id,
             contact.id,
             uuid.uuid4(),
+            DRAFT_TYPE_FIRST_TOUCH,
+            MockDraftGenerator(),
+        )
+
+
+async def test_generate_draft_raises_for_needs_review_company(
+    db_session, organization_id
+) -> None:
+    company, contact, product = await _make_company_contact_product(db_session, organization_id)
+    company.needs_review = True
+    await db_session.commit()
+
+    with pytest.raises(NeedsReviewError):
+        await generate_draft(
+            db_session,
+            organization_id,
+            company.id,
+            contact.id,
+            product.id,
+            DRAFT_TYPE_FIRST_TOUCH,
+            MockDraftGenerator(),
+        )
+
+
+async def test_generate_draft_raises_for_needs_review_contact(
+    db_session, organization_id
+) -> None:
+    company, contact, product = await _make_company_contact_product(db_session, organization_id)
+    contact.needs_review = True
+    await db_session.commit()
+
+    with pytest.raises(NeedsReviewError):
+        await generate_draft(
+            db_session,
+            organization_id,
+            company.id,
+            contact.id,
+            product.id,
             DRAFT_TYPE_FIRST_TOUCH,
             MockDraftGenerator(),
         )

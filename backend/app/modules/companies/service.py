@@ -145,8 +145,19 @@ async def search_company_index(
     return list((await session.execute(stmt)).scalars().all())
 
 
+SORT_FIELDS = ("name", "created_at", "last_enriched_at", "enrichment_status", "qualification")
+# Columns whose sort key can be NULL (never enriched / never qualified) — always sorted last
+# regardless of direction, so "no value yet" doesn't visually dominate either end of the list.
+_NULLABLE_SORT_FIELDS = ("last_enriched_at", "qualification")
+
+
 async def list_companies(
-    session: AsyncSession, organization_id: uuid.UUID, limit: int = 50, offset: int = 0
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    limit: int = 50,
+    offset: int = 0,
+    sort_by: str = "name",
+    sort_dir: str = "asc",
 ) -> tuple[list[tuple[Company, int, str | None]], int]:
     """Returns ([(company, contact_count, latest_qualification_verdict), ...], total_count)."""
     count_stmt = select(func.count()).select_from(Company).where(
@@ -174,13 +185,25 @@ async def list_companies(
         .where(ranked_qual.c.rn == 1)
     ).subquery()
 
+    sortable_columns = {
+        "name": Company.name,
+        "created_at": Company.created_at,
+        "last_enriched_at": Company.last_enriched_at,
+        "enrichment_status": Company.enrichment_status,
+        "qualification": latest_qual.c.overall_verdict,
+    }
+    column = sortable_columns[sort_by]
+    order = column.desc() if sort_dir == "desc" else column.asc()
+    if sort_by in _NULLABLE_SORT_FIELDS:
+        order = order.nulls_last()
+
     stmt = (
         select(Company, func.count(Contact.id), latest_qual.c.overall_verdict)
         .outerjoin(Contact, Contact.company_id == Company.id)
         .outerjoin(latest_qual, latest_qual.c.company_id == Company.id)
         .where(Company.organization_id == organization_id)
         .group_by(Company.id, latest_qual.c.overall_verdict)
-        .order_by(Company.name)
+        .order_by(order, Company.id)  # stable tiebreaker for equal sort keys
         .limit(limit)
         .offset(offset)
     )
@@ -207,3 +230,20 @@ async def get_company_detail(
         .options(selectinload(Company.contacts).selectinload(Contact.channels))
     )
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def confirm_company(
+    session: AsyncSession, organization_id: uuid.UUID, company_id: uuid.UUID
+) -> Company | None:
+    """Human-in-the-loop approval: the only place `Company.needs_review` is ever cleared. Exists
+    to unblock role classification/drafting (`role_relevance.service.run_role_relevance_check`
+    and `draft.service.generate_draft` both refuse to act on a needs_review company) after a rep
+    has actually looked at a company the pipeline flagged (fuzzy domain match, market-discovery
+    search hit, listicle-shaped name, etc.)."""
+    company = await get_company_detail(session, organization_id, company_id)
+    if company is None:
+        return None
+    company.needs_review = False
+    company.needs_review_reason = None
+    await session.flush()
+    return company

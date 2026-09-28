@@ -12,6 +12,7 @@ from app.modules.draft.schemas import DraftGenerateRequest, DraftOut, DraftUpdat
 from app.modules.draft.service import (
     CompanyNotFoundError,
     ContactNotFoundError,
+    NeedsReviewError,
     ProductNotFoundError,
     discard_draft,
     generate_draft,
@@ -44,6 +45,8 @@ async def generate_draft_endpoint(
         )
     except (CompanyNotFoundError, ContactNotFoundError, ProductNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except NeedsReviewError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except GeminiClientError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     await session.commit()

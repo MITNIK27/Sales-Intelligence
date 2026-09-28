@@ -46,6 +46,11 @@ class ExtractedCompany:
     grounded_in_source: bool
     matches_criteria: bool
     reasoning: str
+    # Set by the deterministic listicle-name backstop in `agent.py` (`heuristics.py`), not by the
+    # model — a structurally-suspicious-but-not-certain name is kept accepted but flagged, rather
+    # than silently trusted or silently dropped.
+    needs_review: bool = False
+    needs_review_reason: str | None = None
 
     @property
     def accepted(self) -> bool:
@@ -60,6 +65,8 @@ class DiscoveredCompany:
     name: str
     domain: str
     source_snippet: str
+    needs_review: bool = False
+    needs_review_reason: str | None = None
 
 
 @dataclass(frozen=True)

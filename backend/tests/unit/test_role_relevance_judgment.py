@@ -11,6 +11,7 @@ from app.modules.role_relevance.role_relevance_generator import (
     RoleRelevanceJudgment,
 )
 from app.modules.role_relevance.service import (
+    CompanyNeedsReviewError,
     CompanyNotFoundError,
     NoCategoriesConfiguredError,
     NoContactsError,
@@ -165,6 +166,29 @@ async def test_run_role_relevance_check_raises_for_missing_company(
     with pytest.raises(CompanyNotFoundError):
         await run_role_relevance_check(
             db_session, organization_id, uuid.uuid4(), generator  # type: ignore[arg-type]
+        )
+
+
+async def test_run_role_relevance_check_raises_for_needs_review_company(
+    db_session, organization_id
+) -> None:
+    company = Company(
+        organization_id=organization_id,
+        name="Best Logistics Companies in 2026",
+        domain="example.com",
+        needs_review=True,
+        needs_review_reason="found via Market Discovery search, not confirmed",
+    )
+    db_session.add(company)
+    await db_session.flush()
+    contact = Contact(organization_id=organization_id, company_id=company.id, full_name="Jane")
+    db_session.add(contact)
+    await db_session.commit()
+
+    generator = _FakeGenerator({})
+    with pytest.raises(CompanyNeedsReviewError):
+        await run_role_relevance_check(
+            db_session, organization_id, company.id, generator  # type: ignore[arg-type]
         )
 
 

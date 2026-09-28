@@ -39,7 +39,17 @@ export type CompanyListItem = {
   enrichment_status: EnrichmentStatus;
   needs_review: boolean;
   qualification_verdict: QualificationVerdict | null;
+  created_at: string;
+  last_enriched_at: string | null;
 };
+
+export type CompanySortField =
+  | "name"
+  | "created_at"
+  | "last_enriched_at"
+  | "enrichment_status"
+  | "qualification";
+export type SortDirection = "asc" | "desc";
 
 export type CompanyList = {
   items: CompanyListItem[];
@@ -127,6 +137,18 @@ export type CompanyDetail = {
   contacts: Contact[];
 };
 
+export type CompanyConfirmRequest = {
+  product_id?: string | null;
+};
+
+// role_classification/draft are best-effort resume results the backend attempts synchronously
+// after clearing needs_review — the page just needs the updated company back out of this.
+export type CompanyConfirmResult = {
+  company: CompanyDetail;
+  role_classification: Record<string, unknown>;
+  drafting: Record<string, unknown>;
+};
+
 export type ScrapeJobStarted = {
   job_id: string;
 };
@@ -165,6 +187,10 @@ export type MarketDiscoveryConfirmRequest = {
   industry_keywords: string[];
   location: string | null;
   employee_size_range: string | null;
+  // Which product the auto-pipeline's drafting stage should pitch. Omitted (and the org doesn't
+  // have exactly one product to default to) means drafting reports itself skipped rather than
+  // guessing which product to pitch — discovery/qualification/role classification still run.
+  product_id?: string | null;
 };
 
 export type MarketDiscoveryStarted = {
@@ -179,6 +205,41 @@ export type MarketDiscoveryRun = {
   confirmed_at: string | null;
   summary: { candidates_found: number; companies_created: number } | null;
   error: string | null;
+};
+
+// The confirm step now enqueues a single `auto_pipeline` job — its `JobStatus.result` carries
+// this four-stage breakdown instead of the old discovery-only summary. Each stage after
+// discovery either ran, or was skipped with a clear reason (missing prerequisites), never
+// silently omitted.
+export type QualificationStageResult =
+  | { ran: false; skipped_reason: string }
+  | {
+      ran: true;
+      qualified: number;
+      not_qualified: number;
+      could_not_determine: number;
+      qualified_company_ids: string[];
+      errors: { company_id: string; error: string }[];
+    };
+
+export type RoleClassificationStageResult =
+  | { ran: false; skipped_reason: string }
+  | { ran: true; companies_classified: number; errors: { company_id: string; error: string }[] };
+
+export type DraftingStageResult =
+  | { ran: false; skipped_reason: string }
+  | { ran: true; drafts_generated: number; errors: { contact_id: string; error: string }[] };
+
+export type AutoPipelineResult = {
+  discovery: {
+    candidates_found: number;
+    companies_created: number;
+    reused_from_index: number;
+  };
+  qualification: QualificationStageResult;
+  role_classification: RoleClassificationStageResult;
+  drafting: DraftingStageResult;
+  capped: boolean;
 };
 
 export type Product = {
@@ -339,6 +400,14 @@ export type OutreachActivityType = "sent" | "response_received";
 export const OUTREACH_CHANNELS: OutreachChannel[] = ["email", "linkedin"];
 export const OUTREACH_ACTIVITY_TYPES: OutreachActivityType[] = ["sent", "response_received"];
 
+// Shared between OutreachChannel and FollowUpChannel (both "email" | "linkedin") — a single
+// label source so a rendered dropdown always reads "LinkedIn" (correct brand casing) rather
+// than a naively-capitalized "Linkedin".
+export const CHANNEL_LABELS: Record<"email" | "linkedin", string> = {
+  email: "Email",
+  linkedin: "LinkedIn",
+};
+
 export type OutreachActivity = {
   id: string;
   contact_id: string;
@@ -405,4 +474,20 @@ export type NeedsReviewItem = {
   contact_name: string | null;
   reason: string;
   flagged_at: string;
+};
+
+export type BulkConfirmRequest = {
+  company_ids: string[];
+  contact_ids: string[];
+  product_id?: string | null;
+};
+
+export type BulkConfirmStarted = {
+  job_id: string;
+};
+
+export type BulkConfirmResult = {
+  companies_confirmed: number;
+  contacts_confirmed: number;
+  company_results: Record<string, unknown>[];
 };

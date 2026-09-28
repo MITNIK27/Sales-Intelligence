@@ -25,6 +25,10 @@ from app.modules.enrichment.providers.base import (
     DomainDiscoveryProvider,
     SignalDataProvider,
 )
+from app.modules.enrichment.providers.search_contacts import (
+    ContactSearchProvider,
+    SerperContactSearchProvider,
+)
 from app.modules.enrichment.providers.search_serper import SerperSearchProvider
 from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvider
 from app.modules.jobs.models import Job
@@ -143,11 +147,18 @@ async def _enrich_company(
     contact_provider: ContactDataProvider,
     signal_provider: SignalDataProvider,
     progress_callback: ProgressCallback | None = None,
+    contact_search_provider: ContactSearchProvider | None = None,
 ) -> dict[str, Any]:
     """The testable core of company enrichment — domain resolution, firmographics, contacts,
     signals. Takes providers explicitly so tests can inject mocks instead of hitting the
     network. Shared by both the per-company scrape job (`_run_scrape`) and the Market Discovery
-    job's per-candidate enrichment step, so this pipeline exists exactly once."""
+    job's per-candidate enrichment step, so this pipeline exists exactly once.
+
+    `contact_search_provider` is optional and additive — when given, supplements the website
+    scraper's on-page contacts with search-derived ones (see
+    `enrichment/providers/search_contacts.py`), deduped against existing contacts for free by
+    `get_or_create_contact`'s own (company_id, normalized name) matching. `None` (the default)
+    just means this pipeline runs exactly as it did before this capability existed."""
     steps_total = 4
     step = 0
 
@@ -234,6 +245,24 @@ async def _enrich_company(
             contacts_found += 1
             if contact.needs_review:
                 contacts_flagged += 1
+
+    if contact_search_provider is not None:
+        searched_contacts = await contact_search_provider.search_contacts(company.name, domain)
+        for searched in searched_contacts:
+            async with session.begin_nested():
+                contact, created = await get_or_create_contact(
+                    session,
+                    organization_id,
+                    company_id=company.id,
+                    full_name=searched.full_name,
+                    role_title=searched.role_title,
+                    email=None,
+                )
+                if created:
+                    contact.needs_review = True
+                    contact.needs_review_reason = "found via contact search, not confirmed"
+                    contacts_found += 1
+                    contacts_flagged += 1
     await tick()
 
     signals = await signal_provider.fetch_signals(domain)
@@ -270,6 +299,55 @@ async def _enrich_company(
     }
 
 
+async def search_company_contacts(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    company_id: uuid.UUID,
+    contact_search_provider: ContactSearchProvider,
+) -> list[Contact] | None:
+    """The manual, on-demand counterpart to the automatic search-contacts step inside
+    `_enrich_company` — a rep triggering a search for one specific company at will, independent
+    of a full (re-)enrichment run. Fast enough (one Serper call + parsing) to stay synchronous,
+    same "fast stays synchronous, slow becomes a job" convention already used for role-relevance
+    classification. Returns `None` if the company doesn't exist; otherwise the list of newly
+    found-or-matched contacts (same dedup-by-name behavior as the automatic path)."""
+    company = await session.get(Company, company_id)
+    if company is None or company.organization_id != organization_id:
+        return None
+
+    searched_contacts = await contact_search_provider.search_contacts(
+        company.name, company.domain
+    )
+    found_ids: list[uuid.UUID] = []
+    for searched in searched_contacts:
+        contact, created = await get_or_create_contact(
+            session,
+            organization_id,
+            company_id=company.id,
+            full_name=searched.full_name,
+            role_title=searched.role_title,
+            email=None,
+        )
+        if created:
+            contact.needs_review = True
+            contact.needs_review_reason = "found via contact search, not confirmed"
+        found_ids.append(contact.id)
+    await session.flush()
+    if not found_ids:
+        return []
+
+    # Re-fetched with `channels` eager-loaded — a matched *existing* contact (created=False) may
+    # already have channels from prior website scraping, and lazily loading them later during
+    # response serialization (after this function's caller commits) would hit the same
+    # MissingGreenlet failure already fixed once elsewhere in this codebase (outreach/service.py).
+    stmt = (
+        select(Contact)
+        .where(Contact.id.in_(found_ids))
+        .options(selectinload(Contact.channels))
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
 async def _run_scrape(
     session: AsyncSession,
     job: Job,
@@ -278,6 +356,7 @@ async def _run_scrape(
     contact_provider: ContactDataProvider,
     signal_provider: SignalDataProvider,
     progress_callback: ProgressCallback | None = None,
+    contact_search_provider: ContactSearchProvider | None = None,
 ) -> dict[str, Any]:
     """Per-company scrape job: resolves the target company from the job payload, then
     delegates to the shared `_enrich_company` pipeline."""
@@ -296,6 +375,7 @@ async def _run_scrape(
         contact_provider,
         signal_provider,
         progress_callback,
+        contact_search_provider,
     )
 
 
@@ -307,9 +387,17 @@ async def process_scrape_company_job(
     settings = get_settings()
     domain_provider = SerperSearchProvider(settings)
     scraper = WebsiteScraperProvider(settings)
+    contact_search_provider = SerperContactSearchProvider(settings, domain_provider)
     try:
         return await _run_scrape(
-            session, job, domain_provider, scraper, scraper, scraper, progress_callback
+            session,
+            job,
+            domain_provider,
+            scraper,
+            scraper,
+            scraper,
+            progress_callback,
+            contact_search_provider,
         )
     finally:
         await scraper.aclose()

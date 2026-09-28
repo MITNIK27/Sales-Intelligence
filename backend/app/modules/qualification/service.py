@@ -290,36 +290,53 @@ async def list_qualification_results(
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def run_bulk_qualification_job(
-    session: AsyncSession, job: Job, progress_callback: ProgressCallback | None = None
+async def _run_bulk_qualification(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    company_ids: list[uuid.UUID],
+    generator: QualificationGenerator,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    """Handler registered with the job worker (Phase A2.4) — qualifies every company id in
-    `job.payload["company_ids"]` sequentially, same judgment core as a single check
-    (`run_qualification_check`), so a Market Discovery run's newly-found companies can go from
-    "found" to "judged" without a rep opening each one individually.
+    """Testable core — qualifies every given company id sequentially, same judgment core as a
+    single check (`run_qualification_check`), so a Market Discovery run's newly-found companies
+    can go from "found" to "judged" without a rep opening each one individually. Moved out of
+    `run_bulk_qualification_job` so the auto-pipeline orchestrator can call it directly with an
+    explicit id list, without needing a `Job` row of its own — same reasoning as
+    `_run_adhoc_qualification`.
 
     Checks active criteria exist once up front rather than per company: a misconfigured org
     should fail the whole job immediately and clearly, not produce N identical per-company
     failures. A single company's `GeminiClientError` (e.g. a transient Gemini hiccup) is caught
     and recorded in `errors` rather than aborting the rest of the batch — one bad company
     shouldn't cost every other company in the run its result."""
-    if not await list_active_criteria(session, job.organization_id):
+    if not await list_active_criteria(session, organization_id):
         raise NoCriteriaConfiguredError("no active qualification criteria configured")
 
-    generator = GeminiQualificationGenerator(get_settings())
-    payload = job.payload or {}
-    company_ids = [uuid.UUID(cid) for cid in payload.get("company_ids", [])]
     total = len(company_ids) or 1
     counts = {"qualified": 0, "not_qualified": 0, "could_not_determine": 0}
+    qualified_company_ids: list[str] = []
     errors: list[dict[str, str]] = []
     for i, company_id in enumerate(company_ids, start=1):
         try:
-            result = await run_qualification_check(
-                session, job.organization_id, company_id, generator
-            )
+            result = await run_qualification_check(session, organization_id, company_id, generator)
             counts[result.overall_verdict] += 1
+            if result.overall_verdict == "qualified":
+                qualified_company_ids.append(str(company_id))
         except (CompanyNotFoundError, GeminiClientError) as exc:
             errors.append({"company_id": str(company_id), "error": str(exc)})
         if progress_callback:
             await progress_callback(i, total)
-    return {**counts, "errors": errors}
+    return {**counts, "qualified_company_ids": qualified_company_ids, "errors": errors}
+
+
+async def run_bulk_qualification_job(
+    session: AsyncSession, job: Job, progress_callback: ProgressCallback | None = None
+) -> dict[str, Any]:
+    """Handler registered with the job worker (Phase A2.4) — unpacks `job.payload["company_ids"]`
+    and delegates to `_run_bulk_qualification`."""
+    generator = GeminiQualificationGenerator(get_settings())
+    payload = job.payload or {}
+    company_ids = [uuid.UUID(cid) for cid in payload.get("company_ids", [])]
+    return await _run_bulk_qualification(
+        session, job.organization_id, company_ids, generator, progress_callback
+    )

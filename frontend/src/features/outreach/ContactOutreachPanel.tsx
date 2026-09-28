@@ -12,11 +12,13 @@ import { LogOutreachActivity, type PrefilledDraft } from "@/features/outreach/Lo
 export function ContactOutreachPanel({
   contact,
   companyId,
+  companyNeedsReview,
   products,
   onContactUpdated,
 }: {
   contact: Contact;
   companyId: string;
+  companyNeedsReview: boolean;
   products: Product[];
   onContactUpdated: (contact: Contact) => void;
 }) {
@@ -36,6 +38,7 @@ export function ContactOutreachPanel({
       <DraftSection
         contact={contact}
         companyId={companyId}
+        companyNeedsReview={companyNeedsReview}
         products={products}
         onLogAsSent={handleLogAsSent}
       />

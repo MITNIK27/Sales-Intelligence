@@ -24,6 +24,7 @@ from app.modules.draft.models import DRAFT_TYPE_FIRST_TOUCH
 from app.modules.draft.prompts import (
     FIRST_TOUCH_PROMPT_TEMPLATE,
     FOLLOW_UP_PROMPT_TEMPLATE,
+    STYLE_REFERENCE_EXAMPLES,
     framing_instruction,
 )
 from app.modules.products.models import Product
@@ -108,6 +109,7 @@ class GeminiDraftGenerator(DraftGenerator):
             grounding_section=grounding_section,
             grounding_instruction=grounding_instruction,
             framing_instruction=framing_instruction(framing_style),
+            style_reference=STYLE_REFERENCE_EXAMPLES,
         )
 
         client = genai.Client(api_key=self._settings.gemini_api_key)

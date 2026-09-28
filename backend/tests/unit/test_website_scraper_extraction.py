@@ -90,6 +90,33 @@ def test_extract_employee_count_returns_none_when_no_match() -> None:
     assert extract_employee_count("<p>No numbers here.</p>") is None
 
 
+NOISY_TEAM_PAGE_HTML = """
+<html><body>
+<div>
+  <h3>Leadership</h3>
+  <p>Director</p>
+</div>
+<div>
+  <h3>District 9 Manager</h3>
+  <p>Regional Manager</p>
+</div>
+<div>
+  <h3>Acme Solutions</h3>
+  <p>Director</p>
+</div>
+</body></html>
+"""
+
+
+def test_extract_contacts_rejects_headings_that_are_not_shaped_like_a_person_name() -> None:
+    """These all have <=5 words, so the old bound (`len(name.split()) > 5`) would have wrongly
+    accepted them as contacts — a single-word nav-style heading, a heading containing a digit,
+    and a heading that's actually a company name. The shared `looks_like_person_name` guard
+    (moved here from `search_contacts.py`) rejects all three on shape alone."""
+    contacts = extract_contacts(NOISY_TEAM_PAGE_HTML)
+    assert contacts == []
+
+
 def test_extract_contacts_filters_to_decision_maker_roles_and_captures_email() -> None:
     contacts = extract_contacts(TEAM_PAGE_HTML)
 
