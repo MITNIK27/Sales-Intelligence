@@ -25,3 +25,6 @@ Thumbs.db
 .vscode/
 .idea/
 .claude/
+
+# Assessment screenshots (local reference only)
+docs/assessment/screenshots/
