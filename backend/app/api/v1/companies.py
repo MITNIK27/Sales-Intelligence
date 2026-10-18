@@ -140,6 +140,8 @@ async def list_company_signals_endpoint(
             url=record.raw_payload.get("url", ""),
             date=record.raw_payload.get("date"),
             fetched_at=record.fetched_at,
+            summary=record.raw_payload.get("summary"),
+            provider=record.raw_payload.get("provider"),
         )
         for record in records
     ]

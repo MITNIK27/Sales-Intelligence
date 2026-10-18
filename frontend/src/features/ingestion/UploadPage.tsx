@@ -9,21 +9,54 @@ import { Skeleton } from "@/components/Skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { usePersistentState } from "@/lib/usePersistentState";
 
 const POLL_INTERVAL_MS = 1500;
 
 export function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
+  // The last upload's job id is remembered, so leaving this page and coming back still shows
+  // that upload's result (the job itself is re-fetched, never cached).
+  const [jobId, setJobId] = usePersistentState<string | null>("upload.jobId", null);
   const [job, setJob] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const pollRef = useRef<number | null>(null);
 
+  function startPolling(pollJobId: string) {
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    pollRef.current = window.setInterval(async () => {
+      try {
+        const status = await apiGet<JobStatus>(`/jobs/${pollJobId}`);
+        setJob(status);
+        if (status.status === "done" || status.status === "failed") {
+          if (pollRef.current) window.clearInterval(pollRef.current);
+        }
+      } catch {
+        // One failed poll must not end the loop — the next tick retries.
+      }
+    }, POLL_INTERVAL_MS);
+  }
+
   useEffect(() => {
+    let cancelled = false;
+    if (jobId) {
+      apiGet<JobStatus>(`/jobs/${jobId}`)
+        .then((status) => {
+          if (cancelled) return;
+          setJob(status);
+          if (status.status !== "done" && status.status !== "failed") startPolling(jobId);
+        })
+        .catch(() => {
+          // The remembered job no longer exists (e.g. the database was wiped): forget it.
+          if (!cancelled) setJobId(null);
+        });
+    }
     return () => {
+      cancelled = true;
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
+    // Runs once on mount, deliberately: it only restores what was remembered.
   }, []);
 
   async function handleSubmit(e: FormEvent) {
@@ -35,13 +68,7 @@ export function UploadPage() {
     try {
       const started = await uploadCsv<CsvIngestionStarted>("/ingestion/csv", file);
       setJobId(started.job_id);
-      pollRef.current = window.setInterval(async () => {
-        const status = await apiGet<JobStatus>(`/jobs/${started.job_id}`);
-        setJob(status);
-        if (status.status === "done" || status.status === "failed") {
-          if (pollRef.current) window.clearInterval(pollRef.current);
-        }
-      }, POLL_INTERVAL_MS);
+      startPolling(started.job_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "upload failed");
     } finally {
@@ -52,7 +79,6 @@ export function UploadPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Ingestion"
         title="Upload Prospect CSV"
         description="Bring in a list of companies/contacts and let it dedupe."
       />

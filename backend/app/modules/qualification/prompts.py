@@ -10,11 +10,13 @@ design decision for this phase: auditable Python logic, not a model inferring in
 
 from app.modules.companies.models import Company
 from app.modules.enrichment.models import EnrichmentRecord
+from app.modules.qualification.evidence import MAX_SIGNALS_IN_PROMPT, numbered_signals
 from app.modules.qualification.models import QualificationCriterion
 
 # Recent signals are informative but unbounded history isn't useful in a prompt — same cap and
-# reasoning as ai_recommendation/recommendation_generator.py's MAX_SIGNALS_IN_PROMPT.
-MAX_SIGNALS_IN_PROMPT = 10
+# reasoning as ai_recommendation/recommendation_generator.py's MAX_SIGNALS_IN_PROMPT. Re-exported
+# here because the cap now lives with the evidence numbering that must agree with it.
+__all__ = ["MAX_SIGNALS_IN_PROMPT", "build_qualification_prompt"]
 
 _PROMPT = """You are judging a company against a sales organization's own qualification \
 criteria, one criterion at a time. This judgment decides whether a real sales rep spends real \
@@ -24,13 +26,13 @@ does answer the question is just as unhelpful. Get each one right individually; 
 or rush.
 
 Company:
-- Name: {company_name}
-- Domain: {company_domain}
-- Industry: {company_industry}
-- Employee count range: {company_employee_count_range}
-- Description: {company_description}
+- [company.name] Name: {company_name}
+- [company.domain] Domain: {company_domain}
+- [company.industry] Industry: {company_industry}
+- [company.employee_count_range] Employee count range: {company_employee_count_range}
+- [company.description] Description: {company_description}
 
-Recent signals (news, hiring activity) for this company:
+Recent signals (news, hiring activity) for this company, each with a reference id:
 {signals}
 
 Criteria to judge against (each has an id — judge every one independently, in isolation from \
@@ -70,12 +72,23 @@ old signal suggests one thing, a more recent one suggests another), prefer the m
 evidence, note the conflict explicitly in the reasoning, and lean toward "could_not_determine" \
 rather than picking a side with unstated confidence.
 
+6. EVIDENCE IS MANDATORY: every "met" or "not_met" must cite its evidence — the reference id \
+of ONE source above (company.description, company.industry, company.employee_count_range, \
+company.name, company.domain, or a signal id such as S2) and a short VERBATIM quote copied \
+exactly from that source. A "met"/"not_met" without a quote that really appears in the cited \
+source is discarded and counted as "could_not_determine". "Nothing negative was found" is NOT \
+evidence for "met".
+
 For each criterion, output:
 - criterion_id: copied exactly as given.
 - verdict: "met" | "not_met" | "could_not_determine" — per the ground rules above.
-- reasoning: one sentence. If "met" or "not_met", quote or closely paraphrase the specific \
-evidence that drove it. If "could_not_determine", say plainly what's missing (e.g. "no \
-information above addresses IT spend or budget").
+- reasoning: one sentence. If "met" or "not_met", say how the quoted evidence answers the \
+criterion. If "could_not_determine", say plainly what's missing (e.g. "no information above \
+addresses IT spend or budget").
+- evidence_ref: the reference id of the source relied on (omit for "could_not_determine").
+- evidence_quote: the verbatim quote, at most 200 characters (omit for "could_not_determine").
+- confidence: a number from 0 to 1 — how sure you are of this verdict given the evidence \
+(a direct, explicit statement is high; an indirect inference is lower).
 
 If no signals are available at all, reason from firmographics alone and expect most criteria \
 that aren't answerable from name/domain/industry/employee-range/description to land on \
@@ -87,10 +100,10 @@ def _format_signals(signals: list[EnrichmentRecord]) -> str:
     if not signals:
         return "No recent buying signals found for this company."
     lines = []
-    for record in signals[:MAX_SIGNALS_IN_PROMPT]:
+    for ref, record in numbered_signals(signals):
         signal_type = record.raw_payload.get("signal_type", "signal")
         text = record.raw_payload.get("text", "")
-        lines.append(f"- [{signal_type}] {text}")
+        lines.append(f"- [{ref}] ({signal_type}) {text}")
     return "\n".join(lines)
 
 

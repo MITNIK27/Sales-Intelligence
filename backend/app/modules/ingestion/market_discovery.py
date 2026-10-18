@@ -11,6 +11,7 @@ from app.modules.ai_recommendation.gemini_client import (
     GeminiMarketDescriptionParser,
     MarketDescriptionParser,
 )
+from app.modules.companies.models import ENRICHMENT_STATUS_ENRICHED, ENRICHMENT_STATUS_FAILED
 from app.modules.companies.service import get_or_create_company, search_company_index
 from app.modules.discovery_agent.agent import (
     CompanyDiscoveryAgentProtocol,
@@ -24,6 +25,7 @@ from app.modules.enrichment.providers.base import (
     DomainDiscoveryProvider,
     SignalDataProvider,
 )
+from app.modules.enrichment.providers.factory import build_company_providers
 from app.modules.enrichment.providers.search_contacts import (
     ContactSearchProvider,
     SerperContactSearchProvider,
@@ -49,7 +51,8 @@ JOB_TYPE_MARKET_DISCOVERY = "market_discovery"
 # Repeatable: the user can run another description/search to get more.
 CANDIDATE_LIMIT = 10
 
-ProgressCallback = Callable[[int, int], Awaitable[None]]
+# (done, total, **extra) — extra keys (detail, stage, counts) are merged into the job's progress.
+ProgressCallback = Callable[..., Awaitable[None]]
 
 
 async def start_market_discovery_parse(
@@ -193,10 +196,24 @@ async def _run_market_discovery(
     )
 
     companies_created = 0
+    created_ids: list[str] = []
+    enrichment: dict[str, Any] = {"enriched": 0, "failed": 0, "industry_filled": 0, "by_source": {}}
     total = len(candidates) or 1
+
+    async def report(done: int, detail: str) -> None:
+        if progress_callback:
+            await progress_callback(
+                done,
+                total,
+                detail=detail,
+                enriched=enrichment["enriched"],
+                failed=enrichment["failed"],
+            )
+
     for i, candidate in enumerate(candidates, start=1):
         if candidate.domain in reused_domains:
             continue
+        await report(i - 1, f"Enriching {i} of {total}: {candidate.domain}")
         async with session.begin_nested():
             company, created = await get_or_create_company(
                 session,
@@ -217,29 +234,80 @@ async def _run_market_discovery(
                 company.needs_review = candidate.needs_review
                 company.needs_review_reason = candidate.needs_review_reason
                 companies_created += 1
+                created_ids.append(str(company.id))
                 await session.flush()
-                await _enrich_company(
-                    session,
-                    job.organization_id,
-                    company,
-                    domain_provider,
-                    company_provider,
-                    contact_provider,
-                    signal_provider,
-                    contact_search_provider=contact_search_provider,
+        if created:
+            # Enrichment gets its own savepoint, so one company's unexpected failure (a database
+            # error, a provider bug) is recorded on that company and the run carries on with the
+            # rest, instead of one bad row sinking every candidate and losing the credits and
+            # time already spent on the others.
+            try:
+                async with session.begin_nested():
+                    outcome = await _enrich_company(
+                        session,
+                        job.organization_id,
+                        company,
+                        domain_provider,
+                        company_provider,
+                        contact_provider,
+                        signal_provider,
+                        contact_search_provider=contact_search_provider,
+                    )
+            except Exception as exc:  # noqa: BLE001 - isolate per-company failures
+                logger.warning(
+                    "market discovery run %s: enrichment crashed for %s: %s",
+                    run.id,
+                    candidate.domain,
+                    exc,
                 )
-        if progress_callback:
-            await progress_callback(i, total)
+                company.enrichment_status = ENRICHMENT_STATUS_FAILED
+                company.enrichment_error = f"enrichment crashed: {str(exc)[:300]}"
+                await session.flush()
+                enrichment["failed"] += 1
+            else:
+                _tally_enrichment(enrichment, outcome)
+        # Save this company now. The job used to commit once at the very end, so nothing was
+        # visible while it ran and a late failure threw away every finished company (and the
+        # context.dev credits spent on them). Committing per company makes progress durable and
+        # lets the results list fill in live.
+        await session.commit()
+        await report(i, f"Finished {i} of {total}: {candidate.domain}")
 
     run.status = STATUS_DONE
     run.summary = {
         "candidates_found": len(candidates),
         "companies_created": companies_created,
         "reused_from_index": len(reused_companies),
+        # Every company this run is about — newly found AND reused from the index — so ranking
+        # and the results list cover both, not just the new ones.
+        "company_ids": [*created_ids, *(str(c.id) for c in reused_companies)],
+        "company_data_source": get_settings().company_data_source,
+        "enrichment": enrichment,
+        # Paid-provider spend and how often the free scraper was enough (None when the run used
+        # the scraper alone).
+        "context_dev": getattr(company_provider, "usage", lambda: None)(),
         **discovery_stats,
     }
     await session.flush()
     return run.summary
+
+
+def _tally_enrichment(enrichment: dict[str, Any], outcome: dict[str, Any]) -> None:
+    """Fold one `_enrich_company` result into the run-level enrichment summary, so which data
+    source actually produced each company's firmographics is a recorded fact, not a log line."""
+    # A provider branch that errored (news, contact search, ...) without sinking the company is
+    # counted here, so "everything fine" and "fine but news was down" are distinguishable.
+    for branch in outcome.get("branch_errors") or {}:
+        errors = enrichment.setdefault("branch_errors", {})
+        errors[branch] = errors.get(branch, 0) + 1
+    if outcome.get("status") != ENRICHMENT_STATUS_ENRICHED:
+        enrichment["failed"] += 1
+        return
+    enrichment["enriched"] += 1
+    if outcome.get("industry_filled"):
+        enrichment["industry_filled"] += 1
+    source = outcome.get("firmographics_source") or "unknown"
+    enrichment["by_source"][source] = enrichment["by_source"].get(source, 0) + 1
 
 
 async def process_market_discovery_job(
@@ -251,6 +319,7 @@ async def process_market_discovery_job(
     discovery_agent = get_default_discovery_agent(settings)
     domain_provider = SerperSearchProvider(settings)
     scraper = WebsiteScraperProvider(settings)
+    providers = build_company_providers(settings, scraper)
     contact_search_provider = SerperContactSearchProvider(settings, domain_provider)
     try:
         return await _run_market_discovery(
@@ -258,9 +327,9 @@ async def process_market_discovery_job(
             job,
             discovery_agent,
             domain_provider,
+            providers.company,
             scraper,
-            scraper,
-            scraper,
+            providers.signals,
             progress_callback,
             contact_search_provider,
         )

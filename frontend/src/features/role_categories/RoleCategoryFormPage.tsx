@@ -135,7 +135,6 @@ export function RoleCategoryFormPage() {
     <div>
       {backLink}
       <PageHeader
-        eyebrow="Role Relevance"
         title={isEdit ? "Edit role category" : "Add role category"}
         description="What function this represents — a contact's title is matched against this by inferred meaning, not by keyword."
       />

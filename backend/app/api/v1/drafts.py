@@ -8,7 +8,12 @@ from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
 from app.modules.draft.draft_generator import GeminiDraftGenerator
-from app.modules.draft.schemas import DraftGenerateRequest, DraftOut, DraftUpdateRequest
+from app.modules.draft.schemas import (
+    DraftGenerateRequest,
+    DraftListOut,
+    DraftOut,
+    DraftUpdateRequest,
+)
 from app.modules.draft.service import (
     CompanyNotFoundError,
     ContactNotFoundError,
@@ -16,6 +21,7 @@ from app.modules.draft.service import (
     ProductNotFoundError,
     discard_draft,
     generate_draft,
+    list_all_drafts,
     list_drafts,
     update_draft,
 )
@@ -61,6 +67,23 @@ async def list_drafts_endpoint(
 ) -> list[DraftOut]:
     drafts = await list_drafts(session, DEFAULT_ORGANIZATION_ID, company_id, contact_id)
     return [DraftOut.model_validate(d) for d in drafts]
+
+
+@draft_router.get("", response_model=DraftListOut)
+async def list_all_drafts_endpoint(
+    status: str = Query("all", pattern="^(all|draft|sent|discarded)$"),
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    session: AsyncSession = Depends(get_db),
+) -> DraftListOut:
+    """Every draft across all companies, for the review page (read-only)."""
+    return await list_all_drafts(
+        session,
+        DEFAULT_ORGANIZATION_ID,
+        None if status == "all" else status,
+        limit,
+        offset,
+    )
 
 
 @draft_router.patch("/{draft_id}", response_model=DraftOut)

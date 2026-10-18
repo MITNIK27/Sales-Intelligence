@@ -1,17 +1,22 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ai_recommendation.models import Recommendation
+from app.modules.companies.models import Company
 from app.modules.companies.service import get_company_detail
+from app.modules.contacts.models import Contact
 from app.modules.draft.draft_generator import DraftGenerator
+from app.modules.draft.evidence import build_draft_evidence
 from app.modules.draft.models import (
     DRAFT_CHANNEL_EMAIL,
     DRAFT_STATUS_DISCARDED,
+    DRAFT_STATUS_DRAFT,
     DRAFT_STATUS_SENT,
     Draft,
 )
+from app.modules.draft.schemas import DraftListItem, DraftListOut
 from app.modules.products.service import get_product
 from app.modules.role_relevance.models import FRAMING_STYLE_BUSINESS
 from app.modules.role_relevance.service import get_latest_role_relevance_for_contact
@@ -104,8 +109,9 @@ async def generate_draft(
         else FRAMING_STYLE_BUSINESS
     )
 
+    evidence = await build_draft_evidence(session, organization_id, company, contact)
     result = await generator.generate(
-        company, contact, product, recommendation, framing_style, draft_type
+        company, contact, product, recommendation, framing_style, draft_type, evidence
     )
 
     draft = Draft(
@@ -188,3 +194,58 @@ async def list_drafts(
         conditions.append(Draft.contact_id == contact_id)
     stmt = select(Draft).where(*conditions).order_by(Draft.created_at.desc())
     return list((await session.execute(stmt)).scalars().all())
+
+
+async def list_all_drafts(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    status: str | None = None,
+    limit: int = 25,
+    offset: int = 0,
+) -> DraftListOut:
+    """Every draft in the organization, newest first, for the review page. Read-only. `status`
+    None means all statuses; `counts` always reports all three so the page can label its tabs."""
+    conditions = [Draft.organization_id == organization_id]
+    if status is not None:
+        conditions.append(Draft.status == status)
+
+    total = (
+        await session.execute(select(func.count()).select_from(Draft).where(*conditions))
+    ).scalar_one()
+    rows = await session.execute(
+        select(Draft, Company.name, Contact.full_name, Contact.role_title)
+        .join(Company, Company.id == Draft.company_id)
+        .join(Contact, Contact.id == Draft.contact_id)
+        .where(*conditions)
+        .order_by(Draft.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    items = [
+        DraftListItem(
+            id=d.id,
+            company_id=d.company_id,
+            company_name=company_name,
+            contact_id=d.contact_id,
+            contact_name=contact_name,
+            contact_role=contact_role,
+            draft_type=d.draft_type,
+            channel=d.channel,
+            subject=d.subject,
+            body=d.body,
+            status=d.status,
+            model_used=d.model_used,
+            created_at=d.created_at,
+            updated_at=d.updated_at,
+        )
+        for d, company_name, contact_name, contact_role in rows.all()
+    ]
+    counts = {s: 0 for s in (DRAFT_STATUS_DRAFT, DRAFT_STATUS_SENT, DRAFT_STATUS_DISCARDED)}
+    grouped = await session.execute(
+        select(Draft.status, func.count())
+        .where(Draft.organization_id == organization_id)
+        .group_by(Draft.status)
+    )
+    for draft_status, n in grouped.all():
+        counts[draft_status] = n
+    return DraftListOut(items=items, total=total, limit=limit, offset=offset, counts=counts)

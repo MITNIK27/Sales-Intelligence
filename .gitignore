@@ -28,3 +28,6 @@ Thumbs.db
 
 # Assessment screenshots (local reference only)
 docs/assessment/screenshots/
+
+# Local run logs (benchmark / A-B snapshots)
+backend/logs/

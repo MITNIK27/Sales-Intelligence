@@ -4,6 +4,7 @@ from app.modules.ai_recommendation.models import Recommendation
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
 from app.modules.draft.draft_generator import DraftGenerator, DraftResult
+from app.modules.draft.evidence import DraftEvidence
 from app.modules.products.models import Product
 
 
@@ -26,5 +27,6 @@ class MockDraftGenerator(DraftGenerator):
         recommendation: Recommendation | None,
         framing_style: str,
         draft_type: str,
+        evidence: DraftEvidence | None = None,
     ) -> DraftResult:
         return self._result

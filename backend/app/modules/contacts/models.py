@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 CHANNEL_TYPE_EMAIL = "email"
 CHANNEL_TYPE_PHONE = "phone"
+CHANNEL_TYPE_LINKEDIN = "linkedin"
 
 VERIFICATION_UNVERIFIED = "unverified"
 VERIFICATION_VALID = "valid"
@@ -64,6 +65,12 @@ class Contact(Base, TimestampMixin, UpdatedAtMixin):
     # --- Phase 2a: scraper-sourced contacts with an ambiguous match get flagged, never blocked ---
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
     needs_review_reason: Mapped[str | None] = mapped_column(String(255))
+
+    # Where the contact came from (e.g. "serper:linkedin", "scraper:companysite") and how sure we
+    # are the person really works at this company (0..1) — set by contact discovery, null for
+    # contacts entered by hand or imported.
+    source: Mapped[str | None] = mapped_column(String(100))
+    confidence: Mapped[float | None] = mapped_column(Float)
 
     company: Mapped["Company"] = relationship(back_populates="contacts")
     channels: Mapped[list["ContactChannel"]] = relationship(back_populates="contact")

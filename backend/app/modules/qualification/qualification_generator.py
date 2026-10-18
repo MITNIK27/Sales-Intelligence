@@ -23,6 +23,7 @@ from app.modules.ai_recommendation.gemini_client import (
 )
 from app.modules.companies.models import Company
 from app.modules.enrichment.models import EnrichmentRecord
+from app.modules.qualification.evidence import evidence_sources, verify_evidence
 from app.modules.qualification.models import QualificationCriterion
 from app.modules.qualification.prompts import build_qualification_prompt
 
@@ -33,10 +34,44 @@ class CriterionVerdict(BaseModel):
     criterion_id: str
     verdict: Verdict
     reasoning: str
+    # Evidence the verdict rests on (see `evidence.py`). Optional so older/mock generators and
+    # stored results stay valid; the Gemini generator enforces it for met/not_met.
+    evidence_ref: str | None = None
+    evidence_quote: str | None = None
+    confidence: float | None = None
 
 
 class QualificationJudgment(BaseModel):
     criteria_results: list[CriterionVerdict]
+
+
+def enforce_evidence(
+    judgment: QualificationJudgment, company: Company, signals: list[EnrichmentRecord]
+) -> QualificationJudgment:
+    """Downgrades every met/not_met whose cited evidence cannot be found in the data the model
+    was shown to could_not_determine, and clamps confidence into 0..1."""
+    sources = evidence_sources(company, signals)
+    checked: list[CriterionVerdict] = []
+    for item in judgment.criteria_results:
+        trusted, problem = verify_evidence(
+            item.verdict, item.evidence_ref, item.evidence_quote, sources
+        )
+        if not trusted:
+            item = item.model_copy(
+                update={
+                    "verdict": "could_not_determine",
+                    "reasoning": (
+                        f"Treated as unverified ({problem}). Model's reasoning: {item.reasoning}"
+                    ),
+                    "evidence_ref": None,
+                    "evidence_quote": None,
+                    "confidence": None,
+                }
+            )
+        elif item.confidence is not None:
+            item = item.model_copy(update={"confidence": min(1.0, max(0.0, item.confidence))})
+        checked.append(item)
+    return QualificationJudgment(criteria_results=checked)
 
 
 class QualificationGenerator(ABC):
@@ -90,4 +125,4 @@ class GeminiQualificationGenerator(QualificationGenerator):
         parsed = response.parsed
         if not isinstance(parsed, QualificationJudgment):
             raise GeminiClientError("Gemini did not return a valid structured response")
-        return parsed
+        return enforce_evidence(parsed, company, signals)

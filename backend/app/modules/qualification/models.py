@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import JSON, Boolean, ForeignKey, String
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
@@ -45,3 +45,7 @@ class QualificationResult(Base, TimestampMixin):
     # never rewrites past judgment history.
     criteria_results: Mapped[list[dict[str, object]]] = mapped_column(JSON)
     model_used: Mapped[str] = mapped_column(String(50))
+    # Priority Score 0-100 and its per-component breakdown, set by the auto pipeline's ranking step
+    # (`ranking.py`). Null for results that were never ranked (single checks, older rows).
+    priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_breakdown: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)

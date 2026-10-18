@@ -1,9 +1,15 @@
 import { ArrowDown, ArrowUp, Building2 } from "lucide-react";
+import { WebsiteLink } from "@/components/WebsiteLink";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { apiGet, apiPost } from "@/api/client";
-import type { CompanyList, CompanySortField, ScrapeAllStarted, SortDirection } from "@/api/types";
+import type {
+  CompanyList,
+  CompanySortField,
+  ScrapeAllStarted,
+  SortDirection,
+} from "@/api/types";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/PageHeader";
@@ -59,7 +65,11 @@ export function CompaniesListPage() {
     });
     return apiGet<CompanyList>(`/companies?${params}`)
       .then(setData)
-      .catch((err) => setError(err instanceof Error ? err.message : "failed to load companies"));
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "failed to load companies",
+        ),
+      );
   }
 
   useEffect(() => {
@@ -112,20 +122,29 @@ export function CompaniesListPage() {
       );
       if (started.enqueued_count > 0) {
         if (refreshRef.current) window.clearInterval(refreshRef.current);
-        refreshRef.current = window.setInterval(loadCompanies, REFRESH_INTERVAL_MS);
+        refreshRef.current = window.setInterval(
+          loadCompanies,
+          REFRESH_INTERVAL_MS,
+        );
         window.setTimeout(() => {
           if (refreshRef.current) window.clearInterval(refreshRef.current);
         }, REFRESH_WINDOW_MS);
       }
     } catch (err) {
-      setScrapeMessage(err instanceof Error ? err.message : "failed to start bulk scrape");
+      setScrapeMessage(
+        err instanceof Error ? err.message : "failed to start bulk scrape",
+      );
     } finally {
       setScraping(false);
     }
   }
 
   const scrapeAction = (
-    <Button type="button" onClick={handleScrapeAll} disabled={scraping || !data}>
+    <Button
+      type="button"
+      onClick={handleScrapeAll}
+      disabled={scraping || !data}
+    >
       {scraping ? "Starting…" : "Scrape all un-enriched"}
     </Button>
   );
@@ -133,7 +152,7 @@ export function CompaniesListPage() {
   if (error) {
     return (
       <div>
-        <PageHeader eyebrow="Companies" title="Companies" action={scrapeAction} />
+        <PageHeader title="Companies" action={scrapeAction} />
         <Card>
           <ErrorState message={error} onRetry={loadCompanies} />
         </Card>
@@ -144,7 +163,7 @@ export function CompaniesListPage() {
   if (!data) {
     return (
       <div>
-        <PageHeader eyebrow="Companies" title="Companies" action={scrapeAction} />
+        <PageHeader title="Companies" action={scrapeAction} />
         <Card className="p-6">
           <SkeletonLines lines={6} />
         </Card>
@@ -154,8 +173,10 @@ export function CompaniesListPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Companies" title={`Companies (${data.total})`} action={scrapeAction} />
-      {scrapeMessage && <p className="mb-4 text-sm text-muted-foreground">{scrapeMessage}</p>}
+      <PageHeader title={`Companies (${data.total})`} action={scrapeAction} />
+      {scrapeMessage && (
+        <p className="mb-4 text-sm text-muted-foreground">{scrapeMessage}</p>
+      )}
 
       <Card className="p-0">
         {data.total === 0 ? (
@@ -180,7 +201,7 @@ export function CompaniesListPage() {
               <TableHeader>
                 <TableRow>
                   <SortableHead field="name" />
-                  <TableHead>Domain</TableHead>
+                  <TableHead>Website</TableHead>
                   <TableHead>Industry</TableHead>
                   <TableHead>Contacts</TableHead>
                   <SortableHead field="created_at" />
@@ -193,28 +214,45 @@ export function CompaniesListPage() {
                 {data.items.map((company) => (
                   <TableRow key={company.id}>
                     <TableCell className="whitespace-normal">
-                      <Link to={`/companies/${company.id}`} className="text-primary-text hover:underline">
+                      <Link
+                        to={`/companies/${company.id}`}
+                        className="text-primary-text hover:underline"
+                      >
                         {company.name}
                       </Link>
                     </TableCell>
-                    <TableCell>{company.domain ?? "—"}</TableCell>
+                    <TableCell>
+                      {company.domain ? (
+                        <WebsiteLink domain={company.domain} />
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
                     <TableCell>{company.industry ?? "—"}</TableCell>
                     <TableCell>{company.contact_count}</TableCell>
-                    <TableCell>{new Date(company.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      {new Date(company.created_at).toLocaleDateString()}
+                    </TableCell>
                     <TableCell>
                       {company.last_enriched_at
-                        ? new Date(company.last_enriched_at).toLocaleDateString()
+                        ? new Date(
+                            company.last_enriched_at,
+                          ).toLocaleDateString()
                         : "—"}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <EnrichmentStatusBadge status={company.enrichment_status} />
+                        <EnrichmentStatusBadge
+                          status={company.enrichment_status}
+                        />
                         {company.needs_review && <NeedsReviewBadge />}
                       </div>
                     </TableCell>
                     <TableCell>
                       {company.qualification_verdict ? (
-                        <QualificationVerdictBadge verdict={company.qualification_verdict} />
+                        <QualificationVerdictBadge
+                          verdict={company.qualification_verdict}
+                        />
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}

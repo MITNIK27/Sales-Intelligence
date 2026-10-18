@@ -59,7 +59,7 @@ export function ProductsListPage() {
   if (error) {
     return (
       <div>
-        <PageHeader eyebrow="Products" title="Products" action={addAction} />
+        <PageHeader title="Products" action={addAction} />
         <Card>
           <ErrorState message={error} onRetry={loadProducts} />
         </Card>
@@ -70,7 +70,7 @@ export function ProductsListPage() {
   if (!data) {
     return (
       <div>
-        <PageHeader eyebrow="Products" title="Products" action={addAction} />
+        <PageHeader title="Products" action={addAction} />
         <Card className="p-6">
           <SkeletonLines lines={6} />
         </Card>
@@ -84,7 +84,7 @@ export function ProductsListPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Products" title={`Products (${data.total})`} action={addAction} />
+      <PageHeader title={`Products (${data.total})`} action={addAction} />
 
       <Card className="p-0">
         {data.items.length === 0 ? (

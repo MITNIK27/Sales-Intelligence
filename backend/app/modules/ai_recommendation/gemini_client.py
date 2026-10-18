@@ -4,6 +4,7 @@ consumer; Phase 3's pitch-recommendation layer will reuse it later."""
 from abc import ABC, abstractmethod
 from typing import Any, Literal
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -20,6 +21,15 @@ Confidence = Literal["confident", "could_not_determine"]
 # failure, per the "retries with backoff at the abstraction boundary" cross-cutting concern in
 # the foundational plan (never implemented until this was hit in live testing).
 _RETRYABLE_STATUS_CODES = {429, 503}
+
+# A dropped/refused connection ("All connection attempts failed", a read timeout, a reset) is the
+# same kind of transient: Wi-Fi or VPN flickering, a dual-stack IPv6 route failing for a moment.
+# It used to fail the whole job instantly because only Google's own 429/503 were retried — a
+# single blip lost a discovery run mid-pipeline. Module constants so tests can zero the waits.
+_RETRY_ATTEMPTS = 4
+_RETRY_WAIT_MULTIPLIER = 2.0
+_RETRY_WAIT_MIN = 2.0
+_RETRY_WAIT_MAX = 15.0
 
 
 def _is_quota_exhausted(exc: genai_errors.APIError) -> bool:
@@ -43,6 +53,8 @@ def _is_quota_exhausted(exc: genai_errors.APIError) -> bool:
 
 
 def _is_retryable_gemini_error(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.TransportError):
+        return True  # connection never opened / dropped mid-flight: worth another try
     if not isinstance(exc, genai_errors.APIError):
         return False
     if _is_quota_exhausted(exc):
@@ -74,14 +86,23 @@ async def generate_content_with_retry(
     """Shared call path for both Gemini consumers (Market Discovery parsing, Recommendation
     generation) — retries transient overload/rate-limit errors, lets everything else (bad
     request, auth failure, malformed schema) fail immediately since retrying those never helps."""
-    async for attempt in AsyncRetrying(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_retryable_gemini_error),
-        reraise=True,
-    ):
-        with attempt:
-            return await client.aio.models.generate_content(**kwargs)
+    try:
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(_RETRY_ATTEMPTS),
+            wait=wait_exponential(
+                multiplier=_RETRY_WAIT_MULTIPLIER, min=_RETRY_WAIT_MIN, max=_RETRY_WAIT_MAX
+            ),
+            retry=retry_if_exception(_is_retryable_gemini_error),
+            reraise=True,
+        ):
+            with attempt:
+                return await client.aio.models.generate_content(**kwargs)
+    except httpx.TransportError as exc:
+        raise GeminiClientError(
+            f"Could not reach Gemini after {_RETRY_ATTEMPTS} tries — this is a network problem "
+            f"on this machine, not a Gemini or configuration problem. Check the internet/VPN "
+            f"connection and try again. ({exc})"
+        ) from exc
     raise AssertionError("unreachable — AsyncRetrying always returns or raises")
 
 

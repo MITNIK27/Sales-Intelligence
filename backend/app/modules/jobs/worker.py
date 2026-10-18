@@ -52,8 +52,8 @@ _HANDLERS = {
 
 
 async def _process_one_job(job: Job) -> None:
-    async def progress_callback(done: int, total: int) -> None:
-        await report_job_progress(job.id, {"done": done, "total": total})
+    async def progress_callback(done: int, total: int, **extra: object) -> None:
+        await report_job_progress(job.id, {"done": done, "total": total, **extra})
 
     logger.info("job started: %s (%s)", job.id, job.job_type)
     async with SessionLocal() as session:

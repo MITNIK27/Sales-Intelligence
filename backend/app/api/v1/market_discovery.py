@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,14 +14,17 @@ from app.modules.ingestion.market_discovery import (
     get_market_discovery_run,
     start_market_discovery_parse,
 )
+from app.modules.ingestion.models import STATUS_DONE, STATUS_PENDING, STATUS_RUNNING
+from app.modules.ingestion.run_results import build_run_worklist
 from app.modules.ingestion.schemas import (
     MarketDiscoveryConfirmRequest,
     MarketDiscoveryParsed,
     MarketDiscoveryParseRequest,
     MarketDiscoveryRunOut,
     MarketDiscoveryStarted,
+    MarketDiscoveryWorklistOut,
 )
-from app.modules.jobs.service import enqueue_job
+from app.modules.jobs.service import enqueue_job, find_job_for_run
 from app.modules.orchestrator.service import JOB_TYPE_AUTO_PIPELINE
 from app.modules.products.service import list_products
 from app.modules.qualification.service import JOB_TYPE_BULK_QUALIFY
@@ -49,6 +53,26 @@ async def confirm_market_discovery_endpoint(
     body: MarketDiscoveryConfirmRequest,
     session: AsyncSession = Depends(get_db),
 ) -> MarketDiscoveryStarted:
+    # Confirming must be idempotent: a second click (another tab, a double submit) used to enqueue
+    # a SECOND pipeline job for the same run, which re-ran qualification and role classification
+    # (extra Gemini calls, duplicate result rows) and overwrote the run's summary. A run that is
+    # already pending/running/done just hands back its existing job; only a failed run (or one
+    # still awaiting confirmation) starts a new one.
+    existing_run = await get_market_discovery_run(session, DEFAULT_ORGANIZATION_ID, run_id)
+    if existing_run is not None and existing_run.status in (
+        STATUS_PENDING,
+        STATUS_RUNNING,
+        STATUS_DONE,
+    ):
+        existing_job = await find_job_for_run(
+            session, DEFAULT_ORGANIZATION_ID, JOB_TYPE_AUTO_PIPELINE, run_id
+        )
+        if existing_job is None:
+            raise HTTPException(
+                status_code=409, detail="this run was already confirmed; start a new search"
+            )
+        return MarketDiscoveryStarted(job_id=existing_job.id)
+
     run = await confirm_market_discovery(
         session,
         DEFAULT_ORGANIZATION_ID,
@@ -76,6 +100,7 @@ async def confirm_market_discovery_endpoint(
         {
             "ingestion_run_id": str(run.id),
             "product_id": str(product_id) if product_id else None,
+            "market_fit_criteria": [c.model_dump() for c in body.market_fit_criteria],
         },
     )
     await session.commit()
@@ -104,6 +129,24 @@ async def qualify_run_companies_endpoint(
     )
     await session.commit()
     return MarketDiscoveryStarted(job_id=job.id)
+
+
+@router.get("/{run_id}/companies", response_model=MarketDiscoveryWorklistOut)
+async def get_market_discovery_worklist_endpoint(
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> MarketDiscoveryWorklistOut:
+    """The rep-facing result of a run: `ready` (qualified + primary contact + draft) and
+    `not_shown` (everything else, each with a one-line reason)."""
+    run = await get_market_discovery_run(session, DEFAULT_ORGANIZATION_ID, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="market discovery run not found")
+    worklist = await build_run_worklist(session, DEFAULT_ORGANIZATION_ID, run_id)
+    return MarketDiscoveryWorklistOut.model_validate(
+        {
+            "ready": [asdict(r) for r in worklist.ready],
+            "not_shown": [asdict(r) for r in worklist.not_shown],
+        }
+    )
 
 
 @router.get("/{run_id}", response_model=MarketDiscoveryRunOut)

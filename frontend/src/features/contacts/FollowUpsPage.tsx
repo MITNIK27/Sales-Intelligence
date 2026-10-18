@@ -38,7 +38,6 @@ export function FollowUpsPage() {
 
   const header = (
     <PageHeader
-      eyebrow="Contacts"
       title="Follow-ups Due"
       description="Contacts whose next follow-up date is today or in the past."
     />

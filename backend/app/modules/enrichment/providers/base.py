@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 # Shared between WebsiteScraperProvider's on-page heading heuristic and the search-based contact
 # provider — same "which titles count as a decision-maker worth surfacing" vocabulary either way,
@@ -61,6 +61,15 @@ class ScrapedCompanyData:
     employee_count_range: str | None = None
     industry: str | None = None
     pages_fetched: list[FetchedPage] = field(default_factory=list)
+    # Provenance prefix for the EnrichmentRecords written for `pages_fetched` — lets a record say
+    # which provider actually produced a page when several can feed the same pipeline.
+    source_label: str = "scraper:companysite"
+    # Provider-specific raw firmographics blob (e.g. context.dev's brand JSON: logo, HQ, socials)
+    # persisted verbatim in an EnrichmentRecord, so richer fields are kept without a schema change.
+    raw_brand: dict[str, Any] | None = None
+    # Which provider produced each filled field ({"industry": "contextdev:brand", ...}); fields
+    # not listed came from `source_label`. Lets provenance stay accurate when providers are mixed.
+    field_sources: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -68,6 +77,12 @@ class ScrapedContact:
     full_name: str
     role_title: str | None = None
     email: str | None = None
+    # Set by search-based discovery: the person's public profile, how sure we are they work at
+    # this company (0..1), the text that convinced us, and which provider produced it.
+    linkedin_url: str | None = None
+    confidence: float | None = None
+    source_snippet: str | None = None
+    source: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +91,8 @@ class ScrapedSignal:
     text: str
     url: str
     date: str | None = None
+    source_label: str = "scraper:companysite"
+    summary: str | None = None
 
 
 class DomainDiscoveryProvider(ABC):

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,6 +29,30 @@ class Settings(BaseSettings):
 
     scraper_user_agent: str = "SalesIntelligenceBot/0.1 (+internal tool)"
     scraper_request_delay_seconds: float = 1.0
+    # Hard wall-clock ceilings. httpx's own timeout is per network read, so a server that
+    # trickles bytes (observed: dhl.com) is never cut off and, in the serial job worker, would
+    # stall a whole pipeline run. One request, and one company's whole scrape, are bounded here.
+    scraper_hard_timeout_seconds: float = 20.0
+    scraper_company_timeout_seconds: float = 45.0
+
+    # context.dev (https://docs.context.dev) — brand/firmographics, news and JS-rendered page
+    # scraping behind one API key. Evaluated on the feat/new-pipeline branch; see
+    # docs/decisions/0012-context-dev-evaluation.md. Unset key is a valid, graceful state: the
+    # factory falls back to the in-house scraper rather than erroring.
+    context_dev_api_key: str | None = None
+    context_dev_timeout_seconds: float = 30.0
+    # Hard stop on context.dev spend within one run (jobs build their own provider, so this is a
+    # per-run total). Once reached, further paid calls are skipped and the run carries on with
+    # scraper data only. Estimated cost: brand 10, page scrape 1, news 1.
+    context_dev_max_credits_per_run: int = 150
+    # Which source feeds company firmographics + signals in every enrichment path:
+    #   scraper                          — in-house WebsiteScraperProvider only (the default)
+    #   contextdev                       — context.dev only
+    #   scraper_with_contextdev_fallback — scraper first; context.dev fills what it couldn't
+    #                                      (industry, failed homepages) and adds news signals
+    company_data_source: Literal[
+        "scraper", "contextdev", "scraper_with_contextdev_fallback"
+    ] = "scraper"
 
     # Google Custom Search JSON API — used only for domain discovery when a company has no
     # domain on file. Both unset is a valid, graceful state (GoogleCustomSearchProvider just
@@ -79,6 +104,10 @@ class Settings(BaseSettings):
     # stays a controlled, reviewable allowlist rather than something a rep can widen by accident.
     contact_search_trusted_domains: list[str] = ["linkedin.com"]
     contact_search_enabled: bool = True  # off skips the extra Serper call entirely
+    # A search-found person scoring below `min` is dropped (company association not established
+    # strongly enough); between min and `likely` is kept but flagged low-confidence.
+    contact_confidence_min: float = 0.6
+    contact_confidence_likely: float = 0.8
 
     # One-Prompt Pipeline Orchestration (orchestrator/service.py). Safety cap on how many
     # qualified companies get carried through to role-classification and drafting in one

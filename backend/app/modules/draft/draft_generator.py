@@ -20,6 +20,7 @@ from app.modules.ai_recommendation.gemini_client import (
 from app.modules.ai_recommendation.models import Recommendation
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
+from app.modules.draft.evidence import DraftEvidence, format_evidence
 from app.modules.draft.models import DRAFT_TYPE_FIRST_TOUCH
 from app.modules.draft.prompts import (
     FIRST_TOUCH_PROMPT_TEMPLATE,
@@ -69,6 +70,7 @@ class DraftGenerator(ABC):
         recommendation: Recommendation | None,
         framing_style: str,
         draft_type: str,
+        evidence: DraftEvidence | None = None,
     ) -> DraftResult: ...
 
 
@@ -88,6 +90,7 @@ class GeminiDraftGenerator(DraftGenerator):
         recommendation: Recommendation | None,
         framing_style: str,
         draft_type: str,
+        evidence: DraftEvidence | None = None,
     ) -> DraftResult:
         if not self._settings.gemini_api_key:
             raise GeminiClientError("GEMINI_API_KEY is not configured")
@@ -108,6 +111,7 @@ class GeminiDraftGenerator(DraftGenerator):
             product_description=product.description or "No description available.",
             grounding_section=grounding_section,
             grounding_instruction=grounding_instruction,
+            evidence_section=format_evidence(evidence),
             framing_instruction=framing_instruction(framing_style),
             style_reference=STYLE_REFERENCE_EXAMPLES,
         )

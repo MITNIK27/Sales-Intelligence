@@ -11,6 +11,7 @@ Heuristic and low-confidence by nature — a search-result title is a much noisi
 company's own team page — so every result stays reviewable (`Contact.needs_review=True`) rather
 than treated as ground truth. See ADR 0010."""
 
+import re
 from abc import ABC, abstractmethod
 
 from app.core.config import Settings
@@ -49,15 +50,72 @@ def _find_role_title(segments: list[str], snippet: str) -> str | None:
     return None
 
 
-def _parse_result(item: dict[str, str]) -> ScrapedContact | None:
+_COMPANY_SUFFIXES = frozenset(
+    {
+        "inc", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "group", "gmbh",
+        "ag", "sa", "se", "nv", "bv", "plc", "holding", "holdings", "the", "and",
+    }
+)
+SOURCE_LABEL = "serper:linkedin"
+
+# Confidence is built from independent pieces of evidence; each is worth a fixed share. Both the
+# company AND the role in the profile headline (the segments after the name) is the strong case.
+_W_PROFILE_URL = 0.2
+_W_COMPANY_IN_TITLE, _W_COMPANY_IN_SNIPPET = 0.45, 0.25
+_W_ROLE_IN_TITLE, _W_ROLE_IN_SNIPPET = 0.3, 0.15
+
+
+def normalize_linkedin_profile_url(link: str | None) -> str | None:
+    """A person's public profile (`linkedin.com/in/<handle>`) in canonical form, or None for a
+    company page, job post, search page, or anything else that is not a person."""
+    if not link:
+        return None
+    match = re.match(
+        r"^https?://(?:[a-z]{2,3}\.)?(?:www\.)?linkedin\.com/in/([^/?#\s]+)", link.strip(), re.I
+    )
+    if not match:
+        return None
+    return f"https://www.linkedin.com/in/{match.group(1).lower()}"
+
+
+def _company_tokens(company_name: str | None, domain: str | None) -> list[str]:
+    """Phrases that identify the company in free text: its name without legal suffixes, and the
+    first label of its domain (dpd.com -> dpd)."""
+    tokens: list[str] = []
+    if company_name:
+        words = [w for w in re.split(r"[^a-z0-9]+", company_name.lower()) if w]
+        core = [w for w in words if w not in _COMPANY_SUFFIXES]
+        if core:
+            tokens.append(" ".join(core))
+    if domain:
+        label = domain.lower().removeprefix("www.").split(".")[0]
+        if len(label) >= 3 and label not in tokens:
+            tokens.append(label)
+    return tokens
+
+
+def _mentions(text: str, tokens: list[str]) -> bool:
+    lowered = text.lower()
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(t)}(?![a-z0-9])", lowered) for t in tokens)
+
+
+def _parse_result(
+    item: dict[str, str], company_name: str | None = None, domain: str | None = None
+) -> ScrapedContact | None:
     """A LinkedIn-style search result title is consistently shaped
     "Name - Title - Company | LinkedIn" or "Name | LinkedIn" — split on " | " to drop the
-    trailing site name, then on " - " for name/title/company segments. Rejects anything whose
-    first segment doesn't look like a person's name, and (same guardrail as the website scraper)
-    requires an actual decision-maker keyword hit somewhere before accepting the result at all —
-    a name-only match with no evident title is too weak a signal to surface."""
+    trailing site name, then on " - " for name/title/company segments.
+
+    Accepts a result only when it is a real person profile (`/in/<handle>` link), the first
+    segment looks like a person's name, a decision-maker role is evident, and — when the company
+    is known — the company appears in the profile headline or snippet OUTSIDE the person's own
+    name (so "Jackie Hermes" never matches a search for the company Hermes). The returned
+    confidence reflects how much of that was found in the headline versus only the snippet."""
     title = (item.get("title") or "").strip()
     if not title:
+        return None
+    profile_url = normalize_linkedin_profile_url(item.get("link"))
+    if profile_url is None:
         return None
     segments = [s.strip() for s in title.split(" | ")[0].split(" - ") if s.strip()]
     if not segments:
@@ -67,11 +125,41 @@ def _parse_result(item: dict[str, str]) -> ScrapedContact | None:
     if not looks_like_person_name(name):
         return None
 
-    role_title = _find_role_title(segments[1:], item.get("snippet") or "")
+    snippet = item.get("snippet") or ""
+    role_title = _find_role_title(segments[1:], snippet)
     if role_title is None:
         return None
 
-    return ScrapedContact(full_name=name, role_title=role_title, email=None)
+    headline = " - ".join(segments[1:])
+    # The snippet usually opens with the person's name; blank it out before looking for the
+    # company so a surname equal to the company name cannot count as a match.
+    snippet_without_name = re.sub(re.escape(name), " ", snippet, flags=re.I)
+    confidence = _W_PROFILE_URL
+    if any(kw in headline.lower() for kw in DECISION_MAKER_KEYWORDS):
+        confidence += _W_ROLE_IN_TITLE
+    else:
+        confidence += _W_ROLE_IN_SNIPPET
+
+    tokens = _company_tokens(company_name, domain)
+    if tokens:
+        if _mentions(headline, tokens):
+            confidence += _W_COMPANY_IN_TITLE
+        elif _mentions(snippet_without_name, tokens):
+            confidence += _W_COMPANY_IN_SNIPPET
+        else:
+            return None  # company association not established
+    else:
+        confidence += _W_COMPANY_IN_SNIPPET  # no company to check against: neutral, not strong
+
+    return ScrapedContact(
+        full_name=name,
+        role_title=role_title,
+        email=None,
+        linkedin_url=profile_url,
+        confidence=round(min(confidence, 1.0), 2),
+        source_snippet=(snippet or title)[:300],
+        source=SOURCE_LABEL,
+    )
 
 
 class ContactSearchProvider(ABC):
@@ -98,7 +186,10 @@ class SerperContactSearchProvider(ContactSearchProvider):
         results = await self._search.search_raw(query, num=10)
         contacts: list[ScrapedContact] = []
         for item in results:
-            contact = _parse_result(item)
-            if contact is not None:
+            contact = _parse_result(item, company_name, domain)
+            if contact is not None and (
+                contact.confidence is None
+                or contact.confidence >= self._settings.contact_confidence_min
+            ):
                 contacts.append(contact)
         return contacts

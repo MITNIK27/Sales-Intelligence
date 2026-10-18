@@ -66,7 +66,6 @@ export function CriteriaListPage() {
     return (
       <div>
         <PageHeader
-          eyebrow="Qualification"
           title="Qualification Criteria"
           action={addAction}
         />
@@ -81,7 +80,6 @@ export function CriteriaListPage() {
     return (
       <div>
         <PageHeader
-          eyebrow="Qualification"
           title="Qualification Criteria"
           action={addAction}
         />
@@ -99,7 +97,6 @@ export function CriteriaListPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Qualification"
         title={`Qualification Criteria (${data.total})`}
         description="What makes a company worth pursuing — defined here, judged automatically later."
         action={addAction}

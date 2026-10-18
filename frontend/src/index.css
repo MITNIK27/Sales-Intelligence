@@ -131,3 +131,29 @@
   body { @apply bg-background text-foreground; }
   html { @apply font-sans; }
 }
+
+/* Slim scrollbars that sit inside the UI instead of the browser's wide default bar. The thumb is a
+   quiet grey that darkens on hover; the sidebar (dark ground) gets a light thumb. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent) transparent;
+}
+aside * {
+  scrollbar-color: rgb(255 255 255 / 0.28) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
+}
+aside *::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 0.28);
+}

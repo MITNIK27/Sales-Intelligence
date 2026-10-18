@@ -40,3 +40,30 @@ class DraftOut(BaseModel):
     model_used: str
     created_at: datetime
     updated_at: datetime
+
+
+class DraftListItem(BaseModel):
+    """One draft with enough context (who, where) to review it without opening the company."""
+
+    id: uuid.UUID
+    company_id: uuid.UUID
+    company_name: str
+    contact_id: uuid.UUID
+    contact_name: str | None
+    contact_role: str | None
+    draft_type: str
+    channel: str
+    subject: str | None
+    body: str
+    status: str
+    model_used: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class DraftListOut(BaseModel):
+    items: list[DraftListItem]
+    total: int  # matching the status filter
+    limit: int
+    offset: int
+    counts: dict[str, int]  # per status, always all three, regardless of the filter

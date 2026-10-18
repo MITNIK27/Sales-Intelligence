@@ -105,7 +105,6 @@ export function ProductFormPage() {
     <div>
       {backLink}
       <PageHeader
-        eyebrow="Products"
         title={isEdit ? "Edit product" : "Add product"}
         description="What your organization sells — used to generate sales recommendations for companies."
       />

@@ -12,7 +12,7 @@ from app.modules.jobs.models import STATUS_DONE, STATUS_FAILED, STATUS_PENDING, 
 # with nothing to notice or retry it. This is a coarse threshold, not a true heartbeat — a
 # legitimately slow job running longer than this gets wrongly requeued. Acceptable for now given
 # expected job durations; revisit if Phase 2 jobs routinely run this long.
-STALE_JOB_THRESHOLD = timedelta(minutes=30)
+STALE_JOB_THRESHOLD = timedelta(minutes=60)
 
 
 async def enqueue_job(
@@ -22,6 +22,23 @@ async def enqueue_job(
     session.add(job)
     await session.flush()
     return job
+
+
+async def find_job_for_run(
+    session: AsyncSession, organization_id: uuid.UUID, job_type: str, run_id: uuid.UUID
+) -> Job | None:
+    """The newest job of `job_type` whose payload points at `run_id`. Payloads are small and an
+    org has few jobs of one type, so matching in Python keeps this identical on Postgres and the
+    SQLite used in tests (no dialect-specific JSON path query)."""
+    stmt = (
+        select(Job)
+        .where(Job.organization_id == organization_id, Job.job_type == job_type)
+        .order_by(Job.created_at.desc())
+    )
+    for job in (await session.execute(stmt)).scalars():
+        if (job.payload or {}).get("ingestion_run_id") == str(run_id):
+            return job
+    return None
 
 
 async def claim_next_pending_job(session: AsyncSession) -> Job | None:

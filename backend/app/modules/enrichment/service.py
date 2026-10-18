@@ -1,10 +1,11 @@
+import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -16,25 +17,57 @@ from app.modules.companies.models import (
     ENRICHMENT_STATUS_PENDING,
     Company,
 )
-from app.modules.contacts.models import Contact
+from app.modules.contacts.models import CHANNEL_TYPE_EMAIL, CHANNEL_TYPE_LINKEDIN, Contact
 from app.modules.contacts.service import get_or_create_contact, upsert_contact_channel
 from app.modules.enrichment.models import ENTITY_TYPE_COMPANY, EnrichmentRecord
 from app.modules.enrichment.providers.base import (
     CompanyDataProvider,
     ContactDataProvider,
     DomainDiscoveryProvider,
+    FetchedPage,
+    ScrapedCompanyData,
+    ScrapedContact,
+    ScrapedSignal,
     SignalDataProvider,
 )
+from app.modules.enrichment.providers.context_dev import SOURCE_LABEL_BRAND, SOURCE_LABEL_NEWS
+from app.modules.enrichment.providers.factory import build_company_providers
 from app.modules.enrichment.providers.search_contacts import (
     ContactSearchProvider,
     SerperContactSearchProvider,
 )
 from app.modules.enrichment.providers.search_serper import SerperSearchProvider
 from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvider
+from app.modules.enrichment.signals import (
+    is_clean_payload,
+    normalize_signals,
+    normalize_title,
+    parse_published,
+)
 from app.modules.jobs.models import Job
 from app.modules.jobs.service import enqueue_job
 
 JOB_TYPE_SCRAPE_COMPANY = "scrape_company"
+
+# EnrichmentRecord.source is VARCHAR(100). Third-party news URLs (context.dev signals) routinely
+# exceed that on their own, and an over-long insert aborts the whole pipeline job. The full URL
+# is always kept in the record's raw_payload; `source` only needs the label prefix that
+# `list_company_signals` filters on, so the tail is what gets cut.
+_SOURCE_MAX_LEN = 100
+
+
+def _record_source(label: str, detail: str) -> str:
+    return f"{label}:{detail}"[:_SOURCE_MAX_LEN]
+
+
+# How much a field is trusted by where it came from: a structured brand record beats text pulled
+# from page HTML. Shown with the field so a rep can weigh it; not used to gate anything.
+def _source_confidence(source: str) -> float:
+    if source.startswith("contextdev:brand"):
+        return 0.9
+    if source.startswith("contextdev"):
+        return 0.8
+    return 0.7
 
 # One Job enqueued per company on a bulk trigger — capped so a single click can't accidentally
 # enqueue an unbounded number of jobs. Repeatable: the next call picks up whatever's still
@@ -53,6 +86,14 @@ class NeedsReviewEntry:
     contact_name: str | None
     reason: str
     flagged_at: datetime
+    # Who the flagged contact is, so a rep can judge it without opening the company: all optional,
+    # since a company-level flag has no contact.
+    contact_title: str | None = None
+    contact_email: str | None = None
+    contact_linkedin: str | None = None
+    contact_source: str | None = None
+    contact_confidence: float | None = None
+    company_domain: str | None = None
 
 
 async def start_company_scrape(
@@ -107,15 +148,17 @@ async def list_needs_review(
                 contact_name=None,
                 reason=company.needs_review_reason or "",
                 flagged_at=company.updated_at,
+                company_domain=company.domain,
             )
         )
 
     contact_stmt = (
         select(Contact)
         .where(Contact.organization_id == organization_id, Contact.needs_review.is_(True))
-        .options(selectinload(Contact.company))
+        .options(selectinload(Contact.company), selectinload(Contact.channels))
     )
     for contact in (await session.execute(contact_stmt)).scalars().all():
+        by_type = {channel.channel_type: channel.value for channel in contact.channels}
         entries.append(
             NeedsReviewEntry(
                 entity_type="contact",
@@ -125,6 +168,12 @@ async def list_needs_review(
                 contact_name=contact.full_name,
                 reason=contact.needs_review_reason or "",
                 flagged_at=contact.updated_at,
+                contact_title=contact.role_title,
+                contact_email=by_type.get(CHANNEL_TYPE_EMAIL),
+                contact_linkedin=by_type.get(CHANNEL_TYPE_LINKEDIN),
+                contact_source=contact.source,
+                contact_confidence=contact.confidence,
+                company_domain=contact.company.domain,
             )
         )
 
@@ -183,48 +232,99 @@ async def _enrich_company(
     else:
         await tick()
 
-    try:
-        company_data = await company_provider.fetch_company_data(domain)
-    except Exception as exc:  # noqa: BLE001 - surfaced as a retryable enrichment failure
-        company.enrichment_status = ENRICHMENT_STATUS_FAILED
-        company.enrichment_error = str(exc)
-        await session.flush()
-        return {"status": ENRICHMENT_STATUS_FAILED, "reason": str(exc)}
+    # Company data, signals and contact search are INDEPENDENT branches: a blocked website must
+    # not cost us the contacts or the news, and a failing news source must not fail the company.
+    # They run concurrently (network only); every database write happens afterwards, in order,
+    # because the session is not safe to share across concurrent tasks.
+    async def _no_search() -> list[ScrapedContact]:
+        return []
+
+    company_result, signals_result, search_result = await asyncio.gather(
+        company_provider.fetch_company_data(domain),
+        signal_provider.fetch_signals(domain),
+        contact_search_provider.search_contacts(company.name, domain)
+        if contact_search_provider is not None
+        else _no_search(),
+        return_exceptions=True,
+    )
     await tick()
+
+    branch_errors: dict[str, str] = {}
+    company_data: ScrapedCompanyData | None = None
+    if isinstance(company_result, BaseException):
+        branch_errors["company_data"] = str(company_result)
+    else:
+        company_data = company_result
+    signals: list[ScrapedSignal] = []
+    if isinstance(signals_result, BaseException):
+        branch_errors["signals"] = str(signals_result)
+    else:
+        signals = signals_result
+    searched_contacts: list[ScrapedContact] = []
+    if isinstance(search_result, BaseException):
+        branch_errors["contact_search"] = str(search_result)
+    else:
+        searched_contacts = search_result
 
     if not company.domain:
         company.domain = domain
     if domain_discovered:
         company.needs_review = True
         company.needs_review_reason = "domain found via search API, not confirmed"
-    if not company.description and company_data.description:
-        company.description = company_data.description
-    if not company.employee_count_range and company_data.employee_count_range:
-        company.employee_count_range = company_data.employee_count_range
-    if not company.industry and company_data.industry:
-        company.industry = company_data.industry
 
     now = datetime.now(UTC)
-    for page in company_data.pages_fetched:
-        session.add(
-            EnrichmentRecord(
-                organization_id=organization_id,
-                entity_type=ENTITY_TYPE_COMPANY,
-                entity_id=company.id,
-                source=f"scraper:companysite:{page.url}",
-                raw_payload={
-                    "url": page.url,
-                    "status_code": page.status_code,
-                    "description": company_data.description,
-                    "employee_count_range": company_data.employee_count_range,
-                },
-                fetched_at=now,
+    now_iso = now.isoformat()
+    pages: list[FetchedPage] = []
+    if company_data is not None:
+        pages = company_data.pages_fetched
+        provenance = dict(company.field_provenance or {})
+        for field_name in ("description", "employee_count_range", "industry"):
+            value = getattr(company_data, field_name)
+            if not getattr(company, field_name) and value:
+                setattr(company, field_name, value)
+                source = company_data.field_sources.get(field_name, company_data.source_label)
+                provenance[field_name] = {
+                    "source": source,
+                    "confidence": _source_confidence(source),
+                    "fetched_at": now_iso,
+                }
+        company.field_provenance = provenance
+
+        for page in pages:
+            session.add(
+                EnrichmentRecord(
+                    organization_id=organization_id,
+                    entity_type=ENTITY_TYPE_COMPANY,
+                    entity_id=company.id,
+                    source=_record_source(company_data.source_label, page.url),
+                    raw_payload={
+                        "url": page.url,
+                        "status_code": page.status_code,
+                        "description": company_data.description,
+                        "employee_count_range": company_data.employee_count_range,
+                    },
+                    fetched_at=now,
+                )
             )
-        )
+        if company_data.raw_brand is not None:
+            session.add(
+                EnrichmentRecord(
+                    organization_id=organization_id,
+                    entity_type=ENTITY_TYPE_COMPANY,
+                    entity_id=company.id,
+                    source=_record_source(SOURCE_LABEL_BRAND, domain),
+                    raw_payload=company_data.raw_brand,
+                    fetched_at=now,
+                )
+            )
 
     contacts_found = 0
     contacts_flagged = 0
-    scraped_contacts = await contact_provider.fetch_contacts(domain, company_data.pages_fetched)
+    scraped_contacts: list[ScrapedContact] = []
+    try:
+        scraped_contacts = await contact_provider.fetch_contacts(domain, pages)
+    except Exception as exc:  # noqa: BLE001 - one branch's failure must not sink the company
+        branch_errors["page_contacts"] = str(exc)
     for scraped in scraped_contacts:
         async with session.begin_nested():
             contact, _created = await get_or_create_contact(
@@ -246,43 +346,49 @@ async def _enrich_company(
             if contact.needs_review:
                 contacts_flagged += 1
 
-    if contact_search_provider is not None:
-        searched_contacts = await contact_search_provider.search_contacts(company.name, domain)
-        for searched in searched_contacts:
-            async with session.begin_nested():
-                contact, created = await get_or_create_contact(
-                    session,
-                    organization_id,
-                    company_id=company.id,
-                    full_name=searched.full_name,
-                    role_title=searched.role_title,
-                    email=None,
-                )
-                if created:
-                    contact.needs_review = True
-                    contact.needs_review_reason = "found via contact search, not confirmed"
-                    contacts_found += 1
-                    contacts_flagged += 1
+    for searched in searched_contacts:
+        async with session.begin_nested():
+            created = await _store_searched_contact(session, organization_id, company, searched)
+            if created:
+                contacts_found += 1
+                contacts_flagged += 1
     await tick()
 
-    signals = await signal_provider.fetch_signals(domain)
+    raw_signal_count = len(signals)
+    signals = normalize_signals(signals)
     for signal in signals:
         session.add(
             EnrichmentRecord(
                 organization_id=organization_id,
                 entity_type=ENTITY_TYPE_COMPANY,
                 entity_id=company.id,
-                source=f"scraper:companysite:signals:{signal.url}",
+                source=_record_source(f"{signal.source_label}:signals", signal.url),
                 raw_payload={
                     "signal_type": signal.signal_type,
                     "text": signal.text,
                     "url": signal.url,
                     "date": signal.date,
+                    "summary": signal.summary,
+                    "provider": signal.source_label,
                 },
                 fetched_at=now,
             )
         )
     await tick()
+
+    if company_data is None:
+        # No firmographics from any provider. The contacts and signals gathered above are kept,
+        # but the company itself is marked failed so it can be retried.
+        company.enrichment_status = ENRICHMENT_STATUS_FAILED
+        company.enrichment_error = branch_errors.get("company_data", "no company data")
+        await session.flush()
+        return {
+            "status": ENRICHMENT_STATUS_FAILED,
+            "reason": company.enrichment_error,
+            "contacts_found": contacts_found,
+            "signals_found": len(signals),
+            "branch_errors": branch_errors,
+        }
 
     company.enrichment_status = ENRICHMENT_STATUS_ENRICHED
     company.last_enriched_at = now
@@ -296,7 +402,52 @@ async def _enrich_company(
         "contacts_found": contacts_found,
         "contacts_flagged": contacts_flagged,
         "signals_found": len(signals),
+        "signals_filtered_out": raw_signal_count - len(signals),
+        "firmographics_source": company_data.source_label,
+        "industry_filled": bool(company.industry),
+        "branch_errors": branch_errors,
     }
+
+
+async def _store_searched_contact(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    company: Company,
+    searched: ScrapedContact,
+) -> bool:
+    """Saves one search-found person: the contact (flagged for the rep's confirmation - nothing
+    found by search is ever treated as verified), its source and confidence, and its LinkedIn
+    profile as a channel. Returns True when a new contact was created."""
+    contact, created = await get_or_create_contact(
+        session,
+        organization_id,
+        company_id=company.id,
+        full_name=searched.full_name,
+        role_title=searched.role_title,
+        email=None,
+    )
+    if created:
+        settings = get_settings()
+        contact.needs_review = True
+        if searched.confidence is None:
+            contact.needs_review_reason = "found via contact search, not confirmed"
+        elif searched.confidence >= settings.contact_confidence_likely:
+            contact.needs_review_reason = "found via contact search (likely match), not confirmed"
+        else:
+            contact.needs_review_reason = (
+                "found via contact search, low confidence - check the company"
+            )
+        contact.source = searched.source
+        contact.confidence = searched.confidence
+    if searched.linkedin_url:
+        await upsert_contact_channel(
+            session,
+            contact.id,
+            CHANNEL_TYPE_LINKEDIN,
+            searched.linkedin_url,
+            source=searched.source,
+        )
+    return created
 
 
 async def search_company_contacts(
@@ -320,7 +471,8 @@ async def search_company_contacts(
     )
     found_ids: list[uuid.UUID] = []
     for searched in searched_contacts:
-        contact, created = await get_or_create_contact(
+        await _store_searched_contact(session, organization_id, company, searched)
+        contact, _ = await get_or_create_contact(
             session,
             organization_id,
             company_id=company.id,
@@ -328,9 +480,6 @@ async def search_company_contacts(
             role_title=searched.role_title,
             email=None,
         )
-        if created:
-            contact.needs_review = True
-            contact.needs_review_reason = "found via contact search, not confirmed"
         found_ids.append(contact.id)
     await session.flush()
     if not found_ids:
@@ -387,15 +536,16 @@ async def process_scrape_company_job(
     settings = get_settings()
     domain_provider = SerperSearchProvider(settings)
     scraper = WebsiteScraperProvider(settings)
+    providers = build_company_providers(settings, scraper)
     contact_search_provider = SerperContactSearchProvider(settings, domain_provider)
     try:
         return await _run_scrape(
             session,
             job,
             domain_provider,
+            providers.company,
             scraper,
-            scraper,
-            scraper,
+            providers.signals,
             progress_callback,
             contact_search_provider,
         )
@@ -419,7 +569,10 @@ async def list_company_signals(
             EnrichmentRecord.organization_id == organization_id,
             EnrichmentRecord.entity_type == ENTITY_TYPE_COMPANY,
             EnrichmentRecord.entity_id == company_id,
-            EnrichmentRecord.source.like("scraper:companysite:signals:%"),
+            or_(
+                EnrichmentRecord.source.like("scraper:companysite:signals:%"),
+                EnrichmentRecord.source.like(f"{SOURCE_LABEL_NEWS}:signals:%"),
+            ),
         )
         .order_by(EnrichmentRecord.fetched_at.desc())
     )
@@ -428,9 +581,19 @@ async def list_company_signals(
     deduped: list[EnrichmentRecord] = []
     seen: set[tuple[str, str]] = set()
     for record in records:
-        key = (record.raw_payload.get("signal_type", ""), record.raw_payload.get("text", ""))
+        payload = record.raw_payload or {}
+        if not is_clean_payload(payload):
+            continue  # page chrome stored before filtering existed
+        key = (payload.get("signal_type", ""), normalize_title(str(payload.get("text", ""))))
         if key in seen:
             continue
         seen.add(key)
         deduped.append(record)
+
+    # Newest story first by its own publication date (undated ones keep fetch order, last).
+    def _recency(record: EnrichmentRecord) -> float:
+        published = parse_published((record.raw_payload or {}).get("date"))
+        return published.timestamp() if published else float("-inf")
+
+    deduped.sort(key=_recency, reverse=True)
     return deduped

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api.v1.companies import router as companies_router
 from app.api.v1.contacts import router as contacts_router
+from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.drafts import company_router as draft_company_router
 from app.api.v1.drafts import draft_router
 from app.api.v1.enrichment import router as enrichment_router
@@ -29,6 +30,7 @@ app.include_router(ingestion_router, prefix="/api/v1")
 app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(companies_router, prefix="/api/v1")
 app.include_router(contacts_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/v1")
 app.include_router(draft_company_router, prefix="/api/v1")
 app.include_router(draft_router, prefix="/api/v1")
 app.include_router(enrichment_router, prefix="/api/v1")

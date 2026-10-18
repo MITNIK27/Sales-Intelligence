@@ -60,7 +60,7 @@ export function RoleCategoryListPage() {
   if (error) {
     return (
       <div>
-        <PageHeader eyebrow="Role Relevance" title="Role Categories" action={addAction} />
+        <PageHeader title="Role Categories" action={addAction} />
         <Card>
           <ErrorState message={error} onRetry={loadCategories} />
         </Card>
@@ -71,7 +71,7 @@ export function RoleCategoryListPage() {
   if (!data) {
     return (
       <div>
-        <PageHeader eyebrow="Role Relevance" title="Role Categories" action={addAction} />
+        <PageHeader title="Role Categories" action={addAction} />
         <Card className="p-6">
           <SkeletonLines lines={6} />
         </Card>
@@ -86,7 +86,6 @@ export function RoleCategoryListPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Role Relevance"
         title={`Role Categories (${data.total})`}
         description="Which functions matter for outreach — a contact's title is matched against these, not against a fixed list."
         action={addAction}

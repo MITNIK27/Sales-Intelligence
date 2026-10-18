@@ -117,7 +117,6 @@ export function CriterionFormPage() {
     <div>
       {backLink}
       <PageHeader
-        eyebrow="Qualification"
         title={isEdit ? "Edit criterion" : "Add criterion"}
         description="What a company needs to show to be worth pursuing — reasoned against later, not hardcoded."
       />

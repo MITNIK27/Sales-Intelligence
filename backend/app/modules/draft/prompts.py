@@ -94,6 +94,8 @@ What's being offered:
 
 {grounding_section}
 
+{evidence_section}
+
 Write:
 - subject: a short, specific, non-clickbait subject line that names the specific trigger/hook, \
 not a generic label.
@@ -131,6 +133,8 @@ What's being offered:
 - Product/service: {product_name} — {product_description}
 
 {grounding_section}
+
+{evidence_section}
 
 Write:
 - subject: a short, specific subject line (can reference the prior email lightly, but the body \

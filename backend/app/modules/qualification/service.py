@@ -16,17 +16,19 @@ from app.modules.enrichment.providers.base import (
     DomainDiscoveryProvider,
     SignalDataProvider,
 )
+from app.modules.enrichment.providers.factory import build_company_providers
 from app.modules.enrichment.providers.search_serper import SerperSearchProvider
 from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvider
 from app.modules.enrichment.service import _enrich_company, list_company_signals
 from app.modules.jobs.models import Job
+from app.modules.qualification.evidence import describe_source, status_for_verdict
 from app.modules.qualification.models import QualificationCriterion, QualificationResult
 from app.modules.qualification.qualification_generator import (
     GeminiQualificationGenerator,
     QualificationGenerator,
 )
 
-ProgressCallback = Callable[[int, int], Awaitable[None]]
+ProgressCallback = Callable[..., Awaitable[None]]
 JOB_TYPE_BULK_QUALIFY = "bulk_qualify"
 JOB_TYPE_ADHOC_QUALIFY = "adhoc_qualify"
 
@@ -132,6 +134,30 @@ class NoCriteriaConfiguredError(Exception):
     judging against nothing isn't a qualification. The router surfaces this as a 422."""
 
 
+def build_run_criteria(
+    organization_id: uuid.UUID, specs: list[dict[str, Any]] | None
+) -> list[QualificationCriterion]:
+    """Turns the per-search "hard requirements" from the confirm card into transient criteria.
+    They are always hard (that is the point of defining them for a search), have fresh ids and
+    are never added to a session — they exist only for this run's judgments."""
+    criteria: list[QualificationCriterion] = []
+    for spec in specs or []:
+        name = str(spec.get("name") or "").strip()
+        if not name:
+            continue
+        criteria.append(
+            QualificationCriterion(
+                id=uuid.uuid4(),
+                organization_id=organization_id,
+                name=name[:255],
+                description=(str(spec.get("description") or "").strip() or None),
+                is_disqualifying=True,
+                is_active=True,
+            )
+        )
+    return criteria
+
+
 def _compute_overall_verdict(criteria_results: list[dict[str, object]]) -> str:
     """Deterministic — never decided by the LLM. Only `is_disqualifying` ("hard requirement")
     criteria gate the overall verdict; non-disqualifying criteria are informational context for
@@ -150,6 +176,7 @@ async def judge_qualification(
     signals: list[EnrichmentRecord],
     criteria: list[QualificationCriterion],
     generator: QualificationGenerator,
+    run_criterion_ids: frozenset[str] = frozenset(),
 ) -> tuple[str, list[dict[str, object]]]:
     """Pure core: no session, no persistence. Calls the generator, snapshots each criterion AS
     JUDGED (not a live reference — a later edit to the criterion must never rewrite this
@@ -163,16 +190,27 @@ async def judge_qualification(
             "Gemini did not return exactly one verdict per given criterion"
         )
 
-    criteria_results = [
-        {
-            "criterion_id": criterion_id,
-            "criterion_name": criterion.name,
-            "is_disqualifying": criterion.is_disqualifying,
-            "verdict": verdicts_by_id[criterion_id].verdict,
-            "reasoning": verdicts_by_id[criterion_id].reasoning,
-        }
-        for criterion_id, criterion in criteria_by_id.items()
-    ]
+    criteria_results: list[dict[str, object]] = []
+    for criterion_id, criterion in criteria_by_id.items():
+        item = verdicts_by_id[criterion_id]
+        criteria_results.append(
+            {
+                "criterion_id": criterion_id,
+                "criterion_name": criterion.name,
+                "is_disqualifying": criterion.is_disqualifying,
+                # "run" = defined for this search on the confirm card, "org" = saved criteria.
+                "scope": "run" if criterion_id in run_criterion_ids else "org",
+                "verdict": item.verdict,
+                # PASS / FAIL / UNKNOWN is the rep-facing vocabulary; `verdict` keeps the stored
+                # met / not_met / could_not_determine values so older rows and the badges agree.
+                "status": status_for_verdict(item.verdict),
+                "reasoning": item.reasoning,
+                "evidence_ref": item.evidence_ref,
+                "evidence_quote": item.evidence_quote,
+                "confidence": item.confidence,
+                **describe_source(item.evidence_ref, signals),
+            }
+        )
 
     return _compute_overall_verdict(criteria_results), criteria_results
 
@@ -182,18 +220,22 @@ async def run_qualification_check(
     organization_id: uuid.UUID,
     company_id: uuid.UUID,
     generator: QualificationGenerator,
+    extra_criteria: list[QualificationCriterion] | None = None,
 ) -> QualificationResult:
+    """`extra_criteria` are per-run requirements (never persisted) judged in the same call as the
+    organization's saved criteria."""
     company = await get_company_detail(session, organization_id, company_id)
     if company is None:
         raise CompanyNotFoundError(f"company {company_id} not found")
 
-    criteria = await list_active_criteria(session, organization_id)
+    extra = extra_criteria or []
+    criteria = [*await list_active_criteria(session, organization_id), *extra]
     if not criteria:
         raise NoCriteriaConfiguredError("no active qualification criteria configured")
 
     signals = await list_company_signals(session, organization_id, company_id)
     overall_verdict, criteria_results = await judge_qualification(
-        company, signals, criteria, generator
+        company, signals, criteria, generator, frozenset(str(c.id) for c in extra)
     )
 
     result = QualificationResult(
@@ -267,10 +309,18 @@ async def run_adhoc_qualification_job(
     settings = get_settings()
     domain_provider = SerperSearchProvider(settings)
     scraper = WebsiteScraperProvider(settings)
+    providers = build_company_providers(settings, scraper)
     generator = GeminiQualificationGenerator(settings)
     try:
         return await _run_adhoc_qualification(
-            session, job, domain_provider, scraper, scraper, scraper, generator, progress_callback
+            session,
+            job,
+            domain_provider,
+            providers.company,
+            scraper,
+            providers.signals,
+            generator,
+            progress_callback,
         )
     finally:
         await scraper.aclose()
@@ -296,6 +346,7 @@ async def _run_bulk_qualification(
     company_ids: list[uuid.UUID],
     generator: QualificationGenerator,
     progress_callback: ProgressCallback | None = None,
+    extra_criteria: list[QualificationCriterion] | None = None,
 ) -> dict[str, Any]:
     """Testable core — qualifies every given company id sequentially, same judgment core as a
     single check (`run_qualification_check`), so a Market Discovery run's newly-found companies
@@ -309,24 +360,34 @@ async def _run_bulk_qualification(
     failures. A single company's `GeminiClientError` (e.g. a transient Gemini hiccup) is caught
     and recorded in `errors` rather than aborting the rest of the batch — one bad company
     shouldn't cost every other company in the run its result."""
-    if not await list_active_criteria(session, organization_id):
+    if not extra_criteria and not await list_active_criteria(session, organization_id):
         raise NoCriteriaConfiguredError("no active qualification criteria configured")
 
     total = len(company_ids) or 1
     counts = {"qualified": 0, "not_qualified": 0, "could_not_determine": 0}
     qualified_company_ids: list[str] = []
+    needs_evidence_company_ids: list[str] = []
     errors: list[dict[str, str]] = []
     for i, company_id in enumerate(company_ids, start=1):
         try:
-            result = await run_qualification_check(session, organization_id, company_id, generator)
+            result = await run_qualification_check(
+                session, organization_id, company_id, generator, extra_criteria
+            )
             counts[result.overall_verdict] += 1
             if result.overall_verdict == "qualified":
                 qualified_company_ids.append(str(company_id))
+            elif result.overall_verdict == "could_not_determine":
+                needs_evidence_company_ids.append(str(company_id))
         except (CompanyNotFoundError, GeminiClientError) as exc:
             errors.append({"company_id": str(company_id), "error": str(exc)})
         if progress_callback:
             await progress_callback(i, total)
-    return {**counts, "qualified_company_ids": qualified_company_ids, "errors": errors}
+    return {
+        **counts,
+        "qualified_company_ids": qualified_company_ids,
+        "needs_evidence_company_ids": needs_evidence_company_ids,
+        "errors": errors,
+    }
 
 
 async def run_bulk_qualification_job(

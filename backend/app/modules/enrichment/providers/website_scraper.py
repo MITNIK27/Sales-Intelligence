@@ -8,6 +8,7 @@ import re
 import time
 import urllib.robotparser as robotparser
 from typing import Literal
+from urllib.parse import urljoin
 
 import httpx
 from bs4 import BeautifulSoup
@@ -24,6 +25,7 @@ from app.modules.enrichment.providers.base import (
     SignalDataProvider,
     looks_like_person_name,
 )
+from app.modules.enrichment.signals import is_clean_text
 
 logger = logging.getLogger(__name__)
 
@@ -70,18 +72,28 @@ class WebsiteScraperProvider(CompanyDataProvider, ContactDataProvider, SignalDat
         )
         self._robots_cache: dict[str, robotparser.RobotFileParser] = {}
         self._last_request_at: dict[str, float] = {}
+        # Hosts that just failed at the network level (timeout, connection refused). Every later
+        # page for such a host is skipped: a blocked site used to cost ~10-20s per path tried.
+        self._unreachable: set[str] = set()
 
     async def aclose(self) -> None:
         await self._client.aclose()
+
+    async def _get(self, url: str) -> httpx.Response:
+        """GET bounded by a hard wall-clock limit (see `scraper_hard_timeout_seconds`)."""
+        async with asyncio.timeout(self._settings.scraper_hard_timeout_seconds):
+            return await self._client.get(url)
 
     async def _robots_allows(self, domain: str, path: str) -> bool:
         rp = self._robots_cache.get(domain)
         if rp is None:
             rp = robotparser.RobotFileParser()
             try:
-                resp = await self._client.get(f"https://{domain}/robots.txt")
+                resp = await self._get(f"https://{domain}/robots.txt")
                 rp.parse(resp.text.splitlines() if resp.status_code == 200 else [])
-            except httpx.HTTPError:
+            except (httpx.HTTPError, TimeoutError) as exc:
+                if isinstance(exc, TimeoutError | httpx.TransportError):
+                    self._unreachable.add(domain)
                 rp.parse([])  # unreachable robots.txt -> default allow, same as "no robots.txt"
             self._robots_cache[domain] = rp
         return rp.can_fetch(self._settings.scraper_user_agent, path)
@@ -96,15 +108,19 @@ class WebsiteScraperProvider(CompanyDataProvider, ContactDataProvider, SignalDat
         self._last_request_at[domain] = time.monotonic()
 
     async def _fetch(self, domain: str, path: str) -> FetchedPage | None:
+        if domain in self._unreachable:
+            return None
         if not await self._robots_allows(domain, path):
             logger.info("robots.txt disallows %s%s, skipping", domain, path)
             return None
         await self._throttle(domain)
         url = f"https://{domain}{path}"
         try:
-            resp = await self._client.get(url)
-        except httpx.HTTPError as exc:
-            logger.info("fetch failed for %s: %s", url, exc)
+            resp = await self._get(url)
+        except (httpx.HTTPError, TimeoutError) as exc:
+            logger.info("fetch failed for %s: %s", url, exc or "hard timeout")
+            if isinstance(exc, TimeoutError | httpx.TransportError):
+                self._unreachable.add(domain)
             return None
         if resp.status_code != 200:
             return None
@@ -224,6 +240,10 @@ def extract_news_signals(html: str, url: str) -> list[ScrapedSignal]:
     seen: set[str] = set()
 
     for heading in soup.find_all(["h1", "h2", "h3", "article"]):
+        # Menus, headers and footers hold navigation, not news ("Track shipment", "Go to
+        # homepage"); job extraction already skips them, and so must this.
+        if heading.find_parent(["nav", "header", "footer"]):
+            continue
         # Pull a nested <time> out before reading the heading's text, so the date string
         # doesn't get appended onto the headline text itself.
         date: str | None = None
@@ -244,8 +264,16 @@ def extract_news_signals(html: str, url: str) -> list[ScrapedSignal]:
                     else sibling.get_text(strip=True)
                 )
 
+        link_el = heading if heading.name == "a" else heading.find("a", href=True)
+        if link_el is None:
+            link_el = heading.find_parent("a", href=True)
+        href = link_el.get("href") if link_el is not None else None
+        article_url = urljoin(url, href) if isinstance(href, str) and href else url
+
         text = heading.get_text(" ", strip=True)
         if not text or len(text) < 10 or len(text) > 200 or text in seen:
+            continue
+        if not is_clean_text("news", text):
             continue
         seen.add(text)
 
@@ -254,7 +282,7 @@ def extract_news_signals(html: str, url: str) -> list[ScrapedSignal]:
             if date_match:
                 date = date_match.group(0)
 
-        signals.append(ScrapedSignal(signal_type="news", text=text, url=url, date=date))
+        signals.append(ScrapedSignal(signal_type="news", text=text, url=article_url, date=date))
         if len(signals) >= _MAX_SIGNALS_PER_PAGE:
             break
     return signals

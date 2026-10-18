@@ -35,6 +35,12 @@ class NeedsReviewItem(BaseModel):
     contact_name: str | None
     reason: str
     flagged_at: datetime
+    contact_title: str | None = None
+    contact_email: str | None = None
+    contact_linkedin: str | None = None
+    contact_source: str | None = None
+    contact_confidence: float | None = None
+    company_domain: str | None = None
 
 
 class SignalItem(BaseModel):
@@ -43,3 +49,5 @@ class SignalItem(BaseModel):
     url: str
     date: str | None
     fetched_at: datetime
+    summary: str | None = None
+    provider: str | None = None  # "contextdev" | "scraper:companysite"

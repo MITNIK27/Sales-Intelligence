@@ -1,7 +1,7 @@
 import { Loader2, Sparkles } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { apiGet, apiPost } from "@/api/client";
 import type {
@@ -14,6 +14,7 @@ import type {
   Product,
   ProductList,
   QualificationCriterionList,
+  RoleCategoryList,
 } from "@/api/types";
 import { CouldNotDetermineBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
@@ -29,6 +30,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  MarketFitRequirements,
+  seedRequirements,
+  toRequestCriteria,
+} from "@/features/enrichment/MarketFitRequirements";
+import type { Requirement } from "@/features/enrichment/MarketFitRequirements";
+import { RunProgress } from "@/features/enrichment/RunProgress";
+import { RunWorklist } from "@/features/enrichment/RunWorklist";
+import { usePersistentState } from "@/lib/usePersistentState";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -40,19 +50,31 @@ type BulkQualifyResult = {
 };
 
 export function MarketDiscoveryPage() {
-  const [rawInput, setRawInput] = useState("");
+  // Inputs and ids are remembered across page switches (see usePersistentState); the job and run
+  // themselves are re-fetched from the server by id, so a finished run's results are still here
+  // when you come back, and a run still in progress keeps updating.
+  const [rawInput, setRawInput] = usePersistentState("md.rawInput", "");
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [runId, setRunId] = useState<string | null>(null);
-  const [industryKeywords, setIndustryKeywords] = useState("");
-  const [location, setLocation] = useState("");
-  const [employeeSizeRange, setEmployeeSizeRange] = useState("");
-  const [confidence, setConfidence] = useState<{
+  const [runId, setRunId] = usePersistentState<string | null>("md.runId", null);
+  const [jobId, setJobId] = usePersistentState<string | null>("md.jobId", null);
+  const [industryKeywords, setIndustryKeywords] = usePersistentState("md.industryKeywords", "");
+  const [location, setLocation] = usePersistentState("md.location", "");
+  const [employeeSizeRange, setEmployeeSizeRange] = usePersistentState("md.employeeSize", "");
+  const [requirements, setRequirements] = usePersistentState<Requirement[]>("md.requirements", []);
+  const [confidence, setConfidence] = usePersistentState<{
     industry_keywords: string;
     location: string;
     employee_size_range: string;
-  } | null>(null);
+  } | null>("md.confidence", null);
+
+  // A prompt handed over from the dashboard's search box (router state). Consumed once.
+  const routerLocation = useLocation();
+  const navigate = useNavigate();
+  const handoffPrompt = (routerLocation.state as { prompt?: string } | null)?.prompt ?? null;
+  const handoffStarted = useRef(false);
+  const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
 
   const [confirming, setConfirming] = useState(false);
   const [job, setJob] = useState<JobStatus | null>(null);
@@ -65,12 +87,111 @@ export function MarketDiscoveryPage() {
   const [qualifyJob, setQualifyJob] = useState<JobStatus | null>(null);
   const qualifyPollRef = useRef<number | null>(null);
 
+  const [activeRoleCategoryCount, setActiveRoleCategoryCount] = useState<number | null>(null);
   const [products, setProducts] = useState<Product[] | null>(null);
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [selectedProductId, setSelectedProductId] = usePersistentState("md.productId", "");
+
+  // Poll a pipeline job until it finishes, then load the finished run. Used both when a run is
+  // confirmed and when returning to the page while one is still going.
+  function startPolling(pollJobId: string, forRunId: string) {
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    pollRef.current = window.setInterval(async () => {
+      try {
+        const status = await apiGet<JobStatus>(`/jobs/${pollJobId}`);
+        setJob(status);
+        if (status.status === "done" || status.status === "failed") {
+          if (pollRef.current) window.clearInterval(pollRef.current);
+          const finishedRun = await apiGet<MarketDiscoveryRun>(`/market-discovery/${forRunId}`);
+          setRun(finishedRun);
+        }
+      } catch {
+        // One failed poll (a blip, a restart) must not end the loop — the next tick retries.
+      }
+    }, POLL_INTERVAL_MS);
+  }
+
+  function resetSearch() {
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    setRawInput("");
+    setRunId(null);
+    setJobId(null);
+    setIndustryKeywords("");
+    setLocation("");
+    setEmployeeSizeRange("");
+    setRequirements([]);
+    setConfidence(null);
+    setJob(null);
+    setRun(null);
+    setError(null);
+  }
+
+  // Restore a remembered run from the server (finished -> its results; still going -> keep polling).
+  async function restoreRun(restoreJobId: string, restoreRunId: string, isCancelled: () => boolean) {
+    try {
+      const status = await apiGet<JobStatus>(`/jobs/${restoreJobId}`);
+      if (isCancelled()) return;
+      setJob(status);
+      if (status.status === "done" || status.status === "failed") {
+        const finishedRun = await apiGet<MarketDiscoveryRun>(`/market-discovery/${restoreRunId}`);
+        if (!isCancelled()) setRun(finishedRun);
+      } else {
+        startPolling(restoreJobId, restoreRunId);
+      }
+    } catch {
+      // The remembered job no longer exists (e.g. the database was wiped): start clean rather
+      // than show a confirm form for a run that can't be resumed.
+      if (!isCancelled()) resetSearch();
+    }
+  }
+
+  // Coming back to the page: restore the last run from the server. When the dashboard handed over
+  // a prompt, the effect below decides instead (a running search is restored, anything else is
+  // replaced by the new search).
+  useEffect(() => {
+    if (handoffPrompt || !jobId || !runId) return;
+    let cancelled = false;
+    void restoreRun(jobId, runId, () => cancelled);
+    return () => {
+      cancelled = true;
+    };
+    // Runs once on mount, deliberately: it only restores what was remembered.
+  }, []);
+
+  // Arriving from the dashboard with a typed prompt: start that search (parse it and show the
+  // confirm step). A run that is still going is never replaced: the prompt is parked and the
+  // running one stays on screen. Guarded by a ref so React StrictMode cannot parse twice.
+  useEffect(() => {
+    if (!handoffPrompt || handoffStarted.current) return;
+    handoffStarted.current = true;
+    navigate(".", { replace: true, state: null }); // do not run again on refresh
+    void (async () => {
+      if (jobId && runId) {
+        try {
+          const status = await apiGet<JobStatus>(`/jobs/${jobId}`);
+          if (status.status === "pending" || status.status === "running") {
+            setHandoffNotice(handoffPrompt);
+            await restoreRun(jobId, runId, () => false);
+            return;
+          }
+        } catch {
+          // the remembered job is gone; start the new search below
+        }
+      }
+      resetSearch();
+      setRawInput(handoffPrompt);
+      await parseText(handoffPrompt);
+    })();
+    // Runs once on mount: it only consumes what the dashboard handed over.
+  }, []);
 
   useEffect(() => {
     apiGet<QualificationCriterionList>("/qualification/criteria")
       .then((list) => setActiveCriteriaCount(list.items.filter((c) => c.is_active).length))
+      .catch(() => {
+        // Supplementary — a failure here shouldn't block the rest of the page.
+      });
+    apiGet<RoleCategoryList>("/role-categories")
+      .then((list) => setActiveRoleCategoryCount(list.items.filter((c) => c.is_active).length))
       .catch(() => {
         // Supplementary — a failure here shouldn't block the rest of the page.
       });
@@ -89,21 +210,33 @@ export function MarketDiscoveryPage() {
     };
   }, []);
 
-  async function handleParse(e: FormEvent) {
+  function handleParse(e: FormEvent) {
     e.preventDefault();
-    if (!rawInput.trim()) return;
+    void parseText(rawInput);
+  }
+
+  async function parseText(text: string) {
+    if (!text.trim()) return;
     setError(null);
     setParsing(true);
     setJob(null);
+    setJobId(null);
     setRun(null);
     try {
       const parsed = await apiPost<MarketDiscoveryParsed>("/market-discovery/parse", {
-        raw_input: rawInput,
+        raw_input: text,
       });
       setRunId(parsed.ingestion_run_id);
       setIndustryKeywords(parsed.parsed_fields.industry_keywords.value.join(", "));
       setLocation(parsed.parsed_fields.location.value ?? "");
       setEmployeeSizeRange(parsed.parsed_fields.employee_size_range.value ?? "");
+      setRequirements(
+        seedRequirements(
+          parsed.parsed_fields.industry_keywords.value.join(", "),
+          parsed.parsed_fields.location.value ?? "",
+          parsed.parsed_fields.employee_size_range.value ?? "",
+        ),
+      );
       setConfidence({
         industry_keywords: parsed.parsed_fields.industry_keywords.confidence,
         location: parsed.parsed_fields.location.confidence,
@@ -129,20 +262,14 @@ export function MarketDiscoveryPage() {
         location: location.trim() || null,
         employee_size_range: employeeSizeRange.trim() || null,
         product_id: selectedProductId || null,
+        market_fit_criteria: toRequestCriteria(requirements),
       };
       const started = await apiPost<MarketDiscoveryStarted>(
         `/market-discovery/${runId}/confirm`,
         body,
       );
-      pollRef.current = window.setInterval(async () => {
-        const status = await apiGet<JobStatus>(`/jobs/${started.job_id}`);
-        setJob(status);
-        if (status.status === "done" || status.status === "failed") {
-          if (pollRef.current) window.clearInterval(pollRef.current);
-          const finishedRun = await apiGet<MarketDiscoveryRun>(`/market-discovery/${runId}`);
-          setRun(finishedRun);
-        }
-      }, POLL_INTERVAL_MS);
+      setJobId(started.job_id);
+      startPolling(started.job_id, runId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "failed to start discovery");
     } finally {
@@ -173,7 +300,17 @@ export function MarketDiscoveryPage() {
     }
   }
 
-  const showConfirmForm = runId !== null && !job;
+  // One line up front instead of a silently empty result: each later stage is skipped when its
+  // prerequisite is missing.
+  const missingSetup: string[] = [];
+  if (activeCriteriaCount === 0) missingSetup.push("no active qualification criteria");
+  if (activeRoleCategoryCount === 0) missingSetup.push("no active role categories");
+  if (products !== null && products.length === 0) missingSetup.push("no product to pitch");
+
+  // Keyed on the remembered job id (not the fetched job) so the confirm form doesn't flash up
+  // for a moment while a restored run's status is still loading.
+  const showConfirmForm = runId !== null && !jobId;
+  const runInProgress = job?.status === "pending" || job?.status === "running";
   const qualifyResult = (qualifyJob?.result as unknown as BulkQualifyResult | null) ?? null;
   const pipelineResult =
     job?.status === "done" ? ((job.result as unknown as AutoPipelineResult | null) ?? null) : null;
@@ -185,10 +322,28 @@ export function MarketDiscoveryPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Enrichment"
         title="Market Discovery"
         description='Describe a target market in plain text — e.g. "SaaS companies in Bangalore, 50-200 employees" — and confirm the parsed interpretation before any scraping runs.'
       />
+
+      {missingSetup.length > 0 && (
+        <p className="mb-4 rounded-md border border-chip-warning-fg/30 bg-chip-warning-bg px-4 py-2 text-sm text-chip-warning-fg">
+          Before you run: {missingSetup.join("; ")}. Those stages will be skipped and the result
+          will be empty.
+        </p>
+      )}
+
+      {handoffNotice && (
+        <Card className="mb-6 border-warning">
+          <CardContent>
+            <p className="text-sm">
+              A search is still running, so the new one was not started: &ldquo;{handoffNotice}
+              &rdquo;. When this run finishes, use &ldquo;Start a new search&rdquo; and paste it
+              in.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="mb-6 border-primary/30 bg-primary/5">
         <CardContent>
@@ -225,10 +380,20 @@ export function MarketDiscoveryPage() {
               onChange={(e) => setRawInput(e.target.value)}
               placeholder="e.g. SaaS companies in Bangalore, 50-200 employees"
               rows={3}
+              disabled={runInProgress}
             />
-            <Button type="submit" disabled={!rawInput.trim() || parsing} className="self-start">
+            <Button
+              type="submit"
+              disabled={!rawInput.trim() || parsing || runInProgress}
+              className="self-start"
+            >
               {parsing ? "Parsing…" : "Parse"}
             </Button>
+            {runInProgress && (
+              <p className="text-xs text-muted-foreground">
+                A run is in progress — you can start a new search when it finishes.
+              </p>
+            )}
           </form>
           {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
         </CardContent>
@@ -308,9 +473,10 @@ export function MarketDiscoveryPage() {
                   </p>
                 )}
               </div>
+              <MarketFitRequirements value={requirements} onChange={setRequirements} />
             </div>
 
-            <Button type="button" onClick={handleConfirm} disabled={confirming} className="mt-6">
+            <Button type="button" onClick={handleConfirm} disabled={confirming || runInProgress} className="mt-6">
               {confirming ? "Starting…" : "Confirm & Start Discovery"}
             </Button>
           </CardContent>
@@ -326,25 +492,50 @@ export function MarketDiscoveryPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {job.status === "running" && job.progress && (
+            {(job.status === "running" || job.status === "pending") && <RunProgress job={job} />}
+            {job.status === "failed" && <p className="text-sm text-destructive">{job.error}</p>}
+            {job.status === "done" && run?.summary && (
               <p className="text-sm text-muted-foreground">
-                Stage {job.progress.done} of {job.progress.total}
-                {job.progress.done === 1 &&
-                  " — searching the web for companies matching your target market"}
-                {job.progress.done === 2 &&
-                  " — checking which companies are a good fit for your product"}
-                {job.progress.done === 3 && " — figuring out who at each company to talk to"}
-                {job.progress.done === 4 && " — writing draft outreach messages for you to review"}
+                {run.summary.candidates_found} candidates found · {run.summary.companies_created}{" "}
+                new companies
+                {pipelineResult?.qualification.ran
+                  ? ` · ${pipelineResult.qualification.qualified} qualified`
+                  : ""}
+                {pipelineResult?.drafting.ran
+                  ? ` · ${pipelineResult.drafting.drafts_generated} drafts`
+                  : ""}
               </p>
             )}
-            {job.status === "failed" && <p className="text-sm text-destructive">{job.error}</p>}
-            {run?.summary && (
-              <ul className="mt-2 list-inside list-disc text-sm">
-                <li>Candidates found: {run.summary.candidates_found}</li>
-                <li>New companies created: {run.summary.companies_created}</li>
-              </ul>
-            )}
+            {run?.error && <p className="mt-2 text-sm text-destructive">{run.error}</p>}
 
+            {(pipelineResult || run?.summary?.enrichment) && (
+              <details className="mt-3 text-sm">
+                <summary className="cursor-pointer text-muted-foreground">Run details</summary>
+                {run?.summary?.context_dev && (
+                  <p className="mt-2 text-muted-foreground">
+                    context.dev: {run.summary.context_dev.credits_used} of{" "}
+                    {run.summary.context_dev.credit_ceiling} credits used
+                    {run.summary.context_dev.skipped_sufficient != null &&
+                      ` · ${run.summary.context_dev.skipped_sufficient} companies needed no paid lookup`}
+                    {run.summary.context_dev.budget_exhausted &&
+                      " · credit ceiling reached, later companies used scraper data only"}
+                  </p>
+                )}
+                {run?.summary?.enrichment && (
+                  <p className="mt-2 text-muted-foreground">
+                    Company data source: {run.summary.company_data_source ?? "unknown"} · enriched{" "}
+                    {run.summary.enrichment.enriched}, failed {run.summary.enrichment.failed},
+                    industry filled {run.summary.enrichment.industry_filled}
+                    {Object.keys(run.summary.enrichment.branch_errors ?? {}).length > 0 &&
+                      ` · provider errors: ${Object.entries(run.summary.enrichment.branch_errors ?? {})
+                        .map(([branch, n]) => `${branch} ${n}`)
+                        .join(", ")}`}
+                    {Object.keys(run.summary.enrichment.by_source).length > 0 &&
+                      ` · by source: ${Object.entries(run.summary.enrichment.by_source)
+                        .map(([source, n]) => `${source} ${n}`)
+                        .join(", ")}`}
+                  </p>
+                )}
             {pipelineResult && (
               <div className="mt-3 flex flex-col gap-3 text-sm">
                 <div>
@@ -354,7 +545,8 @@ export function MarketDiscoveryPage() {
                       <li>Qualified: {pipelineResult.qualification.qualified}</li>
                       <li>Not qualified: {pipelineResult.qualification.not_qualified}</li>
                       <li>
-                        Could not determine: {pipelineResult.qualification.could_not_determine}
+                        Needs evidence (could not be verified):{" "}
+                        {pipelineResult.qualification.could_not_determine}
                       </li>
                     </ul>
                   ) : (
@@ -363,6 +555,15 @@ export function MarketDiscoveryPage() {
                     </p>
                   )}
                 </div>
+                {pipelineResult.ranking && (
+                  <div>
+                    <p className="font-semibold">Ranking</p>
+                    <p className="text-muted-foreground">
+                      {pipelineResult.ranking.ranked} companies scored by Priority Score; the top{" "}
+                      {pipelineResult.ranking.top.length} went on to role classification.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <p className="font-semibold">Role classification</p>
                   {pipelineResult.role_classification.ran ? (
@@ -396,6 +597,8 @@ export function MarketDiscoveryPage() {
                 )}
               </div>
             )}
+              </details>
+            )}
 
             {job.status === "done" && (
               <p className="mt-3 text-sm">
@@ -404,9 +607,21 @@ export function MarketDiscoveryPage() {
                 </Link>{" "}
                 or{" "}
                 <Link to="/needs-review" className="text-primary-text hover:underline">
-                  check Needs Review →
+                  verify contacts →
                 </Link>
               </p>
+            )}
+
+            {(job.status === "done" || job.status === "failed") && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="mt-3"
+                onClick={resetSearch}
+              >
+                Start a new search
+              </Button>
             )}
 
             {job.status === "done" &&
@@ -472,6 +687,14 @@ export function MarketDiscoveryPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {job && runId && (
+        <RunWorklist
+          runId={runId}
+          productId={selectedProductId || null}
+          live={job.status === "running" || job.status === "pending"}
+        />
       )}
     </div>
   );

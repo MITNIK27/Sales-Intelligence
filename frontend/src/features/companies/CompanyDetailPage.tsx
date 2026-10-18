@@ -1,4 +1,11 @@
-import { ArrowLeft, ClipboardCheck, Lightbulb, Radar, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  ClipboardCheck,
+  Lightbulb,
+  Radar,
+  Users,
+} from "lucide-react";
+import { WebsiteLink } from "@/components/WebsiteLink";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
@@ -26,7 +33,10 @@ import { QualificationResultsTable } from "@/features/qualification/Qualificatio
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/PageHeader";
-import { PipelineStatusStepper, type PipelineStep } from "@/components/PipelineStatusStepper";
+import {
+  PipelineStatusStepper,
+  type PipelineStep,
+} from "@/components/PipelineStatusStepper";
 import { SkeletonLines } from "@/components/Skeleton";
 import {
   EnrichmentStatusBadge,
@@ -43,7 +53,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 
 const POLL_INTERVAL_MS = 1500;
@@ -58,24 +73,36 @@ export function CompanyDetailPage() {
   const [triggering, setTriggering] = useState(false);
   const pollRef = useRef<number | null>(null);
 
-  const [recommendations, setRecommendations] = useState<Recommendation[] | null>(null);
-  const [recommendationsError, setRecommendationsError] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<
+    Recommendation[] | null
+  >(null);
+  const [recommendationsError, setRecommendationsError] = useState<
+    string | null
+  >(null);
   const [products, setProducts] = useState<Product[] | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [generating, setGenerating] = useState(false);
 
-  const [qualificationResults, setQualificationResults] = useState<QualificationResult[] | null>(
+  const [qualificationResults, setQualificationResults] = useState<
+    QualificationResult[] | null
+  >(null);
+  const [qualificationResultsError, setQualificationResultsError] = useState<
+    string | null
+  >(null);
+  const [activeCriteriaCount, setActiveCriteriaCount] = useState<number | null>(
     null,
   );
-  const [qualificationResultsError, setQualificationResultsError] = useState<string | null>(null);
-  const [activeCriteriaCount, setActiveCriteriaCount] = useState<number | null>(null);
   const [checkingQualification, setCheckingQualification] = useState(false);
 
   const [roleRelevanceByContact, setRoleRelevanceByContact] = useState<
     Record<string, RoleRelevanceResult>
   >({});
-  const [roleRelevanceError, setRoleRelevanceError] = useState<string | null>(null);
-  const [activeRoleCategoriesCount, setActiveRoleCategoriesCount] = useState<number | null>(null);
+  const [roleRelevanceError, setRoleRelevanceError] = useState<string | null>(
+    null,
+  );
+  const [activeRoleCategoriesCount, setActiveRoleCategoriesCount] = useState<
+    number | null
+  >(null);
   const [classifyingRoles, setClassifyingRoles] = useState(false);
 
   const [searchingContacts, setSearchingContacts] = useState(false);
@@ -83,21 +110,27 @@ export function CompanyDetailPage() {
   const [drafts, setDrafts] = useState<Draft[] | null>(null);
 
   const [confirmingCompany, setConfirmingCompany] = useState(false);
-  const [confirmingContactId, setConfirmingContactId] = useState<string | null>(null);
+  const [confirmingContactId, setConfirmingContactId] = useState<string | null>(
+    null,
+  );
 
   function loadCompany() {
     if (!companyId) return;
     setError(null);
     return apiGet<CompanyDetail>(`/companies/${companyId}`)
       .then(setCompany)
-      .catch((err) => setError(err instanceof Error ? err.message : "failed to load company"));
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "failed to load company"),
+      );
   }
 
   function loadSignals() {
     if (!companyId) return;
-    return apiGet<Signal[]>(`/companies/${companyId}/signals`).then(setSignals).catch(() => {
-      // Signals are a supplementary section — a failure here shouldn't block the rest of the page.
-    });
+    return apiGet<Signal[]>(`/companies/${companyId}/signals`)
+      .then(setSignals)
+      .catch(() => {
+        // Signals are a supplementary section — a failure here shouldn't block the rest of the page.
+      });
   }
 
   function loadRecommendations() {
@@ -123,18 +156,24 @@ export function CompanyDetailPage() {
   function loadQualificationResults() {
     if (!companyId) return;
     setQualificationResultsError(null);
-    return apiGet<QualificationResult[]>(`/companies/${companyId}/qualification-results`)
+    return apiGet<QualificationResult[]>(
+      `/companies/${companyId}/qualification-results`,
+    )
       .then(setQualificationResults)
       .catch((err) =>
         setQualificationResultsError(
-          err instanceof Error ? err.message : "failed to load qualification results",
+          err instanceof Error
+            ? err.message
+            : "failed to load qualification results",
         ),
       );
   }
 
   function loadActiveCriteriaCount() {
     return apiGet<QualificationCriterionList>("/qualification/criteria")
-      .then((list) => setActiveCriteriaCount(list.items.filter((c) => c.is_active).length))
+      .then((list) =>
+        setActiveCriteriaCount(list.items.filter((c) => c.is_active).length),
+      )
       .catch(() => {
         // Supplementary — a failure here shouldn't block the rest of the page.
       });
@@ -143,7 +182,9 @@ export function CompanyDetailPage() {
   function loadRoleRelevanceResults() {
     if (!companyId) return;
     setRoleRelevanceError(null);
-    return apiGet<RoleRelevanceResult[]>(`/companies/${companyId}/role-relevance`)
+    return apiGet<RoleRelevanceResult[]>(
+      `/companies/${companyId}/role-relevance`,
+    )
       .then((results) => {
         const byContact: Record<string, RoleRelevanceResult> = {};
         for (const result of results) byContact[result.contact_id] = result;
@@ -151,14 +192,20 @@ export function CompanyDetailPage() {
       })
       .catch((err) =>
         setRoleRelevanceError(
-          err instanceof Error ? err.message : "failed to load role classifications",
+          err instanceof Error
+            ? err.message
+            : "failed to load role classifications",
         ),
       );
   }
 
   function loadActiveRoleCategoriesCount() {
     return apiGet<RoleCategoryList>("/role-categories")
-      .then((list) => setActiveRoleCategoriesCount(list.items.filter((c) => c.is_active).length))
+      .then((list) =>
+        setActiveRoleCategoriesCount(
+          list.items.filter((c) => c.is_active).length,
+        ),
+      )
       .catch(() => {
         // Supplementary — a failure here shouldn't block the rest of the page.
       });
@@ -194,15 +241,22 @@ export function CompanyDetailPage() {
     if (!companyId || !selectedProductId) return;
     setGenerating(true);
     try {
-      const body: RecommendationGenerateRequest = { product_id: selectedProductId };
+      const body: RecommendationGenerateRequest = {
+        product_id: selectedProductId,
+      };
       const recommendation = await apiPost<Recommendation>(
         `/companies/${companyId}/recommendations`,
         body,
       );
-      setRecommendations((prev) => (prev ? [recommendation, ...prev] : [recommendation]));
+      setRecommendations((prev) =>
+        prev ? [recommendation, ...prev] : [recommendation],
+      );
     } catch (err) {
       showToast({
-        description: err instanceof Error ? err.message : "failed to generate recommendation",
+        description:
+          err instanceof Error
+            ? err.message
+            : "failed to generate recommendation",
       });
     } finally {
       setGenerating(false);
@@ -219,7 +273,8 @@ export function CompanyDetailPage() {
       setQualificationResults((prev) => (prev ? [result, ...prev] : [result]));
     } catch (err) {
       showToast({
-        description: err instanceof Error ? err.message : "failed to check qualification",
+        description:
+          err instanceof Error ? err.message : "failed to check qualification",
       });
     } finally {
       setCheckingQualification(false);
@@ -239,7 +294,10 @@ export function CompanyDetailPage() {
         return next;
       });
     } catch (err) {
-      showToast({ description: err instanceof Error ? err.message : "failed to classify roles" });
+      showToast({
+        description:
+          err instanceof Error ? err.message : "failed to classify roles",
+      });
     } finally {
       setClassifyingRoles(false);
     }
@@ -249,7 +307,9 @@ export function CompanyDetailPage() {
     if (!companyId) return;
     setSearchingContacts(true);
     try {
-      const found = await apiPost<Contact[]>(`/companies/${companyId}/search-contacts`);
+      const found = await apiPost<Contact[]>(
+        `/companies/${companyId}/search-contacts`,
+      );
       setCompany((prev) => {
         if (!prev) return prev;
         const byId = new Map(prev.contacts.map((c) => [c.id, c]));
@@ -258,7 +318,8 @@ export function CompanyDetailPage() {
       });
     } catch (err) {
       showToast({
-        description: err instanceof Error ? err.message : "failed to search for contacts",
+        description:
+          err instanceof Error ? err.message : "failed to search for contacts",
       });
     } finally {
       setSearchingContacts(false);
@@ -269,10 +330,18 @@ export function CompanyDetailPage() {
     try {
       await apiDelete(`/contacts/${contactId}`);
       setCompany((prev) =>
-        prev ? { ...prev, contacts: prev.contacts.filter((c) => c.id !== contactId) } : prev,
+        prev
+          ? {
+              ...prev,
+              contacts: prev.contacts.filter((c) => c.id !== contactId),
+            }
+          : prev,
       );
     } catch (err) {
-      showToast({ description: err instanceof Error ? err.message : "failed to remove contact" });
+      showToast({
+        description:
+          err instanceof Error ? err.message : "failed to remove contact",
+      });
     }
   }
 
@@ -280,12 +349,20 @@ export function CompanyDetailPage() {
     if (!companyId) return;
     setConfirmingCompany(true);
     try {
-      const body: CompanyConfirmRequest = { product_id: selectedProductId || null };
-      const result = await apiPost<CompanyConfirmResult>(`/companies/${companyId}/confirm`, body);
+      const body: CompanyConfirmRequest = {
+        product_id: selectedProductId || null,
+      };
+      const result = await apiPost<CompanyConfirmResult>(
+        `/companies/${companyId}/confirm`,
+        body,
+      );
       setCompany(result.company);
       await Promise.all([loadRoleRelevanceResults(), loadDrafts()]);
     } catch (err) {
-      showToast({ description: err instanceof Error ? err.message : "failed to confirm company" });
+      showToast({
+        description:
+          err instanceof Error ? err.message : "failed to confirm company",
+      });
     } finally {
       setConfirmingCompany(false);
     }
@@ -294,17 +371,24 @@ export function CompanyDetailPage() {
   async function handleConfirmContact(contactId: string) {
     setConfirmingContactId(contactId);
     try {
-      const updatedContact = await apiPost<Contact>(`/contacts/${contactId}/confirm`);
+      const updatedContact = await apiPost<Contact>(
+        `/contacts/${contactId}/confirm`,
+      );
       setCompany((prev) =>
         prev
           ? {
               ...prev,
-              contacts: prev.contacts.map((c) => (c.id === updatedContact.id ? updatedContact : c)),
+              contacts: prev.contacts.map((c) =>
+                c.id === updatedContact.id ? updatedContact : c,
+              ),
             }
           : prev,
       );
     } catch (err) {
-      showToast({ description: err instanceof Error ? err.message : "failed to confirm contact" });
+      showToast({
+        description:
+          err instanceof Error ? err.message : "failed to confirm contact",
+      });
     } finally {
       setConfirmingContactId(null);
     }
@@ -315,7 +399,9 @@ export function CompanyDetailPage() {
       prev
         ? {
             ...prev,
-            contacts: prev.contacts.map((c) => (c.id === updatedContact.id ? updatedContact : c)),
+            contacts: prev.contacts.map((c) =>
+              c.id === updatedContact.id ? updatedContact : c,
+            ),
           }
         : prev,
     );
@@ -327,7 +413,9 @@ export function CompanyDetailPage() {
     setTriggering(true);
     setScrapeJob(null);
     try {
-      const started = await apiPost<ScrapeJobStarted>(`/companies/${companyId}/scrape`);
+      const started = await apiPost<ScrapeJobStarted>(
+        `/companies/${companyId}/scrape`,
+      );
       await loadCompany(); // reflects enrichment_status -> "pending" immediately
       pollRef.current = window.setInterval(async () => {
         const status = await apiGet<JobStatus>(`/jobs/${started.job_id}`);
@@ -400,7 +488,7 @@ export function CompanyDetailPage() {
           : company.enrichment_status === "pending"
             ? "Scraping now…"
             : company.enrichment_status === "failed"
-              ? company.enrichment_error ?? "Scrape failed"
+              ? (company.enrichment_error ?? "Scrape failed")
               : "Not scraped yet",
     },
     {
@@ -436,16 +524,22 @@ export function CompanyDetailPage() {
     <div>
       {backLink}
       <PageHeader
-        eyebrow="Company"
         title={
           <span className="inline-flex items-center gap-2">
             {company.name}
-            {company.needs_review && <NeedsReviewBadge reason={company.needs_review_reason} />}
+            {company.needs_review && (
+              <NeedsReviewBadge reason={company.needs_review_reason} />
+            )}
           </span>
         }
         action={
           company.needs_review ? (
-            <Button type="button" size="sm" onClick={handleConfirmCompany} disabled={confirmingCompany}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleConfirmCompany}
+              disabled={confirmingCompany}
+            >
               {confirmingCompany ? "Confirming…" : "Confirm Company"}
             </Button>
           ) : undefined
@@ -459,8 +553,10 @@ export function CompanyDetailPage() {
       <Card>
         <CardContent>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            <dt className="text-muted-foreground">Domain</dt>
-            <dd>{company.domain ?? "—"}</dd>
+            <dt className="text-muted-foreground">Website</dt>
+            <dd>
+              {company.domain ? <WebsiteLink domain={company.domain} /> : "—"}
+            </dd>
             <dt className="text-muted-foreground">Industry</dt>
             <dd>{company.industry ?? "—"}</dd>
             <dt className="text-muted-foreground">Employee count</dt>
@@ -482,11 +578,16 @@ export function CompanyDetailPage() {
               <EnrichmentStatusBadge status={company.enrichment_status} />
               {company.last_enriched_at && (
                 <span className="text-sm text-muted-foreground">
-                  last enriched {new Date(company.last_enriched_at).toLocaleString()}
+                  last enriched{" "}
+                  {new Date(company.last_enriched_at).toLocaleString()}
                 </span>
               )}
             </div>
-            <Button type="button" onClick={handleScrape} disabled={scrapeInFlight}>
+            <Button
+              type="button"
+              onClick={handleScrape}
+              disabled={scrapeInFlight}
+            >
               {scrapeInFlight
                 ? "Scraping…"
                 : company.enrichment_status === "never_enriched"
@@ -494,9 +595,12 @@ export function CompanyDetailPage() {
                   : "Re-scrape"}
             </Button>
           </div>
-          {company.enrichment_status === "failed" && company.enrichment_error && (
-            <p className="mt-3 text-sm text-destructive">{company.enrichment_error}</p>
-          )}
+          {company.enrichment_status === "failed" &&
+            company.enrichment_error && (
+              <p className="mt-3 text-sm text-destructive">
+                {company.enrichment_error}
+              </p>
+            )}
           {scrapeJob?.status === "running" && scrapeJob.progress && (
             <p className="mt-3 text-sm text-muted-foreground">
               Step {scrapeJob.progress.done} of {scrapeJob.progress.total}…
@@ -514,7 +618,8 @@ export function CompanyDetailPage() {
             description={
               company.enrichment_status === "never_enriched"
                 ? "Not scraped yet — click Scrape above to search for news mentions and hiring signals."
-                : company.enrichment_status === "enriched" && company.last_enriched_at
+                : company.enrichment_status === "enriched" &&
+                    company.last_enriched_at
                   ? `Scraped on ${new Date(company.last_enriched_at).toLocaleDateString()} — no news mentions or hiring signals found this time.`
                   : "News mentions and hiring signals will appear here once found."
             }
@@ -522,11 +627,16 @@ export function CompanyDetailPage() {
         ) : (
           <ul className="divide-y divide-border">
             {signals.map((signal, i) => (
-              <li key={i} className="flex flex-wrap items-center gap-2 px-4 py-3">
+              <li
+                key={i}
+                className="flex flex-wrap items-center gap-2 px-4 py-3"
+              >
                 <SignalTypeBadge type={signal.signal_type} />
                 <span className="text-sm">{signal.text}</span>
                 {signal.date && (
-                  <span className="text-sm text-muted-foreground">— {signal.date}</span>
+                  <span className="text-sm text-muted-foreground">
+                    — {signal.date}
+                  </span>
                 )}
                 <a
                   href={signal.url}
@@ -544,8 +654,8 @@ export function CompanyDetailPage() {
 
       <h2 className="mb-3 mt-8 text-lg font-bold">Qualification</h2>
       <p className="mb-3 text-sm text-muted-foreground">
-        A company-level gate checked against your active criteria — whether this is worth pursuing
-        at all, before deciding who to contact there.
+        A company-level gate checked against your active criteria — whether this
+        is worth pursuing at all, before deciding who to contact there.
       </p>
       <Card>
         <CardContent>
@@ -561,7 +671,10 @@ export function CompanyDetailPage() {
           {activeCriteriaCount === 0 && (
             <p className="mt-3 text-sm text-muted-foreground">
               No active qualification criteria yet —{" "}
-              <Link to="/qualification/criteria/new" className="text-primary-text hover:underline">
+              <Link
+                to="/qualification/criteria/new"
+                className="text-primary-text hover:underline"
+              >
                 add one
               </Link>{" "}
               before checking qualification.
@@ -573,7 +686,10 @@ export function CompanyDetailPage() {
       <div className="mt-4">
         {qualificationResultsError ? (
           <Card>
-            <ErrorState message={qualificationResultsError} onRetry={loadQualificationResults} />
+            <ErrorState
+              message={qualificationResultsError}
+              onRetry={loadQualificationResults}
+            />
           </Card>
         ) : !qualificationResults ? (
           <Card className="p-6">
@@ -609,8 +725,16 @@ export function CompanyDetailPage() {
               type="button"
               size="sm"
               onClick={handleClassifyRoles}
-              disabled={classifyingRoles || activeRoleCategoriesCount === 0 || company.needs_review}
-              title={company.needs_review ? "Confirm this company before classifying roles" : undefined}
+              disabled={
+                classifyingRoles ||
+                activeRoleCategoriesCount === 0 ||
+                company.needs_review
+              }
+              title={
+                company.needs_review
+                  ? "Confirm this company before classifying roles"
+                  : undefined
+              }
             >
               {classifyingRoles ? "Classifying…" : "Classify Roles"}
             </Button>
@@ -618,14 +742,18 @@ export function CompanyDetailPage() {
         </div>
       </div>
       <p className="mb-3 text-sm text-muted-foreground">
-        "Search for Contacts" searches public web results for likely LinkedIn profile mentions — it
-        does not log into LinkedIn or require your account, and every match is flagged for review
-        since it's a low-confidence heuristic.
+        "Search for Contacts" searches public web results for likely LinkedIn
+        profile mentions — it does not log into LinkedIn or require your
+        account, and every match is flagged for review since it's a
+        low-confidence heuristic.
       </p>
       {activeRoleCategoriesCount === 0 && company.contacts.length > 0 && (
         <p className="mb-3 text-sm text-muted-foreground">
           No active role categories yet —{" "}
-          <Link to="/role-categories/new" className="text-primary-text hover:underline">
+          <Link
+            to="/role-categories/new"
+            className="text-primary-text hover:underline"
+          >
             add one
           </Link>{" "}
           before classifying roles.
@@ -659,7 +787,9 @@ export function CompanyDetailPage() {
                       )}
                       {contact.needs_review && (
                         <>
-                          <NeedsReviewBadge reason={contact.needs_review_reason} />
+                          <NeedsReviewBadge
+                            reason={contact.needs_review_reason}
+                          />
                           <Button
                             type="button"
                             size="sm"
@@ -667,7 +797,9 @@ export function CompanyDetailPage() {
                             onClick={() => handleConfirmContact(contact.id)}
                             disabled={confirmingContactId === contact.id}
                           >
-                            {confirmingContactId === contact.id ? "Confirming…" : "Confirm Contact"}
+                            {confirmingContactId === contact.id
+                              ? "Confirming…"
+                              : "Confirm Contact"}
                           </Button>
                         </>
                       )}
@@ -676,7 +808,9 @@ export function CompanyDetailPage() {
                           <TooltipTrigger className="cursor-default">
                             <RolePriorityBadge
                               priority={roleRelevance.priority}
-                              label={roleRelevance.matched_category_name ?? undefined}
+                              label={
+                                roleRelevance.matched_category_name ?? undefined
+                              }
                             />
                           </TooltipTrigger>
                           <TooltipContent className="block max-w-sm whitespace-normal text-left">
@@ -688,7 +822,11 @@ export function CompanyDetailPage() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (window.confirm(`Remove ${contact.full_name ?? "this contact"}?`)) {
+                        if (
+                          window.confirm(
+                            `Remove ${contact.full_name ?? "this contact"}?`,
+                          )
+                        ) {
                           handleDeleteContact(contact.id);
                         }
                       }}
@@ -727,8 +865,14 @@ export function CompanyDetailPage() {
       <Card>
         <CardContent>
           <div className="flex flex-wrap items-center gap-3">
-            <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-              <SelectTrigger className="h-9 min-w-48 bg-card" aria-label="Product">
+            <Select
+              value={selectedProductId}
+              onValueChange={setSelectedProductId}
+            >
+              <SelectTrigger
+                className="h-9 min-w-48 bg-card"
+                aria-label="Product"
+              >
                 <SelectValue placeholder="Select a product…" />
               </SelectTrigger>
               <SelectContent>
@@ -750,7 +894,10 @@ export function CompanyDetailPage() {
           {products && products.length === 0 && (
             <p className="mt-3 text-sm text-muted-foreground">
               No products in the catalog yet —{" "}
-              <Link to="/products/new" className="text-primary-text hover:underline">
+              <Link
+                to="/products/new"
+                className="text-primary-text hover:underline"
+              >
                 add one
               </Link>{" "}
               before generating a recommendation.
@@ -762,7 +909,10 @@ export function CompanyDetailPage() {
       <div className="mt-4">
         {recommendationsError ? (
           <Card>
-            <ErrorState message={recommendationsError} onRetry={loadRecommendations} />
+            <ErrorState
+              message={recommendationsError}
+              onRetry={loadRecommendations}
+            />
           </Card>
         ) : !recommendations ? (
           <Card className="p-6">
@@ -779,7 +929,9 @@ export function CompanyDetailPage() {
         ) : (
           <div className="flex flex-col gap-4">
             {recommendations.map((recommendation) => {
-              const product = (products ?? []).find((p) => p.id === recommendation.product_id);
+              const product = (products ?? []).find(
+                (p) => p.id === recommendation.product_id,
+              );
               return (
                 <Card key={recommendation.id}>
                   <CardHeader>

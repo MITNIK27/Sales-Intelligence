@@ -3,11 +3,24 @@ export type CsvIngestionStarted = {
   job_id: string;
 };
 
+// `done`/`total` count whole stages for the auto pipeline; the extras describe the current one.
+export type JobProgress = {
+  done: number;
+  total: number;
+  detail?: string | null;
+  stage?: number;
+  stage_name?: string;
+  stage_done?: number;
+  stage_total?: number;
+  enriched?: number;
+  failed?: number;
+};
+
 export type JobStatus = {
   id: string;
   job_type: string;
   status: "pending" | "running" | "done" | "failed";
-  progress: { done: number; total: number } | null;
+  progress: JobProgress | null;
   result: {
     companies_created: number;
     companies_updated: number;
@@ -163,6 +176,8 @@ export type Signal = {
   url: string;
   date: string | null;
   fetched_at: string;
+  summary?: string | null;
+  provider?: string | null;
 };
 
 export type ParsedFieldConfidence = "confident" | "could_not_determine";
@@ -191,6 +206,8 @@ export type MarketDiscoveryConfirmRequest = {
   // have exactly one product to default to) means drafting reports itself skipped rather than
   // guessing which product to pitch — discovery/qualification/role classification still run.
   product_id?: string | null;
+  // Hard requirements for this search only; each is judged for every company with evidence.
+  market_fit_criteria?: { name: string; description: string | null }[];
 };
 
 export type MarketDiscoveryStarted = {
@@ -203,8 +220,102 @@ export type MarketDiscoveryRun = {
   raw_input: string | null;
   parsed_fields: MarketCriteriaParsed | null;
   confirmed_at: string | null;
-  summary: { candidates_found: number; companies_created: number } | null;
+  summary: {
+    candidates_found: number;
+    companies_created: number;
+    reused_from_index?: number;
+    // Which CompanyDataProvider setting produced this run's firmographics, and how enrichment
+    // went — recorded as data so a run can be judged (e.g. scraper vs context.dev) afterwards.
+    company_data_source?: string;
+    enrichment?: {
+      enriched: number;
+      failed: number;
+      industry_filled: number;
+      by_source: Record<string, number>;
+      // Provider branches that errored without failing the company, e.g. { signals: 2 }.
+      branch_errors?: Record<string, number>;
+    };
+    // Paid-provider spend for the run; null/absent when the scraper alone was used.
+    context_dev?: {
+      credits_used: number;
+      credit_ceiling: number;
+      budget_exhausted: boolean;
+      skipped_sufficient?: number;
+    } | null;
+  } | null;
   error: string | null;
+};
+
+// The rep-facing result of a run (GET /market-discovery/{id}/companies): `ready` rows are
+// qualified companies that have a primary-target contact and a draft; `not_shown` rows carry
+// a one-line `skip_reason` instead.
+export type WorklistDraft = {
+  draft_id: string;
+  subject: string | null;
+  body: string;
+  status: DraftStatus;
+};
+
+// A candidate contact at a ready company. `linkedin_url`/`email` are null when nothing was found
+// (shown as "not found", never guessed). `needs_review` means found via search and not yet
+// confirmed: the rep's one click both confirms the person and writes the draft.
+export type WorklistContact = {
+  contact_id: string;
+  full_name: string | null;
+  role_title: string | null;
+  category: string | null;
+  linkedin_url: string | null;
+  email: string | null;
+  needs_review: boolean;
+  needs_review_reason: string | null;
+  draft: WorklistDraft | null;
+  confidence: number | null;
+  source: string | null;
+};
+
+export type WorklistRow = {
+  company_id: string;
+  name: string;
+  domain: string | null;
+  industry: string | null;
+  employee_count_range: string | null;
+  description: string | null;
+  data_source: "context.dev" | "scraper" | "none";
+  verdict: QualificationVerdict | null;
+  why: string | null;
+  candidates: WorklistContact[];
+  skip_reason: string | null;
+  criteria: WorklistCriterion[];
+  confidence: number | null;
+  // Priority Score 0-100 (higher = stronger opportunity) and how it was made up.
+  priority_score: number | null;
+  score_breakdown: ScoreBreakdown | null;
+  // Where industry / size / description came from, e.g. { industry: { source: "contextdev:brand" } }.
+  provenance: Record<string, { source: string; confidence: number; fetched_at: string }>;
+};
+
+export type ScoreBreakdown = {
+  components?: Record<string, { weight: number; value: number; points: number; note: string }>;
+  evidence_factor?: number;
+  raw?: number;
+  excluded?: string;
+};
+
+export type WorklistCriterion = {
+  name: string;
+  status: "PASS" | "FAIL" | "UNKNOWN";
+  hard: boolean;
+  scope: "run" | "org";
+  reasoning: string | null;
+  evidence_quote: string | null;
+  source: string | null;
+  url: string | null;
+  confidence: number | null;
+};
+
+export type MarketDiscoveryWorklist = {
+  ready: WorklistRow[];
+  not_shown: WorklistRow[];
 };
 
 // The confirm step now enqueues a single `auto_pipeline` job — its `JobStatus.result` carries
@@ -237,6 +348,7 @@ export type AutoPipelineResult = {
     reused_from_index: number;
   };
   qualification: QualificationStageResult;
+  ranking?: { ranked: number; top: { company_id: string; score: number; verdict: string }[] };
   role_classification: RoleClassificationStageResult;
   drafting: DraftingStageResult;
   capped: boolean;
@@ -474,6 +586,12 @@ export type NeedsReviewItem = {
   contact_name: string | null;
   reason: string;
   flagged_at: string;
+  contact_title?: string | null;
+  contact_email?: string | null;
+  contact_linkedin?: string | null;
+  contact_source?: string | null;
+  contact_confidence?: number | null;
+  company_domain?: string | null;
 };
 
 export type BulkConfirmRequest = {
@@ -490,4 +608,148 @@ export type BulkConfirmResult = {
   companies_confirmed: number;
   contacts_confirmed: number;
   company_results: Record<string, unknown>[];
+};
+
+// --- Dashboard (GET /dashboard/overview, GET /dashboard/runs) — read-only views over searches ---
+
+export type DashboardKpis = {
+  searches: number;
+  companies: number;
+  fit: number;
+  needs_closer_look: number;
+  rejected: number;
+  contacts: number;
+  likely_decision_makers: number;
+  drafts_to_review: number;
+  drafts_sent: number;
+  credits_used: number;
+};
+
+export type DashboardFunnelStage = {
+  key: string;
+  label: string;
+  count: number;
+  percent_of_previous: number | null;
+};
+
+export type DashboardRequirement = {
+  name: string;
+  scope: "run" | "org";
+  hard: boolean;
+  meets: number;
+  couldnt_verify: number;
+  doesnt_meet: number;
+  drafts_for_meeting: number;
+};
+
+export type DashboardTopCompany = {
+  company_id: string;
+  name: string;
+  domain: string | null;
+  score: number | null;
+  verdict: QualificationVerdict | null;
+  reason: string | null;
+};
+
+export type DashboardAttentionItem = {
+  key: string;
+  label: string;
+  count: number;
+  href: string;
+};
+
+export type DashboardActivityEvent = {
+  at: string;
+  kind: "search" | "draft" | "outreach" | "failure";
+  text: string;
+  run_id: string | null;
+  company_id: string | null;
+};
+
+export type DashboardHealth = {
+  credits_used: number;
+  credit_ceiling: number | null;
+  budget_exhausted: boolean;
+  companies_needing_no_paid_lookup: number;
+  enrichment_failed: number;
+  provider_errors: Record<string, number>;
+  notes: string[];
+};
+
+export type DashboardRunHeader = {
+  run_id: string;
+  title: string;
+  summary: string;
+  status: string;
+  created_at: string;
+  error: string | null;
+  data_source: string | null;
+  pipeline: Record<string, unknown> | null;
+  progress: Record<string, unknown> | null;
+};
+
+export type DashboardOverview = {
+  scope: "all" | "search";
+  period: "7d" | "30d" | "all";
+  headline: string;
+  kpis: DashboardKpis;
+  funnel: DashboardFunnelStage[];
+  requirements: DashboardRequirement[];
+  top_companies: DashboardTopCompany[];
+  attention: DashboardAttentionItem[];
+  activity: DashboardActivityEvent[];
+  health: DashboardHealth;
+  setup: { products: number; active_criteria: number; active_role_categories: number };
+  run: DashboardRunHeader | null;
+  searches: { run_id: string; label: string; created_at: string }[];
+};
+
+export type DashboardRunStats = {
+  run_id: string;
+  title: string;
+  summary: string;
+  status: string;
+  created_at: string;
+  error: string | null;
+  companies: number;
+  fit: number;
+  needs_closer_look: number;
+  rejected: number;
+  contacts: number;
+  drafts: number;
+  top_score: number | null;
+  credits_used: number | null;
+};
+
+export type DashboardRunList = {
+  items: DashboardRunStats[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+// GET /drafts — every draft across companies, for the Drafts review page.
+export type DashboardDraftItem = {
+  id: string;
+  company_id: string;
+  company_name: string;
+  contact_id: string;
+  contact_name: string | null;
+  contact_role: string | null;
+  draft_type: DraftType;
+  channel: OutreachChannel;
+  subject: string | null;
+  body: string;
+  status: DraftStatus;
+  model_used: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DashboardDraftList = {
+  items: DashboardDraftItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  counts: { draft: number; sent: number; discarded: number };
 };

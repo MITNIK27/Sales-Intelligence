@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
@@ -57,6 +57,9 @@ class Company(Base, TimestampMixin, UpdatedAtMixin):
     needs_review_reason: Mapped[str | None] = mapped_column(String(255))
     last_enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enrichment_error: Mapped[str | None] = mapped_column(String)
+    # Where each enriched field came from, set when enrichment fills it:
+    # {"industry": {"source": "contextdev:brand", "confidence": 0.9, "fetched_at": "..."}, ...}.
+    field_provenance: Mapped[dict[str, object] | None] = mapped_column(JSON)
 
     contacts: Mapped[list["Contact"]] = relationship(back_populates="company")
 
