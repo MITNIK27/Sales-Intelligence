@@ -160,7 +160,7 @@ async def test_logging_with_draft_id_marks_draft_sent_and_defaults_template_vari
         organization_id,
         contact.company_id,
         contact.id,
-        product.id,
+        [product.id],
         DRAFT_TYPE_FIRST_TOUCH,
         MockDraftGenerator(),
     )

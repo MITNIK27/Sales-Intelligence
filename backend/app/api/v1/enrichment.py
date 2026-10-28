@@ -47,7 +47,7 @@ async def confirm_needs_review_bulk_endpoint(
         {
             "company_ids": [str(cid) for cid in body.company_ids],
             "contact_ids": [str(cid) for cid in body.contact_ids],
-            "product_id": str(body.product_id) if body.product_id else None,
+            "product_ids": [str(p) for p in body.product_ids],
         },
     )
     await session.commit()

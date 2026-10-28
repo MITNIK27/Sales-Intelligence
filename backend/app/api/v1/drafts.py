@@ -45,7 +45,7 @@ async def generate_draft_endpoint(
             DEFAULT_ORGANIZATION_ID,
             company_id,
             body.contact_id,
-            body.product_id,
+            [body.product_id],
             body.draft_type,
             generator,
         )

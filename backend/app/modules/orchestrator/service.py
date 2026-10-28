@@ -234,9 +234,9 @@ async def _run_auto_pipeline(
     # Stage 4: drafting — only the primary-target contacts identified above. A contact still
     # flagged `needs_review` (e.g. a company that's fine but one scraped/searched contact isn't)
     # is skipped independently of the company-level gate above.
-    product_id = payload.get("product_id")
+    product_ids = [uuid.UUID(p) for p in (payload.get("product_ids") or [])]
     total_primary = sum(len(v) for v in primary_by_company.values())
-    if not product_id:
+    if not product_ids:
         draft_result: dict[str, Any] = {"ran": False, "skipped_reason": "no product specified"}
     elif total_primary == 0:
         draft_result = {"ran": False, "skipped_reason": "no primary-target contacts identified"}
@@ -252,7 +252,7 @@ async def _run_auto_pipeline(
                         job.organization_id,
                         company_id,
                         contact_id,
-                        uuid.UUID(product_id),
+                        product_ids,
                         DRAFT_TYPE_FIRST_TOUCH,
                         draft_generator,
                     )
@@ -298,7 +298,7 @@ async def classify_and_draft_company(
     company_id: uuid.UUID,
     role_relevance_generator: RoleRelevanceGenerator,
     draft_generator: DraftGenerator,
-    product_id: uuid.UUID | None,
+    product_ids: list[uuid.UUID],
 ) -> dict[str, Any]:
     """The single-company equivalent of stages 3+4 above — classify roles, then draft to any
     primary-target contacts found. This is what `POST /companies/{id}/confirm` calls right after
@@ -327,7 +327,7 @@ async def classify_and_draft_company(
     ]
     role_result: dict[str, Any] = {"ran": True, "primary_contacts": len(primary_contact_ids)}
 
-    if not product_id:
+    if not product_ids:
         return {
             "role_classification": role_result,
             "drafting": {"ran": False, "skipped_reason": "no product specified"},
@@ -348,7 +348,7 @@ async def classify_and_draft_company(
                 organization_id,
                 company_id,
                 contact_id,
-                product_id,
+                product_ids,
                 DRAFT_TYPE_FIRST_TOUCH,
                 draft_generator,
             )
@@ -373,7 +373,7 @@ async def _run_bulk_confirm(
     organization_id: uuid.UUID,
     company_ids: list[uuid.UUID],
     contact_ids: list[uuid.UUID],
-    product_id: uuid.UUID | None,
+    product_ids: list[uuid.UUID],
     role_relevance_generator: RoleRelevanceGenerator,
     draft_generator: DraftGenerator,
     progress_callback: ProgressCallback | None = None,
@@ -402,7 +402,7 @@ async def _run_bulk_confirm(
                 company_id,
                 role_relevance_generator,
                 draft_generator,
-                product_id,
+                product_ids,
             )
             company_results.append({"company_id": str(company_id), **resumed})
         done += 1
@@ -429,18 +429,18 @@ async def run_bulk_confirm_job(
     session: AsyncSession, job: Job, progress_callback: ProgressCallback | None = None
 ) -> dict[str, Any]:
     """Handler registered with the job worker — unpacks `job.payload` (`company_ids`,
-    `contact_ids`, optional `product_id`) and delegates to `_run_bulk_confirm`."""
+    `contact_ids`, optional `product_ids`) and delegates to `_run_bulk_confirm`."""
     settings = get_settings()
     payload = job.payload or {}
     company_ids = [uuid.UUID(cid) for cid in payload.get("company_ids", [])]
     contact_ids = [uuid.UUID(cid) for cid in payload.get("contact_ids", [])]
-    product_id = uuid.UUID(payload["product_id"]) if payload.get("product_id") else None
+    product_ids = [uuid.UUID(p) for p in (payload.get("product_ids") or [])]
     return await _run_bulk_confirm(
         session,
         job.organization_id,
         company_ids,
         contact_ids,
-        product_id,
+        product_ids,
         GeminiRoleRelevanceGenerator(settings),
         GeminiDraftGenerator(settings),
         progress_callback,

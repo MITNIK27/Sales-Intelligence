@@ -65,14 +65,14 @@ def _product(**overrides: object) -> Product:
     return Product(**defaults)  # type: ignore[arg-type]
 
 
-_RESULT = DraftResult(subject="Quick idea for Acme", body="Hi Jane, ...")
+_RESULT = DraftResult(subject="Quick idea for Acme", body="Hi Jane, ...", chosen_option=1)
 
 
 async def test_generate_raises_clear_error_without_api_key() -> None:
     generator = GeminiDraftGenerator(Settings(gemini_api_key=None))
     with pytest.raises(GeminiClientError, match="GEMINI_API_KEY"):
         await generator.generate(
-            _company(), _contact(), _product(), None, "business", DRAFT_TYPE_FIRST_TOUCH
+            _company(), _contact(), [_product()], [None], "business", DRAFT_TYPE_FIRST_TOUCH
         )
 
 
@@ -82,7 +82,7 @@ async def test_generate_uses_first_touch_template(monkeypatch: pytest.MonkeyPatc
 
     generator = GeminiDraftGenerator(_settings())
     result = await generator.generate(
-        _company(), _contact(), _product(), None, "business", DRAFT_TYPE_FIRST_TOUCH
+        _company(), _contact(), [_product()], [None], "business", DRAFT_TYPE_FIRST_TOUCH
     )
 
     assert result == _RESULT
@@ -100,7 +100,7 @@ async def test_generate_uses_follow_up_template(monkeypatch: pytest.MonkeyPatch)
 
     generator = GeminiDraftGenerator(_settings())
     await generator.generate(
-        _company(), _contact(), _product(), None, "business", DRAFT_TYPE_FOLLOW_UP
+        _company(), _contact(), [_product()], [None], "business", DRAFT_TYPE_FOLLOW_UP
     )
 
     prompt = fake_models.received_contents
@@ -116,13 +116,13 @@ async def test_generate_includes_business_or_technical_framing_instruction(
 
     generator = GeminiDraftGenerator(_settings())
     await generator.generate(
-        _company(), _contact(), _product(), None, "technical", DRAFT_TYPE_FIRST_TOUCH
+        _company(), _contact(), [_product()], [None], "technical", DRAFT_TYPE_FIRST_TOUCH
     )
     assert fake_models.received_contents is not None
     assert "technical/KPI language" in fake_models.received_contents
 
     await generator.generate(
-        _company(), _contact(), _product(), None, "business", DRAFT_TYPE_FIRST_TOUCH
+        _company(), _contact(), [_product()], [None], "business", DRAFT_TYPE_FIRST_TOUCH
     )
     assert fake_models.received_contents is not None
     assert "outcome/cost-savings language" in fake_models.received_contents
@@ -136,7 +136,7 @@ async def test_generate_without_recommendation_instructs_no_fabrication(
 
     generator = GeminiDraftGenerator(_settings())
     await generator.generate(
-        _company(), _contact(), _product(), None, "business", DRAFT_TYPE_FIRST_TOUCH
+        _company(), _contact(), [_product()], [None], "business", DRAFT_TYPE_FIRST_TOUCH
     )
 
     prompt = fake_models.received_contents
@@ -157,7 +157,7 @@ async def test_generate_with_recommendation_includes_its_grounding(
     )
     generator = GeminiDraftGenerator(_settings())
     await generator.generate(
-        _company(), _contact(), _product(), recommendation, "business", DRAFT_TYPE_FIRST_TOUCH
+        _company(), _contact(), [_product()], [recommendation], "business", DRAFT_TYPE_FIRST_TOUCH
     )
 
     prompt = fake_models.received_contents
@@ -173,7 +173,7 @@ async def test_generate_raises_on_request_failure(monkeypatch: pytest.MonkeyPatc
     generator = GeminiDraftGenerator(_settings())
     with pytest.raises(GeminiClientError, match="Gemini request failed"):
         await generator.generate(
-            _company(), _contact(), _product(), None, "business", DRAFT_TYPE_FIRST_TOUCH
+            _company(), _contact(), [_product()], [None], "business", DRAFT_TYPE_FIRST_TOUCH
         )
 
 
@@ -184,7 +184,7 @@ async def test_generate_raises_on_malformed_response(monkeypatch: pytest.MonkeyP
     generator = GeminiDraftGenerator(_settings())
     with pytest.raises(GeminiClientError, match="did not return a valid structured response"):
         await generator.generate(
-            _company(), _contact(), _product(), None, "business", DRAFT_TYPE_FIRST_TOUCH
+            _company(), _contact(), [_product()], [None], "business", DRAFT_TYPE_FIRST_TOUCH
         )
 
 

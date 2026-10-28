@@ -170,7 +170,7 @@ async def _run_market_discovery(
     remaining_limit = CANDIDATE_LIMIT - len(reused_companies)
 
     candidates: list[Any] = []
-    discovery_stats: dict[str, int] = {}
+    discovery_stats: dict[str, Any] = {}
     if remaining_limit > 0:
         try:
             result = await discovery_agent.discover(criteria, limit=remaining_limit)
@@ -185,6 +185,12 @@ async def _run_market_discovery(
             "extracted": result.extracted_count,
             "accepted": result.accepted_count,
             "rejected": len(result.rejected),
+            # A capped sample of *why* real-looking search results were rejected — without this,
+            # a 0-candidate run gave a rep nothing but a bare count to act on, even though the
+            # extraction model's per-item reasoning was computed and then discarded every time.
+            "rejected_samples": [
+                {"name": r.name, "reasoning": r.reasoning} for r in result.rejected[:5]
+            ],
         }
     logger.info(
         "market discovery run %s: criteria=%r reused=%d found=%d candidate(s) stats=%s",

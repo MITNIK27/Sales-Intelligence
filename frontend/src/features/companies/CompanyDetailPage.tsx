@@ -33,6 +33,7 @@ import { QualificationResultsTable } from "@/features/qualification/Qualificatio
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/PageHeader";
+import { ProductMultiSelect } from "@/components/ProductMultiSelect";
 import {
   PipelineStatusStepper,
   type PipelineStep,
@@ -80,7 +81,12 @@ export function CompanyDetailPage() {
     string | null
   >(null);
   const [products, setProducts] = useState<Product[] | null>(null);
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  // Two separate selections: "Generate Recommendation" below is deliberately single-product (a
+  // rep picks exactly one to research right now), while "Confirm Company" in the header resumes
+  // the automated pipeline, which may pitch more than one candidate product per company.
+  const [selectedRecommendationProductId, setSelectedRecommendationProductId] =
+    useState<string>("");
+  const [selectedConfirmProductIds, setSelectedConfirmProductIds] = useState<string[]>([]);
   const [generating, setGenerating] = useState(false);
 
   const [qualificationResults, setQualificationResults] = useState<
@@ -147,7 +153,13 @@ export function CompanyDetailPage() {
 
   function loadProducts() {
     return apiGet<ProductList>("/products")
-      .then((list) => setProducts(list.items))
+      .then((list) => {
+        setProducts(list.items);
+        // Unambiguous default for the "Confirm Company" multi-select: exactly one product means
+        // there's nothing to choose between. The "Generate Recommendation" picker stays unselected
+        // either way — that action is deliberately a one-at-a-time, manual research pick.
+        if (list.items.length === 1) setSelectedConfirmProductIds([list.items[0].id]);
+      })
       .catch(() => {
         // The product select is supplementary — a failure here shouldn't block the rest of the page.
       });
@@ -238,11 +250,11 @@ export function CompanyDetailPage() {
   }, [companyId]);
 
   async function handleGenerateRecommendation() {
-    if (!companyId || !selectedProductId) return;
+    if (!companyId || !selectedRecommendationProductId) return;
     setGenerating(true);
     try {
       const body: RecommendationGenerateRequest = {
-        product_id: selectedProductId,
+        product_id: selectedRecommendationProductId,
       };
       const recommendation = await apiPost<Recommendation>(
         `/companies/${companyId}/recommendations`,
@@ -350,7 +362,7 @@ export function CompanyDetailPage() {
     setConfirmingCompany(true);
     try {
       const body: CompanyConfirmRequest = {
-        product_id: selectedProductId || null,
+        product_ids: selectedConfirmProductIds,
       };
       const result = await apiPost<CompanyConfirmResult>(
         `/companies/${companyId}/confirm`,
@@ -534,14 +546,29 @@ export function CompanyDetailPage() {
         }
         action={
           company.needs_review ? (
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleConfirmCompany}
-              disabled={confirmingCompany}
-            >
-              {confirmingCompany ? "Confirming…" : "Confirm Company"}
-            </Button>
+            <div className="flex flex-col items-end gap-2">
+              {products && products.length > 1 && (
+                <ProductMultiSelect
+                  products={products}
+                  selectedIds={new Set(selectedConfirmProductIds)}
+                  onToggle={(productId) =>
+                    setSelectedConfirmProductIds((current) =>
+                      current.includes(productId)
+                        ? current.filter((id) => id !== productId)
+                        : [...current, productId],
+                    )
+                  }
+                />
+              )}
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleConfirmCompany}
+                disabled={confirmingCompany}
+              >
+                {confirmingCompany ? "Confirming…" : "Confirm Company"}
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -866,8 +893,8 @@ export function CompanyDetailPage() {
         <CardContent>
           <div className="flex flex-wrap items-center gap-3">
             <Select
-              value={selectedProductId}
-              onValueChange={setSelectedProductId}
+              value={selectedRecommendationProductId}
+              onValueChange={setSelectedRecommendationProductId}
             >
               <SelectTrigger
                 className="h-9 min-w-48 bg-card"
@@ -886,7 +913,7 @@ export function CompanyDetailPage() {
             <Button
               type="button"
               onClick={handleGenerateRecommendation}
-              disabled={!selectedProductId || generating}
+              disabled={!selectedRecommendationProductId || generating}
             >
               {generating ? "Generating…" : "Generate Recommendation"}
             </Button>

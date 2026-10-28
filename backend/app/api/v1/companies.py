@@ -93,7 +93,7 @@ async def confirm_company_endpoint(
         company_id,
         GeminiRoleRelevanceGenerator(settings),
         GeminiDraftGenerator(settings),
-        body.product_id,
+        body.product_ids,
     )
     await session.commit()
     return CompanyConfirmResult(

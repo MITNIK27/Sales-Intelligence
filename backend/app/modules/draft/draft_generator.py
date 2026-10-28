@@ -34,6 +34,11 @@ from app.modules.products.models import Product
 class DraftResult(BaseModel):
     subject: str | None
     body: str
+    # 1-based index into the `products` list given to the generator — which candidate product the
+    # email ended up being about. A deterministic mapping back to a real `product_id` is done by
+    # the caller (`draft/service.py::generate_draft`); the LLM only ever picks an option number,
+    # never echoes back a UUID itself.
+    chosen_option: int
 
 
 def _format_grounding(recommendation: Recommendation | None) -> tuple[str, str]:
@@ -54,6 +59,23 @@ def _format_grounding(recommendation: Recommendation | None) -> tuple[str, str]:
     return section, "Use the pre-researched proof point given below."
 
 
+def _format_product_options(
+    products: list[Product], recommendations: list[Recommendation | None]
+) -> str:
+    """One numbered block per candidate product, each with its own grounding — lets the model pick
+    exactly one option rather than being told which single product to pitch."""
+    blocks = []
+    for i, (product, recommendation) in enumerate(zip(products, recommendations), start=1):
+        grounding_section, grounding_instruction = _format_grounding(recommendation)
+        blocks.append(
+            f"Option {i}: {product.name}\n"
+            f"- Description: {product.description or 'No description available.'}\n"
+            f"- {grounding_instruction}\n"
+            f"{grounding_section}"
+        )
+    return "\n\n".join(blocks)
+
+
 class DraftGenerator(ABC):
     @property
     @abstractmethod
@@ -66,8 +88,8 @@ class DraftGenerator(ABC):
         self,
         company: Company,
         contact: Contact,
-        product: Product,
-        recommendation: Recommendation | None,
+        products: list[Product],
+        recommendations: list[Recommendation | None],
         framing_style: str,
         draft_type: str,
         evidence: DraftEvidence | None = None,
@@ -86,8 +108,8 @@ class GeminiDraftGenerator(DraftGenerator):
         self,
         company: Company,
         contact: Contact,
-        product: Product,
-        recommendation: Recommendation | None,
+        products: list[Product],
+        recommendations: list[Recommendation | None],
         framing_style: str,
         draft_type: str,
         evidence: DraftEvidence | None = None,
@@ -95,7 +117,6 @@ class GeminiDraftGenerator(DraftGenerator):
         if not self._settings.gemini_api_key:
             raise GeminiClientError("GEMINI_API_KEY is not configured")
 
-        grounding_section, grounding_instruction = _format_grounding(recommendation)
         template = (
             FIRST_TOUCH_PROMPT_TEMPLATE
             if draft_type == DRAFT_TYPE_FIRST_TOUCH
@@ -107,10 +128,7 @@ class GeminiDraftGenerator(DraftGenerator):
             company_name=company.name,
             company_industry=company.industry or "unknown",
             company_description=company.description or "No description available.",
-            product_name=product.name,
-            product_description=product.description or "No description available.",
-            grounding_section=grounding_section,
-            grounding_instruction=grounding_instruction,
+            product_options_section=_format_product_options(products, recommendations),
             evidence_section=format_evidence(evidence),
             framing_instruction=framing_instruction(framing_style),
             style_reference=STYLE_REFERENCE_EXAMPLES,
@@ -135,4 +153,9 @@ class GeminiDraftGenerator(DraftGenerator):
         parsed = response.parsed
         if not isinstance(parsed, DraftResult):
             raise GeminiClientError("Gemini did not return a valid structured response")
+        if not 1 <= parsed.chosen_option <= len(products):
+            raise GeminiClientError(
+                f"Gemini returned chosen_option={parsed.chosen_option}, outside the given "
+                f"1-{len(products)} range of product options"
+            )
         return parsed

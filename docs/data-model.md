@@ -80,10 +80,20 @@ only job is judging each individual criterion against the evidence. `criteria_re
 snapshot of each criterion **as it was when judged** (name, `is_disqualifying`), not a live
 reference, so a later edit to a `QualificationCriterion` never rewrites past judgment history.
 
+Each criterion verdict must now be evidence-backed (`qualification/evidence.py`): the model cites
+an `evidence_ref` (a company field, or a numbered signal like `S2`) and an `evidence_quote` that
+must appear verbatim in that cited source — a verdict whose quote doesn't actually check out is
+downgraded to `could_not_determine` in code before it's persisted, never trusted as a bare
+assertion. `priority_score`/`score_breakdown` (nullable — only qualified/undetermined companies
+that reach the ranking step get one) hold the deterministic, auditable Priority Score
+(`qualification/ranking.py`) used to pick the best-scoring companies for role-classification/
+drafting, not just the first ones discovered.
+
 - `id`, `organization_id` (FK), `company_id` (FK), `overall_verdict`
   (`qualified` | `not_qualified` | `could_not_determine`), `criteria_results` (JSONB — per-entry
-  `{criterion_id, criterion_name, is_disqualifying, verdict, reasoning}`), `model_used`,
-  `created_at`
+  `{criterion_id, criterion_name, is_disqualifying, verdict, reasoning, evidence_ref,
+  evidence_quote}`), `priority_score` (float, nullable), `score_breakdown` (JSONB, nullable),
+  `model_used`, `created_at`
 
 ### RoleCategory
 An org-defined function a `Contact` can be classified against (e.g. "Vendor / IT Procurement") —
@@ -138,6 +148,10 @@ Regenerating does not create a new row automatically; editing mutates the same r
 credibility content from scratch. `status` moves `draft` → `sent` (when logged via an
 `OutreachActivity`) or `draft` → `discarded`. See
 [ADR 0008](decisions/0008-outreach-draft-generation.md).
+
+A rep may now give the auto-pipeline *more than one candidate* product at confirm time, but this
+row's own `product_id` stays a single required FK regardless — it always records the one product
+the draft generator actually chose to pitch for this specific company/contact, never a list.
 
 - `id`, `organization_id` (FK), `company_id` (FK), `contact_id` (FK), `product_id` (FK),
   `recommendation_id` (FK, nullable), `draft_type` (`first_touch` | `follow_up`), `channel`

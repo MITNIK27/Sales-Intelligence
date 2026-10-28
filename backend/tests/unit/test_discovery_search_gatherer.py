@@ -25,6 +25,26 @@ async def test_gather_issues_multiple_query_variants_and_dedupes_by_link() -> No
     assert results[0].link == "https://acme.com"
 
 
+async def test_gather_includes_directory_biased_query_variants() -> None:
+    """Topic-shaped industry_keywords (e.g. "piloting generative AI") produce mostly editorial
+    search results with the plain "{keywords} companies"-style templates alone — these two extra
+    variants bias toward company-directory phrasing instead, for exactly that case."""
+    calls: list[str] = []
+
+    async def fake_search(query: str, num: int) -> list[dict[str, str]]:
+        calls.append(query)
+        return []
+
+    gatherer = SearchGatherer(fake_search, results_per_query=5)
+    criteria = MarketCriteria(industry_keywords=["healthcare software"], location=None)
+
+    await gatherer.gather(criteria)
+
+    assert len(calls) == 5
+    assert any("vendors" in q for q in calls)
+    assert any("providers directory" in q for q in calls)
+
+
 async def test_gather_handles_missing_location_and_keywords() -> None:
     async def fake_search(query: str, num: int) -> list[dict[str, str]]:
         return []

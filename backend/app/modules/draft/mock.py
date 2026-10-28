@@ -13,6 +13,7 @@ class MockDraftGenerator(DraftGenerator):
         self._result = result or DraftResult(
             subject="Canned subject for testing",
             body="Canned draft body for testing.",
+            chosen_option=1,
         )
 
     @property
@@ -23,8 +24,8 @@ class MockDraftGenerator(DraftGenerator):
         self,
         company: Company,
         contact: Contact,
-        product: Product,
-        recommendation: Recommendation | None,
+        products: list[Product],
+        recommendations: list[Recommendation | None],
         framing_style: str,
         draft_type: str,
         evidence: DraftEvidence | None = None,

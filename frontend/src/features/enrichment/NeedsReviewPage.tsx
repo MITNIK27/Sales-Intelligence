@@ -15,18 +15,12 @@ import { Checkbox } from "@/components/Checkbox";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/PageHeader";
+import { ProductMultiSelect } from "@/components/ProductMultiSelect";
 import { SkeletonLines } from "@/components/Skeleton";
 import { WebsiteLink } from "@/components/WebsiteLink";
 import { TablePagination } from "@/components/TablePagination";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -69,7 +63,7 @@ export function NeedsReviewPage() {
   const [pageSize, setPageSize] = useState(10);
 
   const [products, setProducts] = useState<Product[] | null>(null);
-  const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pendingDiscard, setPendingDiscard] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -98,7 +92,7 @@ export function NeedsReviewPage() {
     apiGet<ProductList>("/products")
       .then((list) => {
         setProducts(list.items);
-        if (list.items.length === 1) setSelectedProductId(list.items[0].id);
+        if (list.items.length === 1) setSelectedProductIds([list.items[0].id]);
       })
       .catch(() => {
         // Supplementary — a failure here shouldn't block the rest of the page.
@@ -128,7 +122,7 @@ export function NeedsReviewPage() {
       const body: BulkConfirmRequest = {
         company_ids: companyIds,
         contact_ids: contactIds,
-        product_id: selectedProductId || null,
+        product_ids: selectedProductIds,
       };
       const started = await apiPost<BulkConfirmStarted>(
         "/enrichment/needs-review/confirm-bulk",
@@ -284,24 +278,17 @@ export function NeedsReviewPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {products && products.length > 1 && (
-              <Select
-                value={selectedProductId}
-                onValueChange={setSelectedProductId}
-              >
-                <SelectTrigger
-                  className="h-9 min-w-40 bg-card"
-                  aria-label="Product"
-                >
-                  <SelectValue placeholder="Product for drafting…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {products.map((product) => (
-                    <SelectItem key={product.id} value={product.id}>
-                      {product.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ProductMultiSelect
+                products={products}
+                selectedIds={new Set(selectedProductIds)}
+                onToggle={(productId) =>
+                  setSelectedProductIds((current) =>
+                    current.includes(productId)
+                      ? current.filter((id) => id !== productId)
+                      : [...current, productId],
+                  )
+                }
+              />
             )}
             <Button
               type="button"

@@ -85,13 +85,13 @@ async def confirm_market_discovery_endpoint(
         raise HTTPException(status_code=404, detail="market discovery run not found")
 
     # Confirming is the one remaining manual gate before the One-Prompt Pipeline: from here,
-    # discovery, qualification, role classification, and (when a product is known) drafting all
-    # run automatically as a single auto_pipeline job.
-    product_id = body.product_id
-    if product_id is None:
+    # discovery, qualification, role classification, and (when at least one product is known)
+    # drafting all run automatically as a single auto_pipeline job.
+    product_ids = body.product_ids
+    if not product_ids:
         products, total = await list_products(session, DEFAULT_ORGANIZATION_ID, limit=2)
         if total == 1:
-            product_id = products[0].id  # unambiguous default; >1 or 0 leaves drafting skipped
+            product_ids = [products[0].id]  # unambiguous default; >1 or 0 leaves drafting skipped
 
     job = await enqueue_job(
         session,
@@ -99,7 +99,7 @@ async def confirm_market_discovery_endpoint(
         JOB_TYPE_AUTO_PIPELINE,
         {
             "ingestion_run_id": str(run.id),
-            "product_id": str(product_id) if product_id else None,
+            "product_ids": [str(p) for p in product_ids],
             "market_fit_criteria": [c.model_dump() for c in body.market_fit_criteria],
         },
     )

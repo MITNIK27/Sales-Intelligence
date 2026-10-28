@@ -15,10 +15,19 @@ RawSearchFn = Callable[[str, int], Awaitable[list[dict[str, str]]]]
 # Several angles on the same market, not one query — a single broad query is exactly what
 # produced the original bug (one page of mostly-noise results). Most of what these return is
 # expected to be filtered out by the extraction stage, not kept.
+#
+# The last two variants exist for topic-shaped `industry_keywords` (e.g. "companies piloting
+# generative AI") rather than already company-shaped ones (e.g. "postal operators") — a plain
+# "{keywords} companies" search for a topic phrase tends to surface editorial/thought-leadership
+# content (articles *about* the topic), not actual company pages, which the extraction stage then
+# correctly rejects wholesale. Biasing toward directory-style phrasing doesn't guarantee real
+# companies come back, but gives topic-shaped input a better chance without touching extraction.
 _QUERY_TEMPLATES = (
     "{keywords} companies{location_suffix}",
     "leading {keywords} companies{location_suffix}",
     "{keywords} industry players{location_suffix}",
+    "list of {keywords} vendors{location_suffix}",
+    "{keywords} providers directory{location_suffix}",
 )
 
 

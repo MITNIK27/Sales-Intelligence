@@ -67,7 +67,8 @@ role/remit, something concrete from the description or grounding below) — neve
 generic credibility statement or greeting filler.
 - 1-2 lines of credibility (who you are, your company, relevant partnerships — grounded only in \
 the information given below, never invented) connected back to that specific trigger.
-- 1-2 lines citing a relevant proof point or analogous project. {grounding_instruction}
+- 1-2 lines citing a relevant proof point or analogous project, grounded in whichever product \
+option you choose below.
 - One closing call-to-action line that is soft and low-friction (e.g. "would you be open to a \
 brief walkthrough", "happy to connect if it makes sense") — optionally offer an explicit out, \
 such as pointing to someone better suited. Never a hard or pushy ask.
@@ -89,17 +90,19 @@ Company being contacted:
 - Industry: {company_industry}
 - Description: {company_description}
 
-What's being offered:
-- Product/service: {product_name} — {product_description}
+What's being offered — pick exactly ONE of the following numbered options, whichever best fits \
+this specific company's evident need. Write the email about that one option only — never blend \
+more than one service into a single email:
 
-{grounding_section}
+{product_options_section}
 
 {evidence_section}
 
 Write:
 - subject: a short, specific, non-clickbait subject line that names the specific trigger/hook, \
 not a generic label.
-- body: the email body, following the structure above exactly.
+- body: the email body, following the structure above exactly, about the one option you chose.
+- chosen_option: the number of the option above that this email is about.
 """
 
 FOLLOW_UP_PROMPT_TEMPLATE = """You are writing a follow-up outreach email from a salesperson to \
@@ -129,15 +132,17 @@ Company being contacted:
 - Industry: {company_industry}
 - Description: {company_description}
 
-What's being offered:
-- Product/service: {product_name} — {product_description}
+What's being offered — pick exactly ONE of the following numbered options, whichever best fits \
+this specific company's evident need. Write the email about that one option only — never blend \
+more than one service into a single email:
 
-{grounding_section}
+{product_options_section}
 
 {evidence_section}
 
 Write:
 - subject: a short, specific subject line (can reference the prior email lightly, but the body \
 should stand on its own).
-- body: the email body, following the guidance above.
+- body: the email body, following the guidance above, about the one option you chose.
+- chosen_option: the number of the option above that this email is about.
 """

@@ -15,10 +15,10 @@ class ScrapeAllStarted(BaseModel):
 class BulkConfirmRequest(BaseModel):
     company_ids: list[uuid.UUID] = []
     contact_ids: list[uuid.UUID] = []
-    # Which product to pitch when a bulk-confirmed company's drafting stage resumes — same
-    # optionality as the auto-pipeline's own product_id (omitted means drafting is skipped for
+    # Which product(s) to pitch when a bulk-confirmed company's drafting stage resumes — same
+    # optionality as the auto-pipeline's own product_ids (empty means drafting is skipped for
     # that company, discovery/role-classification still happen).
-    product_id: uuid.UUID | None = None
+    product_ids: list[uuid.UUID] = []
 
 
 class BulkConfirmStarted(BaseModel):

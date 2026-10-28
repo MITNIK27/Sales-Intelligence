@@ -111,8 +111,15 @@ async def test_judge_qualification_snapshots_criteria_and_computes_verdict() -> 
             "criterion_id": str(criterion.id),
             "criterion_name": "Minimum IT spend",
             "is_disqualifying": True,
+            "scope": "org",
             "verdict": "met",
+            "status": "PASS",
             "reasoning": "r",
+            "evidence_ref": None,
+            "evidence_quote": None,
+            "confidence": None,
+            "source": None,
+            "url": None,
         }
     ]
 

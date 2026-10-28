@@ -70,15 +70,18 @@ async def generate_draft(
     organization_id: uuid.UUID,
     company_id: uuid.UUID,
     contact_id: uuid.UUID,
-    product_id: uuid.UUID,
+    product_ids: list[uuid.UUID],
     draft_type: str,
     generator: DraftGenerator,
 ) -> Draft:
-    """Fetches company/contact/product, the most recent matching Recommendation if one exists
-    (grounding), and the contact's latest RoleRelevanceResult if one exists (framing_style —
-    falls back to "business" when the contact hasn't been classified yet; this is not a hard
-    failure, since not every org will always classify a contact before drafting to them). Calls
-    the generator and persists a new Draft row."""
+    """Fetches company/contact/every candidate product, the most recent matching Recommendation
+    for each (grounding), and the contact's latest RoleRelevanceResult if one exists (framing_style
+    — falls back to "business" when the contact hasn't been classified yet; this is not a hard
+    failure, since not every org will always classify a contact before drafting to them). When more
+    than one product is given, the generator itself picks exactly one (via `DraftResult.
+    chosen_option`, a 1-based index into `product_ids` in the given order) — this function maps
+    that back to a real `product_id`/`Recommendation`, never trusting the LLM to echo back a UUID.
+    Persists a new Draft row for whichever product was chosen."""
     company = await get_company_detail(session, organization_id, company_id)
     if company is None:
         raise CompanyNotFoundError(f"company {company_id} not found")
@@ -92,13 +95,17 @@ async def generate_draft(
     if contact.needs_review:
         raise NeedsReviewError(f"contact {contact_id} needs review before drafting")
 
-    product = await get_product(session, organization_id, product_id)
-    if product is None:
-        raise ProductNotFoundError(f"product {product_id} not found")
+    products = []
+    for product_id in product_ids:
+        product = await get_product(session, organization_id, product_id)
+        if product is None:
+            raise ProductNotFoundError(f"product {product_id} not found")
+        products.append(product)
 
-    recommendation = await _get_latest_recommendation(
-        session, organization_id, company_id, product_id
-    )
+    recommendations = [
+        await _get_latest_recommendation(session, organization_id, company_id, product_id)
+        for product_id in product_ids
+    ]
 
     role_relevance = await get_latest_role_relevance_for_contact(
         session, organization_id, contact_id
@@ -111,15 +118,19 @@ async def generate_draft(
 
     evidence = await build_draft_evidence(session, organization_id, company, contact)
     result = await generator.generate(
-        company, contact, product, recommendation, framing_style, draft_type, evidence
+        company, contact, products, recommendations, framing_style, draft_type, evidence
     )
+
+    chosen_index = result.chosen_option - 1
+    chosen_product = products[chosen_index]
+    chosen_recommendation = recommendations[chosen_index]
 
     draft = Draft(
         organization_id=organization_id,
         company_id=company_id,
         contact_id=contact_id,
-        product_id=product_id,
-        recommendation_id=recommendation.id if recommendation else None,
+        product_id=chosen_product.id,
+        recommendation_id=chosen_recommendation.id if chosen_recommendation else None,
         draft_type=draft_type,
         channel=DRAFT_CHANNEL_EMAIL,
         subject=result.subject,

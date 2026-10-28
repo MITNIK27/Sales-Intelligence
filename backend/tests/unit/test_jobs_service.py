@@ -7,7 +7,7 @@ from app.modules.jobs.service import enqueue_job, requeue_stale_jobs
 async def test_requeue_stale_jobs_resets_long_running_jobs(db_session, organization_id) -> None:
     job = await enqueue_job(db_session, organization_id, "ingest_csv", {"rows": []})
     job.status = STATUS_RUNNING
-    job.started_at = datetime.now(UTC) - timedelta(hours=1)
+    job.started_at = datetime.now(UTC) - timedelta(hours=2)
     await db_session.flush()
 
     requeued_count = await requeue_stale_jobs(db_session)

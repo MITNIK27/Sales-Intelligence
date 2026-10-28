@@ -87,7 +87,7 @@ def _pipeline_job(
         job_type=JOB_TYPE_AUTO_PIPELINE,
         payload={
             "ingestion_run_id": str(run_id),
-            "product_id": str(product_id) if product_id else None,
+            "product_ids": [str(product_id)] if product_id else [],
         },
     )
 
@@ -191,7 +191,7 @@ async def test_happy_path_discovers_qualifies_and_then_classifies_and_drafts_onc
         assert confirmed is not None
         resumed = await classify_and_draft_company(
             db_session, organization_id, company.id,
-            MockRoleRelevanceGenerator(), MockDraftGenerator(), product.id,
+            MockRoleRelevanceGenerator(), MockDraftGenerator(), [product.id],
         )
         await db_session.commit()
         assert resumed["role_classification"]["ran"] is True
@@ -383,7 +383,7 @@ async def test_cap_limits_role_classification_and_drafting_to_first_n_qualified(
     await confirm_company(db_session, organization_id, skipped_company_id)
     resumed = await classify_and_draft_company(
         db_session, organization_id, skipped_company_id,
-        MockRoleRelevanceGenerator(), MockDraftGenerator(), product.id,
+        MockRoleRelevanceGenerator(), MockDraftGenerator(), [product.id],
     )
     await db_session.commit()
     assert resumed["role_classification"]["ran"] is True

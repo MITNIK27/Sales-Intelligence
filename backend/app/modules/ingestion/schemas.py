@@ -28,11 +28,12 @@ class MarketDiscoveryConfirmRequest(BaseModel):
     industry_keywords: list[str] = []
     location: str | None = None
     employee_size_range: str | None = None
-    # Which product the auto-pipeline's drafting stage should pitch. Optional — omitted (and the
-    # org doesn't have exactly one product to default to) means the pipeline still discovers,
+    # Which product(s) the auto-pipeline's drafting stage may pitch. Optional — empty (and the org
+    # doesn't have exactly one product to default to) means the pipeline still discovers,
     # qualifies, and classifies roles, but the drafting stage reports itself skipped rather than
-    # guessing which product to pitch.
-    product_id: uuid.UUID | None = None
+    # guessing which product to pitch. More than one product means the draft generator itself picks
+    # whichever single product best fits each company/contact — never more than one per email.
+    product_ids: list[uuid.UUID] = []
     # Hard requirements for THIS search (e.g. "operates in logistics"), judged for every company
     # alongside the organization's saved criteria. Not stored as org settings.
     market_fit_criteria: list[MarketFitCriterionIn] = []

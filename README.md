@@ -12,10 +12,12 @@ open or made along the way are tracked in [`docs/decisions/`](docs/decisions/).
 
 ## Status
 
-End-to-end functional for the core targeting/qualification workflow: CSV/Market-Discovery
-ingestion, enrichment, company qualification scoring, and role-relevance classification are
-built. Outreach draft generation and tracker/cadence automation are not yet built. See
-[`docs/roadmap.md`](docs/roadmap.md) for the feature-level phase breakdown and
+End-to-end functional, "one prompt in → drafted emails out": Market Discovery/CSV ingestion,
+enrichment, qualification scoring (with cited evidence and a Priority Score ranking), role-relevance
+classification, outreach draft generation (grounded in verified evidence, now supporting more than
+one candidate product per run), and tracker/cadence automation are all built, orchestrated as a
+single automatic pipeline. A read-only leadership dashboard reports on pipeline health and spend
+across searches. See [`docs/roadmap.md`](docs/roadmap.md) for the feature-level phase breakdown and
 `docs/architecture.md` for the infra/module phase breakdown.
 
 ## Stack

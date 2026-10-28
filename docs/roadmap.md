@@ -239,6 +239,141 @@ Fixed two ways:
   description text was corrected — it previously read "nothing here is blocking the pipeline",
   which was simply false given the orchestrator's actual skip behavior.
 
+## Evidence-Grounded Qualification, Priority Ranking & Drafting — **Done**
+
+Three related upgrades to the judgment/drafting core, shipped together because each one closes a
+gap the others exposed:
+
+- **Evidence-grounded qualification** (`qualification/evidence.py`) — a "met"/"not_met" verdict
+  must now cite *what it relied on*: a source reference (a company field like
+  `company.description`, or a numbered signal `S1`, `S2`, ...) plus a verbatim quote. A quote that
+  cannot actually be found in the cited source is not trusted and the verdict is downgraded to
+  `could_not_determine` — an unverifiable claim never becomes a PASS or FAIL ("no negative
+  evidence" is explicitly not evidence). Same "LLM judges narrowly, code decides/verifies the
+  outcome" pattern as every other judgment core in this app.
+- **Signal normalization** (`enrichment/signals.py`) — the scraper reads page headings off
+  news/careers pages and cannot tell a real headline from a menu entry ("Track shipment", "Go to
+  homepage"); context.dev returns real articles but some are personal gossip, not business signals.
+  Both sources are now filtered by the same deterministic rules (drop page chrome, require a link,
+  drop stale news, de-duplicate across providers, keep the best few, newest first) before anything
+  downstream — the qualification prompt, the Priority Score, drafts — ever sees them.
+- **context.dev as a second CompanyDataProvider/SignalDataProvider** (`enrichment/providers/
+  context_dev.py`, `enrichment/providers/factory.py`, `enrichment/completeness.py`) — a paid API
+  (brand/retrieve, web/scrape, news/search), used only to fill gaps the free in-house scraper left:
+  a brand lookup when firmographics are too thin, a news lookup when there aren't enough genuine
+  signals — never both for a company that already has sufficient data from the free scraper.
+  Selected per-org via `settings.company_data_source`; a per-run credit ceiling
+  (`context_dev_max_credits_per_run`) caps spend, with usage reported in the run summary. Contacts
+  always stay with the in-house scraper regardless of this setting — context.dev doesn't own
+  contact extraction.
+- **Priority Score ranking** (`qualification/ranking.py`, `orchestrator/ranking_step.py`) — the
+  auto-pipeline used to carry qualified companies into role-classification/drafting in whatever
+  order discovery happened to return them. Now every judged company gets a pure, auditable score
+  (seven weighted, normalized-to-0..1 components; missing data scores a neutral-low value rather
+  than being penalized as if it were *known bad*; the weighted sum is then scaled by an evidence
+  factor from the weakest hard-criterion's confidence, so a well-evidenced company outranks one
+  that merely has more data; a hard FAIL excludes a company outright) and the pipeline's
+  drafting cap takes the best-scoring companies first, not just the first N discovered.
+- **Evidence-grounded drafting** (`draft/evidence.py`) — the first-touch prompt has always asked
+  for "a specific, researched trigger," but the only grounding available was an optional
+  `Recommendation`, which the auto-pipeline never actually creates. Drafts now cite facts the
+  system *verified*: recent cleaned signals, the qualification points that passed with evidence,
+  company size, and the recipient's seniority — formatted for the prompt with an explicit "use
+  these, invent nothing else" instruction.
+- **Per-search hard requirements** (`MarketFitCriterionIn`/`market_fit_criteria` on
+  `MarketDiscoveryConfirmRequest`, `MarketFitRequirements.tsx`) — a rep can now attach one-off hard
+  requirements to a single Market Discovery run (e.g. "operates in logistics") that get judged for
+  every company in that run alongside the org's saved, reusable qualification criteria, without
+  polluting the org-wide criteria catalog with search-specific asks.
+
+`qualification/evidence.py`, `qualification/ranking.py`, `orchestrator/ranking_step.py`,
+`draft/evidence.py`, `enrichment/signals.py`, `enrichment/completeness.py`,
+`enrichment/providers/context_dev.py`/`factory.py`.
+
+## Rep-Facing Run Worklist — **Done**
+
+The Market Discovery results screen used to be a bare companies list. `GET /market-discovery/
+{run_id}/companies` (`ingestion/run_results.py`) now assembles a rep-facing worklist from what the
+auto-pipeline already decided — no new judgment happens here, this is a pure read side: a
+`ready` list (qualified, with at least one primary-target candidate contact, each with the
+evidence a rep needs to pick the right person — role, LinkedIn profile link, email if one was
+actually found, and that contact's draft once confirmed) and a `not_shown` list (everything else,
+each with a single-sentence reason it didn't make the cut). A draft only ever appears on a
+candidate once a rep has confirmed that specific contact. `RunWorklist.tsx`, `RunProgress.tsx`.
+
+## Leadership Dashboard — **Done**
+
+A read-only reporting surface (`dashboard/service.py`, `api/v1/dashboard.py`, `DashboardPage.tsx`
++ its KPI/funnel/cost/attention-queue sub-components) — every function only `SELECT`s, nothing
+here can change pipeline data. Reports on either one chosen Market Discovery run or the union of
+all runs over a period (7d/30d/all, de-duplicated by company so a company reused across two
+searches is counted once): a KPI strip, a discover→qualify→classify→draft funnel, context.dev
+credit spend vs. the per-run ceiling, qualification-criteria/role-category breakdowns, an
+attention queue (stuck/failed runs, needs-review backlog), and a recent-activity feed. Built for
+the "is the pipeline healthy, where did this batch of spend go" question a rep/manager previously
+had no way to answer without reading the database directly.
+
+## Multi-Product Pipeline Selection — **Done**
+
+The pipeline only ever accepted one optional product to pitch per run. A rep now selects **one or
+more** products at confirm time (Market Discovery confirm, a single company's confirm, and bulk
+Needs-Review confirm all take `product_ids: list[uuid.UUID]` now, not one optional id) — useful
+once an org's product catalog covers genuinely different pitches for the same company (e.g. a
+general digital-transformation service line alongside a specific SAP ECC→S/4HANA migration
+offering for the same European logistics ICP).
+
+The draft generator itself picks which **one** of the given candidates best fits each specific
+company/contact — never blending more than one service into a single email. It's given a numbered
+list of candidate products (each with its own grounding, when a matching `Recommendation` exists)
+and returns which option number it chose (`DraftResult.chosen_option`); the caller
+(`draft/service.py::generate_draft`) deterministically maps that back to a real `product_id` —
+same "LLM judges narrowly, code decides the outcome" pattern as every other judgment core here,
+never an LLM-echoed id trusted directly. An out-of-range `chosen_option` is treated as a hard
+Gemini-response error, not silently clamped.
+
+Manual, single-product actions (generating a one-off `Recommendation`, drafting a specific contact
+from the Run Worklist) are deliberately **unchanged** — that's a rep picking exactly one product
+for one person right now, a different interaction from the automated pipeline's multi-candidate
+case. `CompanyDetailPage.tsx` previously shared one product-selection dropdown between its
+single-product "Generate Recommendation" action and the now-multi "Confirm Company" action; these
+are now two independent selections. A small new `ProductMultiSelect.tsx` (a checklist built on the
+existing `Checkbox` component) is shared across the three multi-select entry points — no new
+design-system primitive, no DB schema change.
+
+## Market Discovery Transparency on Zero Results — **Done**
+
+A real, reproduced edge case: a topic-shaped query (e.g. *"healthcare software companies piloting
+generative AI"*) reliably returns editorial/thought-leadership search results rather than actual
+company pages, which the extraction stage correctly rejects — but a rep saw nothing but a bare
+"0 candidates found," even though the backend had already computed exactly why (a full
+raw→extracted→accepted→rejected funnel, each rejection carrying the model's own reasoning) and
+simply discarded it before the job returned.
+
+Fixed as pure transparency, no discovery/extraction behavior change: `_run_market_discovery` now
+keeps a capped sample of rejection reasons (`rejected_samples`) instead of only a count, and
+`MarketDiscoveryPage.tsx` shows a prominent callout with a plain-language explanation plus real
+rejected-item reasons whenever `candidates_found` is 0, alongside an always-visible search-funnel
+line in "Run details." Separately, `search_gatherer.py`'s fixed 3-template query-variant tuple
+gained two directory-biased variants ("list of X vendors", "X providers directory") to give
+topic-shaped input a better (not guaranteed) chance of surfacing real companies in the first
+place — a small, flagged cost tradeoff (2 more parallel Serper calls per run).
+
+Explicitly scoped out for now, not forgotten: a batch-level "this looks like topic noise, not
+company-shaped" signal from the extraction LLM itself, and genuine query reformulation (the LLM
+rewriting the query when the first attempt fails) — both real, larger pieces of work, better
+judged once this transparency fix shows how often the problem actually recurs in practice.
+
+## Market Discovery Page UX fixes — **Done**
+
+Two small but real gaps found while manually testing the above: the page had no way to abandon an
+in-progress parse/confirm and start over except after a run fully finished or failed (`resetSearch`
+was only reachable post-completion) — fixed with an always-visible **Reset** button next to Parse,
+hidden only while a job is actively pending/running. Separately, clicking Parse or Confirm left
+every *other* button on the page (Reset in particular) clickable for the async window before the
+request resolved — fixed with one `busy` flag (`parsing || confirming || runInProgress`) gating
+every action button and the input textarea consistently, instead of each one checking a different,
+incomplete subset of the in-flight states.
+
 ## Known mismatches vs. the meeting notes
 
 Called out explicitly here so they don't get silently carried forward:
@@ -246,8 +381,16 @@ Called out explicitly here so they don't get silently carried forward:
 - **"Everything stays in-tool, no external redirects"** was a pointed live-demo critique
   ("we don't want any person to probably click something and go to the internet himself") that
   currently lives only in the transcript, not as a written design principle. Worth its own short
-  ADR so it's an enforced constraint on future outreach/tracker UI, not something that has to be
+  ADR so it's an enforced constraint on future outreach/tracker UI, not something has to be
   independently rediscovered.
+
+## Known documentation gaps
+
+- Two code comments reference ADRs that were never actually written: `context_dev.py` cites
+  "docs/decisions/0012-context-dev-evaluation.md" and `qualification/ranking.py` cites "ADR 0005/
+  0013" for the Priority Score — only `0011` exists in `docs/decisions/` today. Both decisions were
+  made and shipped (see "Evidence-Grounded Qualification, Priority Ranking & Drafting" above); the
+  write-up just never happened. Flagged here rather than silently fabricated ADR text.
 
 ## Source
 

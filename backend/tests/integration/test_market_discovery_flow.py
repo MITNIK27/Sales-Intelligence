@@ -11,7 +11,7 @@ from app.modules.ai_recommendation.gemini_client import (
 )
 from app.modules.ai_recommendation.mock import MockMarketDescriptionParser
 from app.modules.companies.models import Company
-from app.modules.discovery_agent.schemas import DiscoveredCompany
+from app.modules.discovery_agent.schemas import DiscoveredCompany, DiscoveryResult, ExtractedCompany
 from app.modules.discovery_agent.testing import StubCompanyDiscoveryAgent
 from app.modules.enrichment.providers.base import ScrapedCompanyData
 from app.modules.enrichment.providers.mock import (
@@ -304,3 +304,72 @@ async def test_market_discovery_skips_live_search_entirely_when_index_fills_the_
 
     assert result["reused_from_index"] == CANDIDATE_LIMIT
     assert discovery_agent.calls == []  # live discovery skipped entirely
+
+
+async def test_market_discovery_summary_carries_rejection_reasons(
+    db_session, organization_id
+) -> None:
+    """A 0-candidate run used to report nothing but a bare `rejected` count — the extraction
+    model's per-item `reasoning` was computed and then thrown away. A rep needs the *why*, not
+    just the count, to tell "the search genuinely found nothing" apart from "rephrase your
+    query"."""
+
+    class _AllRejectedDiscoveryAgent:
+        async def discover(self, criteria, limit):  # type: ignore[no-untyped-def]
+            return DiscoveryResult(
+                companies=[],
+                raw_results_count=23,
+                extracted_count=2,
+                accepted_count=0,
+                resolved_count=0,
+                rejected=[
+                    ExtractedCompany(
+                        name="McKinsey & Company",
+                        source_snippet="...",
+                        grounded_in_source=True,
+                        matches_criteria=False,
+                        reasoning="Editorial article about industry trends, not a specific company.",
+                    ),
+                    ExtractedCompany(
+                        name="Generative AI in Healthcare",
+                        source_snippet="...",
+                        grounded_in_source=False,
+                        matches_criteria=False,
+                        reasoning="This is an article title, not a company name.",
+                    ),
+                ],
+            )
+
+    parser = MockMarketDescriptionParser(_CRITERIA)
+    run = await start_market_discovery_parse(
+        db_session, organization_id, "companies piloting generative AI", parser
+    )
+    await db_session.commit()
+    confirmed = await confirm_market_discovery(
+        db_session, organization_id, run.id,
+        industry_keywords=["generative AI"], location=None, employee_size_range=None,
+    )
+    await db_session.commit()
+    assert confirmed is not None
+    job = _job(organization_id, confirmed)
+
+    result = await _run_market_discovery(
+        db_session,
+        job,
+        discovery_agent=_AllRejectedDiscoveryAgent(),
+        domain_provider=MockDomainDiscoveryProvider(),
+        company_provider=MockCompanyDataProvider(ScrapedCompanyData()),
+        contact_provider=MockContactDataProvider([]),
+        signal_provider=MockSignalDataProvider([]),
+    )
+    await db_session.commit()
+
+    assert result["candidates_found"] == 0
+    assert result["raw_results"] == 23
+    assert result["accepted"] == 0
+    assert result["rejected"] == 2
+    assert len(result["rejected_samples"]) == 2
+    assert result["rejected_samples"][0] == {
+        "name": "McKinsey & Company",
+        "reasoning": "Editorial article about industry trends, not a specific company.",
+    }

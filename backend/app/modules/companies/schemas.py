@@ -47,7 +47,7 @@ class CompanyDetail(BaseModel):
 
 
 class CompanyConfirmRequest(BaseModel):
-    product_id: uuid.UUID | None = None
+    product_ids: list[uuid.UUID] = []
 
 
 class CompanyConfirmResult(BaseModel):

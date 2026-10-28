@@ -151,7 +151,7 @@ export type CompanyDetail = {
 };
 
 export type CompanyConfirmRequest = {
-  product_id?: string | null;
+  product_ids?: string[];
 };
 
 // role_classification/draft are best-effort resume results the backend attempts synchronously
@@ -202,10 +202,12 @@ export type MarketDiscoveryConfirmRequest = {
   industry_keywords: string[];
   location: string | null;
   employee_size_range: string | null;
-  // Which product the auto-pipeline's drafting stage should pitch. Omitted (and the org doesn't
+  // Which product(s) the auto-pipeline's drafting stage may pitch. Empty (and the org doesn't
   // have exactly one product to default to) means drafting reports itself skipped rather than
-  // guessing which product to pitch — discovery/qualification/role classification still run.
-  product_id?: string | null;
+  // guessing which product to pitch — discovery/qualification/role classification still run. More
+  // than one product means the draft generator itself picks whichever single one best fits each
+  // company/contact.
+  product_ids?: string[];
   // Hard requirements for this search only; each is judged for every company with evidence.
   market_fit_criteria?: { name: string; description: string | null }[];
 };
@@ -242,6 +244,15 @@ export type MarketDiscoveryRun = {
       budget_exhausted: boolean;
       skipped_sufficient?: number;
     } | null;
+    // The discovery funnel: how many raw search hits came back, how many the LLM extracted as
+    // named-entity candidates, how many it accepted as real/on-target, and (when fewer were
+    // accepted than extracted) a capped sample of why specific candidates were rejected — lets a
+    // 0-candidate run explain itself instead of just reporting a count.
+    raw_results?: number;
+    extracted?: number;
+    accepted?: number;
+    rejected?: number;
+    rejected_samples?: { name: string; reasoning: string }[];
   } | null;
   error: string | null;
 };
@@ -597,7 +608,7 @@ export type NeedsReviewItem = {
 export type BulkConfirmRequest = {
   company_ids: string[];
   contact_ids: string[];
-  product_id?: string | null;
+  product_ids?: string[];
 };
 
 export type BulkConfirmStarted = {

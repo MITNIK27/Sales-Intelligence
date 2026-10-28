@@ -48,7 +48,7 @@ async def test_generate_draft_raises_for_missing_company(db_session, organizatio
             organization_id,
             uuid.uuid4(),
             uuid.uuid4(),
-            uuid.uuid4(),
+            [uuid.uuid4()],
             DRAFT_TYPE_FIRST_TOUCH,
             MockDraftGenerator(),
         )
@@ -64,7 +64,7 @@ async def test_generate_draft_raises_for_contact_not_on_company(
             organization_id,
             company.id,
             uuid.uuid4(),
-            product.id,
+            [product.id],
             DRAFT_TYPE_FIRST_TOUCH,
             MockDraftGenerator(),
         )
@@ -78,7 +78,7 @@ async def test_generate_draft_raises_for_missing_product(db_session, organizatio
             organization_id,
             company.id,
             contact.id,
-            uuid.uuid4(),
+            [uuid.uuid4()],
             DRAFT_TYPE_FIRST_TOUCH,
             MockDraftGenerator(),
         )
@@ -97,7 +97,7 @@ async def test_generate_draft_raises_for_needs_review_company(
             organization_id,
             company.id,
             contact.id,
-            product.id,
+            [product.id],
             DRAFT_TYPE_FIRST_TOUCH,
             MockDraftGenerator(),
         )
@@ -116,7 +116,7 @@ async def test_generate_draft_raises_for_needs_review_contact(
             organization_id,
             company.id,
             contact.id,
-            product.id,
+            [product.id],
             DRAFT_TYPE_FIRST_TOUCH,
             MockDraftGenerator(),
         )
@@ -132,7 +132,7 @@ async def test_generate_draft_persists_result_without_grounding(
         organization_id,
         company.id,
         contact.id,
-        product.id,
+        [product.id],
         DRAFT_TYPE_FIRST_TOUCH,
         MockDraftGenerator(),
     )
@@ -165,7 +165,7 @@ async def test_generate_draft_grounds_in_latest_matching_recommendation(
         organization_id,
         company.id,
         contact.id,
-        product.id,
+        [product.id],
         DRAFT_TYPE_FIRST_TOUCH,
         MockDraftGenerator(),
     )
@@ -185,11 +185,12 @@ async def test_generate_draft_falls_back_to_business_framing_when_unclassified(
 
     class _CapturingGenerator(MockDraftGenerator):
         async def generate(  # type: ignore[no-untyped-def]
-            self, company, contact, product, recommendation, framing_style, draft_type
+            self, company, contact, products, recommendations, framing_style, draft_type,
+            evidence=None,
         ):
             captured["framing_style"] = framing_style
             return await super().generate(
-                company, contact, product, recommendation, framing_style, draft_type
+                company, contact, products, recommendations, framing_style, draft_type
             )
 
     await generate_draft(
@@ -197,7 +198,7 @@ async def test_generate_draft_falls_back_to_business_framing_when_unclassified(
         organization_id,
         company.id,
         contact.id,
-        product.id,
+        [product.id],
         DRAFT_TYPE_FIRST_TOUCH,
         _CapturingGenerator(),
     )
@@ -237,11 +238,12 @@ async def test_generate_draft_uses_contacts_latest_role_relevance_framing(
 
     class _CapturingGenerator(MockDraftGenerator):
         async def generate(  # type: ignore[no-untyped-def]
-            self, company, contact, product, recommendation, framing_style, draft_type
+            self, company, contact, products, recommendations, framing_style, draft_type,
+            evidence=None,
         ):
             captured["framing_style"] = framing_style
             return await super().generate(
-                company, contact, product, recommendation, framing_style, draft_type
+                company, contact, products, recommendations, framing_style, draft_type
             )
 
     await generate_draft(
@@ -249,7 +251,7 @@ async def test_generate_draft_uses_contacts_latest_role_relevance_framing(
         organization_id,
         company.id,
         contact.id,
-        product.id,
+        [product.id],
         DRAFT_TYPE_FIRST_TOUCH,
         _CapturingGenerator(),
     )
@@ -264,7 +266,7 @@ async def test_update_draft_mutates_in_place(db_session, organization_id) -> Non
         organization_id,
         company.id,
         contact.id,
-        product.id,
+        [product.id],
         DRAFT_TYPE_FIRST_TOUCH,
         MockDraftGenerator(),
     )
@@ -289,7 +291,7 @@ async def test_discard_and_mark_sent_transitions(db_session, organization_id) ->
         organization_id,
         company.id,
         contact.id,
-        product.id,
+        [product.id],
         DRAFT_TYPE_FIRST_TOUCH,
         MockDraftGenerator(),
     )
@@ -315,11 +317,11 @@ async def test_list_drafts_filters_by_contact(db_session, organization_id) -> No
     await db_session.commit()
 
     await generate_draft(
-        db_session, organization_id, company.id, contact.id, product.id,
+        db_session, organization_id, company.id, contact.id, [product.id],
         DRAFT_TYPE_FIRST_TOUCH, MockDraftGenerator(),
     )
     await generate_draft(
-        db_session, organization_id, company.id, other_contact.id, product.id,
+        db_session, organization_id, company.id, other_contact.id, [product.id],
         DRAFT_TYPE_FIRST_TOUCH, MockDraftGenerator(),
     )
     await db_session.commit()

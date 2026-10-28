@@ -22,14 +22,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ProductMultiSelect } from "@/components/ProductMultiSelect";
 import {
   MarketFitRequirements,
   seedRequirements,
@@ -89,7 +83,10 @@ export function MarketDiscoveryPage() {
 
   const [activeRoleCategoryCount, setActiveRoleCategoryCount] = useState<number | null>(null);
   const [products, setProducts] = useState<Product[] | null>(null);
-  const [selectedProductId, setSelectedProductId] = usePersistentState("md.productId", "");
+  const [selectedProductIds, setSelectedProductIds] = usePersistentState<string[]>(
+    "md.productIds",
+    [],
+  );
 
   // Poll a pipeline job until it finishes, then load the finished run. Used both when a run is
   // confirmed and when returning to the page while one is still going.
@@ -120,6 +117,10 @@ export function MarketDiscoveryPage() {
     setEmployeeSizeRange("");
     setRequirements([]);
     setConfidence(null);
+    // Product selection is remembered across searches like every other field here — without
+    // clearing it, a product checked for one run (e.g. the SAP one) silently carries into the
+    // next, unrelated one.
+    setSelectedProductIds([]);
     setJob(null);
     setRun(null);
     setError(null);
@@ -199,7 +200,7 @@ export function MarketDiscoveryPage() {
       .then((list) => {
         setProducts(list.items);
         // Unambiguous default: exactly one product means there's nothing to choose between.
-        if (list.items.length === 1) setSelectedProductId(list.items[0].id);
+        if (list.items.length === 1) setSelectedProductIds([list.items[0].id]);
       })
       .catch(() => {
         // Supplementary — a failure here shouldn't block the rest of the page.
@@ -261,7 +262,7 @@ export function MarketDiscoveryPage() {
           .filter(Boolean),
         location: location.trim() || null,
         employee_size_range: employeeSizeRange.trim() || null,
-        product_id: selectedProductId || null,
+        product_ids: selectedProductIds,
         market_fit_criteria: toRequestCriteria(requirements),
       };
       const started = await apiPost<MarketDiscoveryStarted>(
@@ -311,6 +312,11 @@ export function MarketDiscoveryPage() {
   // for a moment while a restored run's status is still loading.
   const showConfirmForm = runId !== null && !jobId;
   const runInProgress = job?.status === "pending" || job?.status === "running";
+  // Covers every in-flight moment, not just "a job exists and is running" — parsing and
+  // confirming are their own async windows before a job even exists, during which every other
+  // action on this page should be inert too (clicking Parse again, Reset, or Confirm a second
+  // time while the first request is still in flight used to all stay clickable).
+  const busy = parsing || confirming || runInProgress;
   const qualifyResult = (qualifyJob?.result as unknown as BulkQualifyResult | null) ?? null;
   const pipelineResult =
     job?.status === "done" ? ((job.result as unknown as AutoPipelineResult | null) ?? null) : null;
@@ -380,15 +386,18 @@ export function MarketDiscoveryPage() {
               onChange={(e) => setRawInput(e.target.value)}
               placeholder="e.g. SaaS companies in Bangalore, 50-200 employees"
               rows={3}
-              disabled={runInProgress}
+              disabled={busy}
             />
-            <Button
-              type="submit"
-              disabled={!rawInput.trim() || parsing || runInProgress}
-              className="self-start"
-            >
-              {parsing ? "Parsing…" : "Parse"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button type="submit" disabled={!rawInput.trim() || busy}>
+                {parsing ? "Parsing…" : "Parse"}
+              </Button>
+              {(rawInput || runId || job) && !busy && (
+                <Button type="button" variant="outline" onClick={resetSearch}>
+                  Reset
+                </Button>
+              )}
+            </div>
             {runInProgress && (
               <p className="text-xs text-muted-foreground">
                 A run is in progress — you can start a new search when it finishes.
@@ -452,31 +461,38 @@ export function MarketDiscoveryPage() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="pipeline-product">Product to pitch (for automatic drafting)</Label>
-                <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                  <SelectTrigger id="pipeline-product" className="h-9 bg-card">
-                    <SelectValue placeholder="No product selected" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(products ?? []).map((product) => (
-                      <SelectItem key={product.id} value={product.id}>
-                        {product.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {!selectedProductId && (
+                <Label>Products to pitch (for automatic drafting)</Label>
+                {products && products.length > 1 && (
+                  <ProductMultiSelect
+                    products={products}
+                    selectedIds={new Set(selectedProductIds)}
+                    onToggle={(productId) =>
+                      setSelectedProductIds((current) =>
+                        current.includes(productId)
+                          ? current.filter((id) => id !== productId)
+                          : [...current, productId],
+                      )
+                    }
+                  />
+                )}
+                {selectedProductIds.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     {products && products.length === 0
                       ? "No products configured yet — discovery, qualification, and role classification will still run automatically, but drafting will be skipped."
-                      : "Leaving this unselected skips automatic drafting — discovery, qualification, and role classification still run."}
+                      : "Leaving none selected skips automatic drafting — discovery, qualification, and role classification still run."}
+                  </p>
+                )}
+                {selectedProductIds.length > 1 && (
+                  <p className="text-xs text-muted-foreground">
+                    With more than one selected, drafting picks whichever single product best fits
+                    each company rather than pitching all of them.
                   </p>
                 )}
               </div>
               <MarketFitRequirements value={requirements} onChange={setRequirements} />
             </div>
 
-            <Button type="button" onClick={handleConfirm} disabled={confirming || runInProgress} className="mt-6">
+            <Button type="button" onClick={handleConfirm} disabled={busy} className="mt-6">
               {confirming ? "Starting…" : "Confirm & Start Discovery"}
             </Button>
           </CardContent>
@@ -508,9 +524,41 @@ export function MarketDiscoveryPage() {
             )}
             {run?.error && <p className="mt-2 text-sm text-destructive">{run.error}</p>}
 
+            {job.status === "done" &&
+              run?.summary?.candidates_found === 0 &&
+              (run.summary.raw_results ?? 0) > 0 && (
+                <div className="mt-3 border border-chip-warning-fg bg-chip-warning-bg p-3 text-sm text-chip-warning-fg">
+                  <p>
+                    No real companies were found — the search mostly returned general articles or
+                    pages, not a company directory. Try naming a more specific company-type noun
+                    (e.g. "vendors", "providers", "operators") instead of a broad topic phrase.
+                  </p>
+                  {run.summary.rejected_samples && run.summary.rejected_samples.length > 0 && (
+                    <>
+                      <p className="mt-2 font-semibold">Examples of what was rejected:</p>
+                      <ul className="mt-1 list-inside list-disc">
+                        {run.summary.rejected_samples.map((sample, i) => (
+                          <li key={i}>
+                            <strong>{sample.name}</strong> — {sample.reasoning}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </div>
+              )}
+
             {(pipelineResult || run?.summary?.enrichment) && (
               <details className="mt-3 text-sm">
                 <summary className="cursor-pointer text-muted-foreground">Run details</summary>
+                {run?.summary?.raw_results != null && (
+                  <p className="mt-2 text-muted-foreground">
+                    Search funnel: {run.summary.raw_results} raw result
+                    {run.summary.raw_results === 1 ? "" : "s"} → {run.summary.extracted ?? 0}{" "}
+                    extracted → {run.summary.accepted ?? 0} accepted as real companies
+                    {(run.summary.rejected ?? 0) > 0 && ` (${run.summary.rejected} rejected)`}
+                  </p>
+                )}
                 {run?.summary?.context_dev && (
                   <p className="mt-2 text-muted-foreground">
                     context.dev: {run.summary.context_dev.credits_used} of{" "}
@@ -692,7 +740,10 @@ export function MarketDiscoveryPage() {
       {job && runId && (
         <RunWorklist
           runId={runId}
-          productId={selectedProductId || null}
+          // RunWorklist's own per-contact "write draft" button still sends exactly one product —
+          // only pass one through when the rep's selection for this run is unambiguous;
+          // otherwise its existing "choose a product above" messaging covers the rest.
+          productId={selectedProductIds.length === 1 ? selectedProductIds[0] : null}
           live={job.status === "running" || job.status === "pending"}
         />
       )}

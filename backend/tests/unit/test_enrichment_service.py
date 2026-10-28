@@ -4,7 +4,8 @@ from sqlalchemy import select
 
 from app.modules.companies.models import ENRICHMENT_STATUS_ENRICHED, ENRICHMENT_STATUS_FAILED
 from app.modules.companies.service import get_or_create_company
-from app.modules.contacts.models import Contact
+from app.modules.contacts.models import CHANNEL_TYPE_LINKEDIN, Contact
+from app.modules.contacts.service import get_or_create_contact, upsert_contact_channel
 from app.modules.enrichment.models import EnrichmentRecord
 from app.modules.enrichment.providers.base import (
     DomainMatch,
@@ -24,6 +25,7 @@ from app.modules.enrichment.service import (
     JOB_TYPE_SCRAPE_COMPANY,
     _run_scrape,
     list_company_signals,
+    list_needs_review,
     search_company_contacts,
 )
 from app.modules.jobs.service import enqueue_job
@@ -328,3 +330,48 @@ async def test_list_company_signals_dedupes_across_rescrapes(db_session, organiz
     # ...but the user-facing list collapses to one, keeping the latest occurrence.
     signals = await list_company_signals(db_session, organization_id, company.id)
     assert len(signals) == 1
+
+
+async def test_needs_review_entries_carry_the_contact_details(db_session, organization_id) -> None:
+    company, _ = await get_or_create_company(
+        db_session, organization_id, name="Acme", domain="acme.com"
+    )
+    contact, _ = await get_or_create_contact(
+        db_session, organization_id, company.id, "Jane Doe", "Head of Logistics", None
+    )
+    contact.needs_review = True
+    contact.needs_review_reason = "found via contact search, not confirmed"
+    contact.source = "serper:linkedin"
+    contact.confidence = 0.8
+    await upsert_contact_channel(
+        db_session, contact.id, CHANNEL_TYPE_LINKEDIN, "https://linkedin.com/in/jane"
+    )
+    await db_session.commit()
+
+    entries = await list_needs_review(db_session, organization_id)
+
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.entity_type == "contact"
+    assert entry.contact_name == "Jane Doe"
+    assert entry.contact_title == "Head of Logistics"
+    assert entry.contact_source == "serper:linkedin"
+    assert entry.contact_confidence == 0.8
+    assert entry.contact_email is None
+    assert entry.company_domain == "acme.com"
+
+
+async def test_listing_needs_review_changes_nothing(db_session, organization_id) -> None:
+    company, _ = await get_or_create_company(
+        db_session, organization_id, name="Acme", domain="acme.com"
+    )
+    contact, _ = await get_or_create_contact(
+        db_session, organization_id, company.id, "Jane Doe", None, None
+    )
+    contact.needs_review = True
+    await db_session.commit()
+
+    await list_needs_review(db_session, organization_id)
+    await db_session.refresh(contact)
+
+    assert contact.needs_review is True

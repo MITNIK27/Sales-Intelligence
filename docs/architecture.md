@@ -18,7 +18,8 @@ Reach Out      →  modules/outreach (+ adapters/) (Phase 6, deferred)
 ```
 
 Cross-cutting: `modules/auth` (org/user/roles), `modules/credits` (usage ledger),
-`modules/jobs` (background work tracking).
+`modules/jobs` (background work tracking), `modules/dashboard` (read-only reporting over the
+pipeline's own data — no writes, no new data model of its own).
 
 ## Background Jobs, Simplified
 
@@ -44,10 +45,14 @@ ever genuinely outgrows a single polling worker, this can be swapped for Celery/
 Three modules are built around a swappable interface rather than a hardcoded external dependency,
 because the concrete choice is either still open or deliberately deferred:
 
-- `enrichment/providers/` — `CompanyDataProvider` / `ContactDataProvider`. Default
-  implementation: an in-house scraper of free/public sources (company websites, public web
-  search, business directories — respecting `robots.txt` and rate limits). See
-  [`docs/decisions/`](decisions/) for the LinkedIn-as-a-source question.
+- `enrichment/providers/` — `CompanyDataProvider` / `ContactDataProvider` / `SignalDataProvider`.
+  Default implementation: an in-house scraper of free/public sources (company websites, public web
+  search, business directories — respecting `robots.txt` and rate limits). A second
+  `CompanyDataProvider`/`SignalDataProvider` (context.dev, a paid API) now also exists, selected
+  per-org and used only to fill the specific gaps the free scraper left (thin firmographics, too
+  few genuine signals) under a per-run credit ceiling — see the "Evidence-Grounded Qualification,
+  Priority Ranking & Drafting" entry in `docs/roadmap.md`. See [`docs/decisions/`](decisions/) for
+  the LinkedIn-as-a-source question.
 - `verification/providers/` — `VerificationProvider`. Built in Phase 5. Default plan: in-house
   free check (MX-record lookup + SMTP handshake probe for email, format/pattern check for phone).
 - `outreach/adapters/` — `OutreachAdapter`. Built in Phase 6. Email first; WhatsApp/call adapters
