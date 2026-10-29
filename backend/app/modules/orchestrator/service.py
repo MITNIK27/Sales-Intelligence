@@ -190,6 +190,8 @@ async def _run_auto_pipeline(
     # etc.) is skipped here rather than classified — see `classify_and_draft_company`'s docstring
     # for why this must never be silently bypassed on the road to a customer-facing draft.
     primary_by_company: dict[uuid.UUID, list[uuid.UUID]] = {}
+    # Optional focus chosen when the run was started; none means every matched role is a target.
+    target_category_ids = {uuid.UUID(c) for c in (payload.get("role_category_ids") or [])}
     if not qualified_company_ids:
         role_result: dict[str, Any] = {"ran": False, "skipped_reason": "no qualified companies"}
     elif not await list_active_categories(session, job.organization_id):
@@ -208,7 +210,11 @@ async def _run_auto_pipeline(
                 )
             try:
                 await run_role_relevance_check(
-                    session, job.organization_id, company_id, role_relevance_generator
+                    session,
+                    job.organization_id,
+                    company_id,
+                    role_relevance_generator,
+                    target_category_ids=target_category_ids,
                 )
                 classified += 1
                 latest = await list_latest_role_relevance(session, job.organization_id, company_id)

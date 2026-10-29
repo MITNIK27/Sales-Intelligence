@@ -14,6 +14,7 @@ from app.modules.draft.models import (
     DRAFT_STATUS_DISCARDED,
     DRAFT_STATUS_DRAFT,
     DRAFT_STATUS_SENT,
+    DRAFT_TYPE_FIRST_TOUCH,
     Draft,
 )
 from app.modules.draft.schemas import DraftListItem, DraftListOut
@@ -63,6 +64,27 @@ async def _get_latest_recommendation(
         .limit(1)
     )
     return (await session.execute(stmt)).scalars().first()
+
+
+_PREVIOUS_EMAILS_SHOWN = 3
+
+
+async def _previous_emails(
+    session: AsyncSession, organization_id: uuid.UUID, contact_id: uuid.UUID
+) -> list[tuple[str | None, str]]:
+    """The contact's most recent non-discarded drafts, oldest first (subject, body)."""
+    stmt = (
+        select(Draft)
+        .where(
+            Draft.organization_id == organization_id,
+            Draft.contact_id == contact_id,
+            Draft.status != DRAFT_STATUS_DISCARDED,
+        )
+        .order_by(Draft.created_at.desc())
+        .limit(_PREVIOUS_EMAILS_SHOWN)
+    )
+    drafts = (await session.execute(stmt)).scalars().all()
+    return [(d.subject, d.body) for d in reversed(drafts)]
 
 
 async def generate_draft(
@@ -117,8 +139,22 @@ async def generate_draft(
     )
 
     evidence = await build_draft_evidence(session, organization_id, company, contact)
+    # A follow-up sees what this person was already written, so "add something new" is checkable.
+    # Passed only when there is something, so a generator written without it keeps working.
+    previous = (
+        await _previous_emails(session, organization_id, contact_id)
+        if draft_type != DRAFT_TYPE_FIRST_TOUCH
+        else []
+    )
     result = await generator.generate(
-        company, contact, products, recommendations, framing_style, draft_type, evidence
+        company,
+        contact,
+        products,
+        recommendations,
+        framing_style,
+        draft_type,
+        evidence,
+        **({"previous_emails": previous} if previous else {}),
     )
 
     chosen_index = result.chosen_option - 1

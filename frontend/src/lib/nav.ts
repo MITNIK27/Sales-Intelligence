@@ -13,6 +13,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { OFFERINGS_LABEL } from "@/lib/offerings";
+
 export interface NavItem {
   to: string;
   label: string;
@@ -37,7 +39,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: "Configure",
     items: [
-      { to: "/products", label: "Products", icon: Package },
+      { to: "/products", label: OFFERINGS_LABEL, icon: Package },
       {
         to: "/qualification/criteria",
         label: "Qualification Criteria",

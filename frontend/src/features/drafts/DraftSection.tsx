@@ -2,7 +2,19 @@ import { useEffect, useState } from "react";
 
 import { apiGet, apiPatch, apiPost } from "@/api/client";
 import { DRAFT_TYPES } from "@/api/types";
-import type { Contact, Draft, DraftGenerateRequest, DraftType, DraftUpdateRequest, Product } from "@/api/types";
+import type {
+  Contact,
+  Draft,
+  DraftGenerateRequest,
+  DraftType,
+  DraftUpdateRequest,
+  Product,
+} from "@/api/types";
+import { OfferingSelectItems } from "@/components/OfferingSelectItems";
+import {
+  DRAFT_TYPE_LABELS,
+  suggestedDraftType,
+} from "@/features/drafts/draftTypes";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -12,11 +24,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-
-const DRAFT_TYPE_LABELS: Record<DraftType, string> = {
-  first_touch: "First touch",
-  follow_up: "Follow-up",
-};
 
 export function DraftSection({
   contact,
@@ -46,12 +53,18 @@ export function DraftSection({
   const [loggingAsSent, setLoggingAsSent] = useState(false);
 
   function loadLatestDraft() {
-    return apiGet<Draft[]>(`/companies/${companyId}/drafts?contact_id=${contact.id}`)
+    return apiGet<Draft[]>(
+      `/companies/${companyId}/drafts?contact_id=${contact.id}`,
+    )
       .then((drafts) => {
         const active = drafts.find((d) => d.status === "draft") ?? null;
         setDraft(active);
         setSubject(active?.subject ?? "");
         setBody(active?.body ?? "");
+        // Start on the email that comes next, from how many were already sent to this person.
+        setDraftType(
+          suggestedDraftType(drafts.filter((d) => d.status === "sent").length),
+        );
       })
       .catch(() => {
         // Supplementary — a failure here shouldn't block generating a new draft.
@@ -72,13 +85,18 @@ export function DraftSection({
         product_id: selectedProductId,
         draft_type: draftType,
       };
-      const generated = await apiPost<Draft>(`/companies/${companyId}/drafts`, payload);
+      const generated = await apiPost<Draft>(
+        `/companies/${companyId}/drafts`,
+        payload,
+      );
       setDraft(generated);
       setSubject(generated.subject ?? "");
       setBody(generated.body);
       setSaved(false);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "failed to generate draft");
+      setGenerateError(
+        err instanceof Error ? err.message : "failed to generate draft",
+      );
     } finally {
       setGenerating(false);
     }
@@ -99,7 +117,9 @@ export function DraftSection({
       await saveEdits();
       setSaved(true);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "failed to save edits");
+      setGenerateError(
+        err instanceof Error ? err.message : "failed to save edits",
+      );
     } finally {
       setSaving(false);
     }
@@ -114,7 +134,9 @@ export function DraftSection({
       const saved = await saveEdits();
       if (saved) onLogAsSent(saved);
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "failed to save edits before send");
+      setGenerateError(
+        err instanceof Error ? err.message : "failed to save edits before send",
+      );
     } finally {
       setLoggingAsSent(false);
     }
@@ -129,7 +151,9 @@ export function DraftSection({
       setSubject("");
       setBody("");
     } catch (err) {
-      setGenerateError(err instanceof Error ? err.message : "failed to discard draft");
+      setGenerateError(
+        err instanceof Error ? err.message : "failed to discard draft",
+      );
     } finally {
       setDiscarding(false);
     }
@@ -139,18 +163,17 @@ export function DraftSection({
     <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
       <div className="flex flex-wrap items-center gap-2">
         <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-          <SelectTrigger className="h-9 min-w-40 bg-card" aria-label="Product">
-            <SelectValue placeholder="Select a product…" />
+          <SelectTrigger className="h-9 min-w-40 bg-card" aria-label="Offering">
+            <SelectValue placeholder="Select an offering…" />
           </SelectTrigger>
           <SelectContent>
-            {products.map((product) => (
-              <SelectItem key={product.id} value={product.id}>
-                {product.name}
-              </SelectItem>
-            ))}
+            <OfferingSelectItems products={products} />
           </SelectContent>
         </Select>
-        <Select value={draftType} onValueChange={(v) => setDraftType(v as DraftType)}>
+        <Select
+          value={draftType}
+          onValueChange={(v) => setDraftType(v as DraftType)}
+        >
           <SelectTrigger className="h-9 bg-card" aria-label="Draft type">
             <SelectValue />
           </SelectTrigger>
@@ -166,25 +189,32 @@ export function DraftSection({
           type="button"
           onClick={handleGenerate}
           disabled={!selectedProductId || generating || blockedByReview}
-          title={blockedByReview ? "Confirm the flagged company/contact before drafting" : undefined}
+          title={
+            blockedByReview
+              ? "Confirm the flagged company/contact before drafting"
+              : undefined
+          }
           size="sm"
           className="h-9"
         >
           {generating ? "Generating…" : "Generate Draft"}
         </Button>
       </div>
-      {generateError && <p className="text-sm text-destructive">{generateError}</p>}
+      {generateError && (
+        <p className="text-sm text-destructive">{generateError}</p>
+      )}
       {blockedByReview && !draft && (
         <p className="text-sm text-muted-foreground">
-          Confirm the flagged company or contact above before generating a draft.
+          Confirm the flagged company or contact above before generating a
+          draft.
         </p>
       )}
 
       {draft && (
         <div className="flex flex-col gap-2 rounded-md border border-border p-3">
           <p className="text-xs text-muted-foreground">
-            {DRAFT_TYPE_LABELS[draft.draft_type]} draft — {draft.model_used} · review and edit
-            before sending.
+            {DRAFT_TYPE_LABELS[draft.draft_type]} draft — {draft.model_used} ·
+            review and edit before sending.
           </p>
           <input
             type="text"
@@ -201,10 +231,20 @@ export function DraftSection({
             aria-label="Draft body"
           />
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" onClick={handleSaveEdits} disabled={saving}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSaveEdits}
+              disabled={saving}
+            >
               {saving ? "Saving…" : "Save edits"}
             </Button>
-            <Button type="button" size="sm" onClick={handleLogAsSent} disabled={loggingAsSent}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleLogAsSent}
+              disabled={loggingAsSent}
+            >
               {loggingAsSent ? "Preparing…" : "Log as Sent"}
             </Button>
             <Button

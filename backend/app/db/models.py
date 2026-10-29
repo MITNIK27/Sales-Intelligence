@@ -11,6 +11,7 @@ from app.modules.draft import models as draft_models  # noqa: F401
 from app.modules.enrichment import models as enrichment_models  # noqa: F401
 from app.modules.ingestion import models as ingestion_models  # noqa: F401
 from app.modules.jobs import models as jobs_models  # noqa: F401
+from app.modules.offerings import models as offerings_models  # noqa: F401
 from app.modules.outreach import models as outreach_models  # noqa: F401
 from app.modules.products import models as products_models  # noqa: F401
 from app.modules.qualification import models as qualification_models  # noqa: F401

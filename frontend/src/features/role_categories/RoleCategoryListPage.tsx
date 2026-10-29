@@ -110,7 +110,6 @@ export function RoleCategoryListPage() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead>Priority</TableHead>
                   <TableHead>Framing</TableHead>
                   <TableHead>Active</TableHead>
                   <TableHead>Actions</TableHead>
@@ -122,13 +121,6 @@ export function RoleCategoryListPage() {
                     <TableCell className="whitespace-normal">{category.name}</TableCell>
                     <TableCell className="whitespace-normal text-muted-foreground">
                       {category.description ?? "—"}
-                    </TableCell>
-                    <TableCell>
-                      {category.is_primary_target ? (
-                        <Badge>Primary target</Badge>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
                     </TableCell>
                     <TableCell className="capitalize text-muted-foreground">
                       {category.framing_style}

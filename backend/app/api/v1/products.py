@@ -1,10 +1,12 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.products.models import SOURCE_MANUAL, STATUS_ACTIVE
 from app.modules.products.schemas import ProductCreate, ProductList, ProductOut, ProductUpdate
 from app.modules.products.service import (
     create_product,
@@ -22,7 +24,11 @@ async def create_product_endpoint(
     body: ProductCreate, session: AsyncSession = Depends(get_db)
 ) -> ProductOut:
     product = await create_product(
-        session, DEFAULT_ORGANIZATION_ID, name=body.name, description=body.description
+        session,
+        DEFAULT_ORGANIZATION_ID,
+        name=body.name,
+        description=body.description,
+        kind=body.kind,
     )
     await session.commit()
     return ProductOut.model_validate(product)
@@ -32,9 +38,18 @@ async def create_product_endpoint(
 async def list_products_endpoint(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    kind: Literal["service", "product"] | None = Query(None),
+    include_archived: bool = Query(False),
     session: AsyncSession = Depends(get_db),
 ) -> ProductList:
-    products, total = await list_products(session, DEFAULT_ORGANIZATION_ID, limit, offset)
+    products, total = await list_products(
+        session,
+        DEFAULT_ORGANIZATION_ID,
+        limit,
+        offset,
+        kind=kind,
+        status=None if include_archived else STATUS_ACTIVE,
+    )
     items = [ProductOut.model_validate(p) for p in products]
     return ProductList(items=items, total=total, limit=limit, offset=offset)
 
@@ -66,6 +81,12 @@ async def update_product_endpoint(
 async def delete_product_endpoint(
     product_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> None:
+    existing = await get_product(session, DEFAULT_ORGANIZATION_ID, product_id)
+    if existing is not None and existing.source != SOURCE_MANUAL:
+        raise HTTPException(
+            status_code=409,
+            detail="this offering came from the website; archive it instead of deleting it",
+        )
     deleted = await delete_product(session, DEFAULT_ORGANIZATION_ID, product_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="product not found")

@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
+from app.modules.companies.service import split_company_input
 from app.modules.enrichment.schemas import ScrapeJobStarted
 from app.modules.jobs.service import enqueue_job
 from app.modules.qualification.qualification_generator import GeminiQualificationGenerator
@@ -142,11 +143,14 @@ async def run_adhoc_check_endpoint(
     could_not_determine on every criterion. That takes real time (a network fetch + an LLM call),
     so this runs as a background job like Market Discovery and per-company scrape do, rather than
     blocking the request."""
+    name, domain = body.name, body.domain
+    if body.company and body.company.strip():
+        name, domain = split_company_input(body.company)
     job = await enqueue_job(
         session,
         DEFAULT_ORGANIZATION_ID,
         JOB_TYPE_ADHOC_QUALIFY,
-        {"name": body.name, "domain": body.domain},
+        {"name": name, "domain": domain, "focus": (body.focus or "").strip() or None},
     )
     await session.commit()
     return ScrapeJobStarted(job_id=job.id)

@@ -93,7 +93,12 @@ def describe_source(ref: str | None, signals: list[EnrichmentRecord]) -> dict[st
         return {"source": "company profile", "url": None}
     for signal_ref, record in numbered_signals(signals):
         if signal_ref == ref:
-            origin = "context.dev news" if record.source.startswith("contextdev") else "website"
+            if record.source.startswith("contextdev"):
+                origin = "context.dev news"
+            elif record.source.startswith("serper"):
+                origin = "web search"
+            else:
+                origin = "website"
             return {"source": origin, "url": (record.raw_payload or {}).get("url")}
     return {"source": None, "url": None}
 

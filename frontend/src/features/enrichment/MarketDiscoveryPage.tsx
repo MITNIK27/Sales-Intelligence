@@ -14,6 +14,7 @@ import type {
   Product,
   ProductList,
   QualificationCriterionList,
+  RoleCategory,
   RoleCategoryList,
 } from "@/api/types";
 import { CouldNotDetermineBadge } from "@/components/StatusBadge";
@@ -23,7 +24,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { InfoTip } from "@/components/InfoTip";
 import { ProductMultiSelect } from "@/components/ProductMultiSelect";
+import { RoleCategoryMultiSelect } from "@/components/RoleCategoryMultiSelect";
 import {
   MarketFitRequirements,
   seedRequirements,
@@ -83,6 +86,11 @@ export function MarketDiscoveryPage() {
 
   const [activeRoleCategoryCount, setActiveRoleCategoryCount] = useState<number | null>(null);
   const [products, setProducts] = useState<Product[] | null>(null);
+  const [roleCategories, setRoleCategories] = useState<RoleCategory[]>([]);
+  const [selectedRoleCategoryIds, setSelectedRoleCategoryIds] = usePersistentState<string[]>(
+    "md.roleCategoryIds",
+    [],
+  );
   const [selectedProductIds, setSelectedProductIds] = usePersistentState<string[]>(
     "md.productIds",
     [],
@@ -118,9 +126,10 @@ export function MarketDiscoveryPage() {
     setRequirements([]);
     setConfidence(null);
     // Product selection is remembered across searches like every other field here — without
-    // clearing it, a product checked for one run (e.g. the SAP one) silently carries into the
+    // clearing it, an offering checked for one run (e.g. the SAP one) silently carries into the
     // next, unrelated one.
     setSelectedProductIds([]);
+    setSelectedRoleCategoryIds([]);
     setJob(null);
     setRun(null);
     setError(null);
@@ -192,11 +201,15 @@ export function MarketDiscoveryPage() {
         // Supplementary — a failure here shouldn't block the rest of the page.
       });
     apiGet<RoleCategoryList>("/role-categories")
-      .then((list) => setActiveRoleCategoryCount(list.items.filter((c) => c.is_active).length))
+      .then((list) => {
+        const active = list.items.filter((c) => c.is_active);
+        setActiveRoleCategoryCount(active.length);
+        setRoleCategories(active);
+      })
       .catch(() => {
         // Supplementary — a failure here shouldn't block the rest of the page.
       });
-    apiGet<ProductList>("/products")
+    apiGet<ProductList>("/products?limit=200")
       .then((list) => {
         setProducts(list.items);
         // Unambiguous default: exactly one product means there's nothing to choose between.
@@ -263,6 +276,7 @@ export function MarketDiscoveryPage() {
         location: location.trim() || null,
         employee_size_range: employeeSizeRange.trim() || null,
         product_ids: selectedProductIds,
+        role_category_ids: selectedRoleCategoryIds,
         market_fit_criteria: toRequestCriteria(requirements),
       };
       const started = await apiPost<MarketDiscoveryStarted>(
@@ -306,7 +320,7 @@ export function MarketDiscoveryPage() {
   const missingSetup: string[] = [];
   if (activeCriteriaCount === 0) missingSetup.push("no active qualification criteria");
   if (activeRoleCategoryCount === 0) missingSetup.push("no active role categories");
-  if (products !== null && products.length === 0) missingSetup.push("no product to pitch");
+  if (products !== null && products.length === 0) missingSetup.push("no offering to pitch");
 
   // Keyed on the remembered job id (not the fetched job) so the confirm form doesn't flash up
   // for a moment while a restored run's status is still loading.
@@ -461,7 +475,7 @@ export function MarketDiscoveryPage() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>Products to pitch (for automatic drafting)</Label>
+                <Label>Offerings to pitch (for automatic drafting)</Label>
                 {products && products.length > 1 && (
                   <ProductMultiSelect
                     products={products}
@@ -478,17 +492,39 @@ export function MarketDiscoveryPage() {
                 {selectedProductIds.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     {products && products.length === 0
-                      ? "No products configured yet — discovery, qualification, and role classification will still run automatically, but drafting will be skipped."
+                      ? "No offerings added yet — discovery, qualification, and role classification will still run automatically, but drafting will be skipped."
                       : "Leaving none selected skips automatic drafting — discovery, qualification, and role classification still run."}
                   </p>
                 )}
                 {selectedProductIds.length > 1 && (
                   <p className="text-xs text-muted-foreground">
-                    With more than one selected, drafting picks whichever single product best fits
+                    With more than one selected, drafting picks whichever single offering best fits
                     each company rather than pitching all of them.
                   </p>
                 )}
               </div>
+              {roleCategories.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <Label className="flex items-center gap-2">
+                    Target roles to focus on (optional)
+                    <InfoTip label="About target roles">
+                      Leave this empty to look at every role. Pick roles only if you want this
+                      search to concentrate on them; you still choose which contacts to confirm.
+                    </InfoTip>
+                  </Label>
+                  <RoleCategoryMultiSelect
+                    categories={roleCategories}
+                    selectedIds={new Set(selectedRoleCategoryIds)}
+                    onToggle={(categoryId) =>
+                      setSelectedRoleCategoryIds((current) =>
+                        current.includes(categoryId)
+                          ? current.filter((id) => id !== categoryId)
+                          : [...current, categoryId],
+                      )
+                    }
+                  />
+                </div>
+              )}
               <MarketFitRequirements value={requirements} onChange={setRequirements} />
             </div>
 
@@ -742,7 +778,7 @@ export function MarketDiscoveryPage() {
           runId={runId}
           // RunWorklist's own per-contact "write draft" button still sends exactly one product —
           // only pass one through when the rep's selection for this run is unambiguous;
-          // otherwise its existing "choose a product above" messaging covers the rest.
+          // otherwise its existing "choose an offering above" messaging covers the rest.
           productId={selectedProductIds.length === 1 ? selectedProductIds[0] : null}
           live={job.status === "running" || job.status === "pending"}
         />

@@ -59,6 +59,25 @@ def _clean_company_name(name: str | None) -> str | None:
     return stripped
 
 
+# "acme.com", "acme.com/about": no spaces, dot-separated labels, alphabetic ending.
+_DOMAIN_SHAPED_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}(/\S*)?$", re.IGNORECASE)
+
+
+def split_company_input(raw: str) -> tuple[str | None, str | None]:
+    """One field, two possible meanings: a person types either a company name or its website.
+    Returns `(name, domain)` with exactly one of them set. A scheme, a `www.` prefix or a
+    domain-shaped single word is a website; anything else (including "Acme Inc.", which has a
+    space) is a name."""
+    value = raw.strip()
+    if not value:
+        return None, None
+    if _PROTOCOL_RE.match(value.lower()) or _WWW_RE.match(value.lower()):
+        return None, normalize_domain(value)
+    if _DOMAIN_SHAPED_RE.match(value):
+        return None, normalize_domain(value)
+    return value, None
+
+
 async def get_or_create_company(
     session: AsyncSession,
     organization_id: uuid.UUID,

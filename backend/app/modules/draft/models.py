@@ -6,8 +6,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
 
 DRAFT_TYPE_FIRST_TOUCH = "first_touch"
+# "follow_up" predates numbered follow-ups and keeps its meaning as the first one, so existing
+# rows need no change.
 DRAFT_TYPE_FOLLOW_UP = "follow_up"
-DRAFT_TYPES = (DRAFT_TYPE_FIRST_TOUCH, DRAFT_TYPE_FOLLOW_UP)
+DRAFT_TYPE_FOLLOW_UP_2 = "follow_up_2"
+DRAFT_TYPE_FOLLOW_UP_3 = "follow_up_3"
+DRAFT_TYPES = (
+    DRAFT_TYPE_FIRST_TOUCH,
+    DRAFT_TYPE_FOLLOW_UP,
+    DRAFT_TYPE_FOLLOW_UP_2,
+    DRAFT_TYPE_FOLLOW_UP_3,
+)
 
 # LinkedIn drafting is deferred — the meeting's structure/length spec is email-specific.
 DRAFT_CHANNEL_EMAIL = "email"

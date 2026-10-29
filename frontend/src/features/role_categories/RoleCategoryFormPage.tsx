@@ -39,7 +39,6 @@ export function RoleCategoryFormPage() {
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [isPrimaryTarget, setIsPrimaryTarget] = useState(false);
   const [isActive, setIsActive] = useState(true);
   const [framingStyle, setFramingStyle] = useState<FramingStyle>("business");
   const [loading, setLoading] = useState(isEdit);
@@ -55,7 +54,6 @@ export function RoleCategoryFormPage() {
       .then((category) => {
         setName(category.name);
         setDescription(category.description ?? "");
-        setIsPrimaryTarget(category.is_primary_target);
         setIsActive(category.is_active);
         setFramingStyle(category.framing_style);
       })
@@ -77,7 +75,6 @@ export function RoleCategoryFormPage() {
         const body: RoleCategoryUpdateRequest = {
           name: name.trim(),
           description: description.trim() || null,
-          is_primary_target: isPrimaryTarget,
           is_active: isActive,
           framing_style: framingStyle,
         };
@@ -86,7 +83,6 @@ export function RoleCategoryFormPage() {
         const body: RoleCategoryCreateRequest = {
           name: name.trim(),
           description: description.trim() || null,
-          is_primary_target: isPrimaryTarget,
           is_active: isActive,
           framing_style: framingStyle,
         };
@@ -185,15 +181,6 @@ export function RoleCategoryFormPage() {
               </p>
             </div>
             <div className="flex flex-col gap-3">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="size-4 accent-primary"
-                  checked={isPrimaryTarget}
-                  onChange={(e) => setIsPrimaryTarget(e.target.checked)}
-                />
-                Primary target — surfaced first when prioritizing outreach
-              </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"

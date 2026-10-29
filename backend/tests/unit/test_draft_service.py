@@ -332,3 +332,29 @@ async def test_list_drafts_filters_by_contact(db_session, organization_id) -> No
     only_contact = await list_drafts(db_session, organization_id, company.id, contact.id)
     assert len(only_contact) == 1
     assert only_contact[0].contact_id == contact.id
+
+
+async def test_follow_up_is_given_the_earlier_email_and_a_first_touch_is_not(
+    db_session, organization_id
+) -> None:
+    company, contact, product = await _make_company_contact_product(db_session, organization_id)
+    captured: list[object] = []
+
+    class _CapturingGenerator(MockDraftGenerator):
+        async def generate(  # type: ignore[no-untyped-def]
+            self, company, contact, products, recommendations, framing_style, draft_type,
+            evidence=None, previous_emails=None,
+        ):
+            captured.append(previous_emails)
+            return await super().generate(
+                company, contact, products, recommendations, framing_style, draft_type
+            )
+
+    generator = _CapturingGenerator()
+    args = (db_session, organization_id, company.id, contact.id, [product.id])
+
+    await generate_draft(*args, DRAFT_TYPE_FIRST_TOUCH, generator)
+    await generate_draft(*args, "follow_up_2", generator)
+
+    assert captured[0] is None
+    assert captured[1] == [("Canned subject for testing", "Canned draft body for testing.")]

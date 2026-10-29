@@ -89,7 +89,7 @@ export function NeedsReviewPage() {
 
   useEffect(() => {
     void loadItems();
-    apiGet<ProductList>("/products")
+    apiGet<ProductList>("/products?limit=200")
       .then((list) => {
         setProducts(list.items);
         if (list.items.length === 1) setSelectedProductIds([list.items[0].id]);
@@ -405,7 +405,7 @@ function JobNote({ job }: { job: JobStatus | null }) {
       {job.status === "failed"
         ? job.error
         : job.status === "done"
-          ? "Confirmed. Role classification and drafting have resumed where a product was chosen."
+          ? "Confirmed. Role classification and drafting have resumed where an offering was chosen."
           : job.progress
             ? `Confirming ${job.progress.done} of ${job.progress.total}…`
             : "Confirming…"}

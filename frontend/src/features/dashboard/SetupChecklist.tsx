@@ -11,7 +11,7 @@ type Setup = {
 export function SetupChecklist({ setup }: { setup: Setup | null }) {
   if (!setup) return null;
   const steps = [
-    { done: setup.products > 0, label: "Add what you sell", to: "/products" },
+    { done: setup.products > 0, label: "Add your services and products", to: "/products" },
     {
       done: setup.active_criteria > 0,
       label: "Set your qualification criteria",

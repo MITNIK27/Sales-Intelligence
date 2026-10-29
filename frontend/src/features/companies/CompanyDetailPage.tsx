@@ -33,6 +33,7 @@ import { QualificationResultsTable } from "@/features/qualification/Qualificatio
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/PageHeader";
+import { OfferingSelectItems } from "@/components/OfferingSelectItems";
 import { ProductMultiSelect } from "@/components/ProductMultiSelect";
 import {
   PipelineStatusStepper,
@@ -50,7 +51,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
-  SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -152,7 +152,7 @@ export function CompanyDetailPage() {
   }
 
   function loadProducts() {
-    return apiGet<ProductList>("/products")
+    return apiGet<ProductList>("/products?limit=200")
       .then((list) => {
         setProducts(list.items);
         // Unambiguous default for the "Confirm Company" multi-select: exactly one product means
@@ -898,16 +898,12 @@ export function CompanyDetailPage() {
             >
               <SelectTrigger
                 className="h-9 min-w-48 bg-card"
-                aria-label="Product"
+                aria-label="Offering"
               >
-                <SelectValue placeholder="Select a product…" />
+                <SelectValue placeholder="Select an offering…" />
               </SelectTrigger>
               <SelectContent>
-                {(products ?? []).map((product) => (
-                  <SelectItem key={product.id} value={product.id}>
-                    {product.name}
-                  </SelectItem>
-                ))}
+                <OfferingSelectItems products={products ?? []} />
               </SelectContent>
             </Select>
             <Button
@@ -920,7 +916,7 @@ export function CompanyDetailPage() {
           </div>
           {products && products.length === 0 && (
             <p className="mt-3 text-sm text-muted-foreground">
-              No products in the catalog yet —{" "}
+              No offerings added yet —{" "}
               <Link
                 to="/products/new"
                 className="text-primary-text hover:underline"
@@ -950,7 +946,7 @@ export function CompanyDetailPage() {
             <EmptyState
               icon={Lightbulb}
               title="No recommendations yet"
-              description="Pick a product above and generate one to see sales-prep talking points for this company."
+              description="Pick an offering above and generate one to see sales-prep talking points for this company."
             />
           </Card>
         ) : (

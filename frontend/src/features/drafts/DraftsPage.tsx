@@ -1,9 +1,21 @@
-import { Check, ChevronDown, ChevronUp, Copy, ExternalLink, FileText, Send } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  ExternalLink,
+  FileText,
+  Send,
+} from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { apiGet, apiPatch, apiPost } from "@/api/client";
-import type { DashboardDraftItem, DashboardDraftList, Draft } from "@/api/types";
+import type {
+  DashboardDraftItem,
+  DashboardDraftList,
+  Draft,
+} from "@/api/types";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/PageHeader";
@@ -25,7 +37,9 @@ const TABS: { key: Tab; label: string; hint: string }[] = [
 ];
 
 function parseTab(value: string | null): Tab {
-  return value === "sent" || value === "discarded" || value === "all" ? value : "draft";
+  return value === "sent" || value === "discarded" || value === "all"
+    ? value
+    : "draft";
 }
 
 function when(iso: string): string {
@@ -40,7 +54,10 @@ function when(iso: string): string {
 const STATUS_CHIP: Record<string, { label: string; cls: string }> = {
   draft: { label: "To review", cls: "bg-chip-warning-bg text-chip-warning-fg" },
   sent: { label: "Sent", cls: "bg-chip-success-bg text-chip-success-fg" },
-  discarded: { label: "Discarded", cls: "bg-chip-rejected-bg text-chip-rejected-fg" },
+  discarded: {
+    label: "Discarded",
+    cls: "bg-chip-rejected-bg text-chip-rejected-fg",
+  },
 };
 
 // Every draft the system has written, in one place: read it, fix it, copy it, mark it sent, or
@@ -59,7 +76,9 @@ export function DraftsPage() {
       `/drafts?status=${tab}&limit=${pageSize}&offset=${(page - 1) * pageSize}`,
     )
       .then(setList)
-      .catch((err) => setError(err instanceof Error ? err.message : "failed to load drafts"));
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "failed to load drafts"),
+      );
   }, [tab, page, pageSize]);
 
   useEffect(() => {
@@ -78,7 +97,11 @@ export function DraftsPage() {
         description="Every message the system has written for you. Review it, edit it, then copy it out and mark it sent — or discard it."
       />
 
-      <div role="tablist" aria-label="Draft status" className="flex flex-wrap gap-2">
+      <div
+        role="tablist"
+        aria-label="Draft status"
+        className="flex flex-wrap gap-2"
+      >
         {TABS.map((t) => {
           const count =
             t.key === "all"
@@ -103,7 +126,11 @@ export function DraftsPage() {
               )}
             >
               {t.label}
-              {count !== null && <span className="tabular-nums text-muted-foreground">{count}</span>}
+              {count !== null && (
+                <span className="tabular-nums text-muted-foreground">
+                  {count}
+                </span>
+              )}
             </button>
           );
         })}
@@ -117,7 +144,9 @@ export function DraftsPage() {
         <Card>
           <EmptyState
             icon={FileText}
-            title={tab === "draft" ? "Nothing waiting for review" : "No drafts here"}
+            title={
+              tab === "draft" ? "Nothing waiting for review" : "No drafts here"
+            }
             description={
               tab === "draft"
                 ? "Drafts appear here once you pick a person in a search's results and ask for one."
@@ -153,7 +182,13 @@ export function DraftsPage() {
   );
 }
 
-function DraftCard({ draft, onChanged }: { draft: DashboardDraftItem; onChanged: () => void }) {
+function DraftCard({
+  draft,
+  onChanged,
+}: {
+  draft: DashboardDraftItem;
+  onChanged: () => void;
+}) {
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState(draft.subject ?? "");
@@ -164,7 +199,11 @@ function DraftCard({ draft, onChanged }: { draft: DashboardDraftItem; onChanged:
   const editable = draft.status === "draft";
   const dirty = subject !== (draft.subject ?? "") || body !== draft.body;
 
-  async function run(label: string, action: () => Promise<unknown>, success: string) {
+  async function run(
+    label: string,
+    action: () => Promise<unknown>,
+    success: string,
+  ) {
     setBusy(label);
     try {
       await action();
@@ -181,9 +220,17 @@ function DraftCard({ draft, onChanged }: { draft: DashboardDraftItem; onChanged:
   }
 
   const save = () =>
-    run("save", () => apiPatch<Draft>(`/drafts/${draft.id}`, { subject, body }), "Draft saved");
+    run(
+      "save",
+      () => apiPatch<Draft>(`/drafts/${draft.id}`, { subject, body }),
+      "Draft saved",
+    );
   const discard = () =>
-    run("discard", () => apiPost<Draft>(`/drafts/${draft.id}/discard`), "Draft discarded");
+    run(
+      "discard",
+      () => apiPost<Draft>(`/drafts/${draft.id}/discard`),
+      "Draft discarded",
+    );
   const markSent = () =>
     run(
       "mark as sent",
@@ -198,11 +245,16 @@ function DraftCard({ draft, onChanged }: { draft: DashboardDraftItem; onChanged:
 
   async function copy() {
     try {
-      await window.navigator.clipboard.writeText(subject ? `Subject: ${subject}\n\n${body}` : body);
+      await window.navigator.clipboard.writeText(
+        subject ? `Subject: ${subject}\n\n${body}` : body,
+      );
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      showToast({ description: "Could not copy - select the text and copy it by hand", variant: "error" });
+      showToast({
+        description: "Could not copy - select the text and copy it by hand",
+        variant: "error",
+      });
     }
   }
 
@@ -213,7 +265,10 @@ function DraftCard({ draft, onChanged }: { draft: DashboardDraftItem; onChanged:
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm text-muted-foreground">
-                To <span className="font-medium text-foreground">{draft.contact_name ?? "a contact"}</span>
+                To{" "}
+                <span className="font-medium text-foreground">
+                  {draft.contact_name ?? "a contact"}
+                </span>
                 {draft.contact_role ? `, ${draft.contact_role}` : ""} at{" "}
                 <Link
                   to={`/companies/${draft.company_id}`}
@@ -222,10 +277,14 @@ function DraftCard({ draft, onChanged }: { draft: DashboardDraftItem; onChanged:
                   {draft.company_name} <ExternalLink className="size-3" />
                 </Link>
               </p>
-              <p className="mt-1 text-base font-semibold">{draft.subject || "(no subject)"}</p>
+              <p className="mt-1 text-base font-semibold">
+                {draft.subject || "(no subject)"}
+              </p>
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span className={cn("px-2 py-0.5 font-medium", chip.cls)}>{chip.label}</span>
+              <span className={cn("px-2 py-0.5 font-medium", chip.cls)}>
+                {chip.label}
+              </span>
               <span>{when(draft.created_at)}</span>
             </div>
           </div>
@@ -257,18 +316,36 @@ function DraftCard({ draft, onChanged }: { draft: DashboardDraftItem; onChanged:
           )}
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => setOpen(!open)}>
-              {open ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setOpen(!open)}
+            >
+              {open ? (
+                <ChevronUp className="size-4" />
+              ) : (
+                <ChevronDown className="size-4" />
+              )}
               {open ? "Collapse" : editable ? "Review & edit" : "Read"}
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={copy}>
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              {copied ? (
+                <Check className="size-4" />
+              ) : (
+                <Copy className="size-4" />
+              )}
               {copied ? "Copied" : "Copy"}
             </Button>
             {editable && (
               <>
                 {open && (
-                  <Button type="button" size="sm" onClick={save} disabled={!dirty || busy !== null}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={save}
+                    disabled={!dirty || busy !== null}
+                  >
                     {busy === "save" ? "Saving…" : "Save edits"}
                   </Button>
                 )}
@@ -278,7 +355,11 @@ function DraftCard({ draft, onChanged }: { draft: DashboardDraftItem; onChanged:
                   variant="outline"
                   onClick={markSent}
                   disabled={busy !== null || dirty}
-                  title={dirty ? "Save your edits first" : "Log that you sent this message"}
+                  title={
+                    dirty
+                      ? "Save your edits first"
+                      : "Log that you sent this message"
+                  }
                 >
                   <Send className="size-4" />
                   {busy === "mark as sent" ? "Marking…" : "Mark as sent"}

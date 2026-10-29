@@ -45,6 +45,9 @@ class QualificationResult(Base, TimestampMixin):
     # never rewrites past judgment history.
     criteria_results: Mapped[list[dict[str, object]]] = mapped_column(JSON)
     model_used: Mapped[str] = mapped_column(String(50))
+    # The area a Quick Check was asked to judge fit around (e.g. a technology area). Null means a
+    # general judgment, so a focused result is never mistaken for one.
+    focus: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # Priority Score 0-100 and its per-component breakdown, set by the auto pipeline's ranking step
     # (`ranking.py`). Null for results that were never ranked (single checks, older rows).
     priority_score: Mapped[float | None] = mapped_column(Float, nullable=True)

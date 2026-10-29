@@ -10,6 +10,7 @@ from app.api.v1.health import router as health_router
 from app.api.v1.ingestion import router as ingestion_router
 from app.api.v1.jobs import router as jobs_router
 from app.api.v1.market_discovery import router as market_discovery_router
+from app.api.v1.offerings import router as offerings_router
 from app.api.v1.outreach import router as outreach_router
 from app.api.v1.products import router as products_router
 from app.api.v1.qualification import check_router as qualification_check_router
@@ -36,6 +37,7 @@ app.include_router(draft_router, prefix="/api/v1")
 app.include_router(enrichment_router, prefix="/api/v1")
 app.include_router(market_discovery_router, prefix="/api/v1")
 app.include_router(outreach_router, prefix="/api/v1")
+app.include_router(offerings_router, prefix="/api/v1")  # before products: /products/sync
 app.include_router(products_router, prefix="/api/v1")
 app.include_router(qualification_router, prefix="/api/v1")
 app.include_router(qualification_company_router, prefix="/api/v1")

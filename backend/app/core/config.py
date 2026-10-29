@@ -27,6 +27,55 @@ class Settings(BaseSettings):
     # rollovers don't require a config change here.
     gemini_model: str = "gemini-flash-lite-latest"
 
+    # Groq (https://console.groq.com) — OpenAI-compatible hosted models. Used through
+    # modules/llm/structured.py, first by the offerings importer; unset key is a graceful state
+    # (that vendor is skipped and the next one in the order answers).
+    groq_api_key: str | None = None
+    # Chosen from the models this account's key can actually list (GET /openai/v1/models).
+    groq_model: str = "openai/gpt-oss-120b"
+    groq_timeout_seconds: float = 30.0
+    # A smaller, faster model for quick screening jobs (is this page worth reading?), so the
+    # larger one is kept for writing the actual descriptions.
+    groq_triage_model: str = "openai/gpt-oss-20b"
+
+    # Offerings importer (modules/offerings): pulls InfoBeans' services and products from its
+    # own website into a review queue. Each "order" is tried left to right, so either vendor can
+    # be the primary and the other the fallback.
+    offerings_llm_order: str = "groq,gemini"
+    offerings_source_order: str = "contextdev,website"
+    offerings_site_domain: str = "infobeans.ai"
+    offerings_sitemap_url: str = "https://infobeans.ai/page-sitemap.xml"
+    # Blog posts live in their own sitemap, mostly articles but with a few real offering pages
+    # (Expona, Insane SDD). Posts are screened by a light model first; empty turns the lane off.
+    offerings_post_sitemap_url: str = "https://infobeans.ai/post-sitemap.xml"
+    offerings_triage_llm_order: str = "groq,gemini"
+    # Pages that are always checked, even though they are not in the page sitemap.
+    offerings_extra_urls: list[str] = []
+    # The website menu is read each sync as an independent list of what the company itself puts
+    # forward, to check the catalogue against. The named headings are the ones that hold offerings.
+    offerings_menu_url: str = "https://infobeans.ai/"
+    offerings_menu_groups: list[str] = ["Disciplines", "Innovation"]
+    # Most blog-post finds read and suggested in one sync, so the first run cannot flood the review.
+    offerings_max_post_suggestions: int = 25
+    # A full re-read ignoring the sitemap's last-modified time, since that time can be bumped
+    # site-wide or be wrong. 0 turns the periodic re-read off.
+    offerings_full_recheck_days: int = 30
+    # A page with no sitemap time to trust (an external menu link) is not re-read every sync,
+    # only once this many days have passed.
+    offerings_unknown_lastmod_days: int = 6
+    # Pages that are never offerings (news, people, legal, events). Matched as path prefixes.
+    offerings_exclude_paths: list[str] = [
+        "/blog", "/podcasts", "/wow_podcast", "/true-stories", "/careers", "/current-openings",
+        "/life-at-infobeans", "/investors", "/leadership", "/infobeans-foundation", "/contact-us",
+        "/privacy-policy", "/disclaimer", "/testimonial", "/linkedin-feedback",
+        "/ibf-registration", "/dreamforce", "/infobeans-knowledge", "/strategic-gold",
+    ]
+    # context.dev spend allowed for one sync (map 1 + about 1 per page), separate from the
+    # per-run ceiling above so a sync can never use up a discovery run's budget.
+    offerings_context_dev_max_credits: int = 150
+    # How often the worker queues a sync on its own.
+    offerings_sync_interval_days: int = 7
+
     scraper_user_agent: str = "SalesIntelligenceBot/0.1 (+internal tool)"
     scraper_request_delay_seconds: float = 1.0
     # Hard wall-clock ceilings. httpx's own timeout is per network read, so a server that

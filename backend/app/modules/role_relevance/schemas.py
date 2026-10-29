@@ -9,7 +9,6 @@ from app.modules.role_relevance.models import FRAMING_STYLES
 class RoleCategoryCreate(BaseModel):
     name: str
     description: str | None = None
-    is_primary_target: bool = False
     is_active: bool = True
     framing_style: str = "business"
 
@@ -24,7 +23,6 @@ class RoleCategoryCreate(BaseModel):
 class RoleCategoryUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
-    is_primary_target: bool | None = None
     is_active: bool | None = None
     framing_style: str | None = None
 

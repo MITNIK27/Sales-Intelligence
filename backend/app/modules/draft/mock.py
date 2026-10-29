@@ -29,5 +29,6 @@ class MockDraftGenerator(DraftGenerator):
         framing_style: str,
         draft_type: str,
         evidence: DraftEvidence | None = None,
+        previous_emails: list[tuple[str | None, str]] | None = None,
     ) -> DraftResult:
         return self._result

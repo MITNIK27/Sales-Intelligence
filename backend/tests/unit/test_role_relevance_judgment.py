@@ -81,12 +81,19 @@ class _FakeGenerator:
 # --- _compute_priority (pure, deterministic) ---
 
 
-def test_priority_primary_when_matched_category_is_primary_target() -> None:
-    assert _compute_priority(_category(is_primary_target=True)) == "primary"
+def test_priority_primary_for_every_match_when_no_targets_chosen() -> None:
+    # The stored flag no longer matters: with no targets chosen every role is in play.
+    assert _compute_priority(_category(is_primary_target=False)) == "primary"
+    assert _compute_priority(_category(is_primary_target=False), set()) == "primary"
 
 
-def test_priority_secondary_when_matched_category_is_not_primary_target() -> None:
-    assert _compute_priority(_category(is_primary_target=False)) == "secondary"
+def test_priority_primary_when_matched_category_is_a_chosen_target() -> None:
+    category = _category()
+    assert _compute_priority(category, {category.id}) == "primary"
+
+
+def test_priority_secondary_when_matched_category_is_not_a_chosen_target() -> None:
+    assert _compute_priority(_category(), {uuid.uuid4()}) == "secondary"
 
 
 def test_priority_not_relevant_when_no_category_matched() -> None:
@@ -114,6 +121,19 @@ async def test_judge_role_relevance_snapshots_category_and_computes_priority() -
             "reasoning": "r",
         }
     ]
+
+
+async def test_judge_role_relevance_marks_only_chosen_targets_primary() -> None:
+    chosen, other = _category(name="Chosen"), _category(name="Other")
+    c1, c2 = _contact(), _contact()
+    generator = _FakeGenerator({str(c1.id): str(chosen.id), str(c2.id): str(other.id)})
+
+    results = await judge_role_relevance(
+        _company(), [c1, c2], [chosen, other], generator, {chosen.id}  # type: ignore[arg-type]
+    )
+
+    assert [r["priority"] for r in results] == ["primary", "secondary"]
+    assert [r["is_primary_target"] for r in results] == [True, False]
 
 
 async def test_judge_role_relevance_handles_null_match() -> None:

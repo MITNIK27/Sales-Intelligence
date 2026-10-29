@@ -99,3 +99,37 @@ async def test_delete_product_removes_row_and_is_org_scoped(db_session, organiza
     assert await delete_product(db_session, organization_id, product.id) is True
     assert await get_product(db_session, organization_id, product.id) is None
     assert await delete_product(db_session, organization_id, product.id) is False
+
+
+async def test_new_products_default_to_manual_active_products(db_session, organization_id) -> None:
+    product = await create_product(db_session, organization_id, name="Widget", description=None)
+    await db_session.commit()
+
+    assert product.kind == "product"
+    assert product.source == "manual"
+    assert product.status == "active"
+    assert product.source_url is None
+
+
+async def test_list_products_filters_by_kind_and_hides_archived(
+    db_session, organization_id
+) -> None:
+    await create_product(
+        db_session, organization_id, name="Cloud", description=None, kind="service"
+    )
+    await create_product(db_session, organization_id, name="Spacewarp", description=None)
+    old = await create_product(db_session, organization_id, name="Old", description=None)
+    old.status = "archived"
+    await db_session.commit()
+
+    services, total = await list_products(db_session, organization_id, kind="service")
+    assert [p.name for p in services] == ["Cloud"]
+    assert total == 1
+
+    active, total = await list_products(db_session, organization_id)
+    assert [p.name for p in active] == ["Cloud", "Spacewarp"]
+    assert total == 2
+
+    everything, total = await list_products(db_session, organization_id, status=None)
+    assert [p.name for p in everything] == ["Cloud", "Old", "Spacewarp"]
+    assert total == 3

@@ -25,8 +25,12 @@ from app.modules.draft.models import DRAFT_TYPE_FIRST_TOUCH
 from app.modules.draft.prompts import (
     FIRST_TOUCH_PROMPT_TEMPLATE,
     FOLLOW_UP_PROMPT_TEMPLATE,
+    SALES_LENS_INSTRUCTION,
     STYLE_REFERENCE_EXAMPLES,
+    cta_instruction,
+    format_previous_emails,
     framing_instruction,
+    offering_guidance,
 )
 from app.modules.products.models import Product
 
@@ -69,6 +73,7 @@ def _format_product_options(
         grounding_section, grounding_instruction = _format_grounding(recommendation)
         blocks.append(
             f"Option {i}: {product.name}\n"
+            f"- {offering_guidance(product.kind)}\n"
             f"- Description: {product.description or 'No description available.'}\n"
             f"- {grounding_instruction}\n"
             f"{grounding_section}"
@@ -93,6 +98,7 @@ class DraftGenerator(ABC):
         framing_style: str,
         draft_type: str,
         evidence: DraftEvidence | None = None,
+        previous_emails: list[tuple[str | None, str]] | None = None,
     ) -> DraftResult: ...
 
 
@@ -113,6 +119,7 @@ class GeminiDraftGenerator(DraftGenerator):
         framing_style: str,
         draft_type: str,
         evidence: DraftEvidence | None = None,
+        previous_emails: list[tuple[str | None, str]] | None = None,
     ) -> DraftResult:
         if not self._settings.gemini_api_key:
             raise GeminiClientError("GEMINI_API_KEY is not configured")
@@ -131,6 +138,9 @@ class GeminiDraftGenerator(DraftGenerator):
             product_options_section=_format_product_options(products, recommendations),
             evidence_section=format_evidence(evidence),
             framing_instruction=framing_instruction(framing_style),
+            sales_lens=SALES_LENS_INSTRUCTION,
+            cta_instruction=cta_instruction(draft_type),
+            previous_email_section=format_previous_emails(previous_emails),
             style_reference=STYLE_REFERENCE_EXAMPLES,
         )
 

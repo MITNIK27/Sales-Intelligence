@@ -100,6 +100,7 @@ async def confirm_market_discovery_endpoint(
         {
             "ingestion_run_id": str(run.id),
             "product_ids": [str(p) for p in product_ids],
+            "role_category_ids": [str(r) for r in body.role_category_ids],
             "market_fit_criteria": [c.model_dump() for c in body.market_fit_criteria],
         },
     )

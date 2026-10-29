@@ -20,8 +20,8 @@ async def create_category(
     organization_id: uuid.UUID,
     name: str,
     description: str | None,
-    is_primary_target: bool,
-    is_active: bool,
+    is_primary_target: bool = False,  # legacy; targets are now chosen per run, not per category
+    is_active: bool = True,
     framing_style: str = FRAMING_STYLE_BUSINESS,
 ) -> RoleCategory:
     category = RoleCategory(
@@ -131,13 +131,19 @@ class CompanyNeedsReviewError(Exception):
     skipped, not failed."""
 
 
-def _compute_priority(matched: RoleCategory | None) -> str:
-    """Deterministic — never decided by the LLM. A contact matched to a primary-target category
-    is "primary"; matched to any other active category is "secondary"; no genuine match at all is
-    "not_relevant" (a valid, expected outcome, not a failure of the judgment)."""
+def _compute_priority(
+    matched: RoleCategory | None, target_category_ids: set[uuid.UUID] | None = None
+) -> str:
+    """Deterministic — never decided by the LLM. The targets are chosen per run, not stored on the
+    category. With no targets chosen every matched contact is "primary" (all roles are in play and
+    the person confirms the ones they want); with targets chosen, a match in one of them is
+    "primary" and a match elsewhere is "secondary". No genuine match at all is "not_relevant" (a
+    valid, expected outcome, not a failure of the judgment)."""
     if matched is None:
         return "not_relevant"
-    return "primary" if matched.is_primary_target else "secondary"
+    if not target_category_ids or matched.id in target_category_ids:
+        return "primary"
+    return "secondary"
 
 
 async def judge_role_relevance(
@@ -145,6 +151,7 @@ async def judge_role_relevance(
     contacts: list[Contact],
     categories: list[RoleCategory],
     generator: RoleRelevanceGenerator,
+    target_category_ids: set[uuid.UUID] | None = None,
 ) -> list[dict[str, object]]:
     """Pure core: no session, no persistence. Calls the generator, snapshots each matched
     category AS JUDGED (not a live reference — a later edit to the category must never rewrite
@@ -165,14 +172,15 @@ async def judge_role_relevance(
             if verdict.matched_category_id
             else None
         )
+        priority = _compute_priority(matched, target_category_ids)
         results.append(
             {
                 "contact_id": contact.id,
                 "matched_category_id": matched.id if matched else None,
                 "matched_category_name": matched.name if matched else None,
-                "is_primary_target": matched.is_primary_target if matched else False,
+                "is_primary_target": priority == "primary",
                 "matched_category_framing_style": matched.framing_style if matched else None,
-                "priority": _compute_priority(matched),
+                "priority": priority,
                 "reasoning": verdict.reasoning,
             }
         )
@@ -184,6 +192,7 @@ async def run_role_relevance_check(
     organization_id: uuid.UUID,
     company_id: uuid.UUID,
     generator: RoleRelevanceGenerator,
+    target_category_ids: set[uuid.UUID] | None = None,
 ) -> list[RoleRelevanceResult]:
     company = await get_company_detail(session, organization_id, company_id)
     if company is None:
@@ -199,7 +208,9 @@ async def run_role_relevance_check(
     if not categories:
         raise NoCategoriesConfiguredError("no active role categories configured")
 
-    judged = await judge_role_relevance(company, company.contacts, categories, generator)
+    judged = await judge_role_relevance(
+        company, company.contacts, categories, generator, target_category_ids
+    )
 
     results = [
         RoleRelevanceResult(

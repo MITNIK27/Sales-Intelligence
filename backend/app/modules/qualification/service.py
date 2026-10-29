@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -9,7 +10,7 @@ from app.core.config import get_settings
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
 from app.modules.companies.models import Company
 from app.modules.companies.service import get_company_detail, get_or_create_company
-from app.modules.enrichment.models import EnrichmentRecord
+from app.modules.enrichment.models import ENTITY_TYPE_COMPANY, EnrichmentRecord
 from app.modules.enrichment.providers.base import (
     CompanyDataProvider,
     ContactDataProvider,
@@ -177,11 +178,15 @@ async def judge_qualification(
     criteria: list[QualificationCriterion],
     generator: QualificationGenerator,
     run_criterion_ids: frozenset[str] = frozenset(),
+    focus: str | None = None,
 ) -> tuple[str, list[dict[str, object]]]:
     """Pure core: no session, no persistence. Calls the generator, snapshots each criterion AS
     JUDGED (not a live reference — a later edit to the criterion must never rewrite this
     history), and computes the deterministic overall verdict."""
-    judgment = await generator.generate(company, signals, criteria)
+    # `focus` is only passed when there is one, so a generator written without it still works.
+    judgment = await generator.generate(
+        company, signals, criteria, **({"focus": focus} if focus else {})
+    )
 
     criteria_by_id = {str(criterion.id): criterion for criterion in criteria}
     verdicts_by_id = {v.criterion_id: v for v in judgment.criteria_results}
@@ -221,9 +226,13 @@ async def run_qualification_check(
     company_id: uuid.UUID,
     generator: QualificationGenerator,
     extra_criteria: list[QualificationCriterion] | None = None,
+    focus: str | None = None,
+    focus_signals: list[EnrichmentRecord] | None = None,
 ) -> QualificationResult:
     """`extra_criteria` are per-run requirements (never persisted) judged in the same call as the
-    organization's saved criteria."""
+    organization's saved criteria. `focus` is the area a Quick Check was asked to judge fit around;
+    `focus_signals` are evidence gathered for it, shown to the model first (they are not stored
+    as company signals, so a focused search never colours the company's general record)."""
     company = await get_company_detail(session, organization_id, company_id)
     if company is None:
         raise CompanyNotFoundError(f"company {company_id} not found")
@@ -233,9 +242,12 @@ async def run_qualification_check(
     if not criteria:
         raise NoCriteriaConfiguredError("no active qualification criteria configured")
 
-    signals = await list_company_signals(session, organization_id, company_id)
+    signals = [
+        *(focus_signals or []),
+        *await list_company_signals(session, organization_id, company_id),
+    ]
     overall_verdict, criteria_results = await judge_qualification(
-        company, signals, criteria, generator, frozenset(str(c.id) for c in extra)
+        company, signals, criteria, generator, frozenset(str(c.id) for c in extra), focus
     )
 
     result = QualificationResult(
@@ -244,10 +256,53 @@ async def run_qualification_check(
         overall_verdict=overall_verdict,
         criteria_results=criteria_results,
         model_used=generator.model_name,
+        focus=focus,
     )
     session.add(result)
     await session.flush()
     return result
+
+
+_FOCUS_RESULTS = 5
+
+
+async def _focus_evidence(
+    domain_provider: DomainDiscoveryProvider, company: Company, focus: str
+) -> list[EnrichmentRecord]:
+    """A web search for "{company} {focus}", turned into evidence the judgment can cite. In-memory
+    only (never added to a session): focused research must not colour the company's general
+    record. A provider that cannot search, or a failed search, just means no extra evidence."""
+    search = getattr(domain_provider, "search_raw", None)
+    if search is None:
+        return []
+    try:
+        results = await search(f"{company.name} {focus}", _FOCUS_RESULTS)
+    except Exception:  # noqa: BLE001 - extra evidence is best-effort
+        return []
+    now = datetime.now(UTC)
+    records: list[EnrichmentRecord] = []
+    for item in results:
+        title = (item.get("title") or "").strip()
+        snippet = (item.get("snippet") or "").strip()
+        if not (title or snippet):
+            continue
+        records.append(
+            EnrichmentRecord(
+                organization_id=company.organization_id,
+                entity_type=ENTITY_TYPE_COMPANY,
+                entity_id=company.id,
+                source="serper:focus_search",
+                raw_payload={
+                    "signal_type": "focus_search",
+                    "text": f"{title}. {snippet}".strip(),
+                    "url": item.get("link"),
+                    "date": item.get("date"),
+                    "provider": "serper",
+                },
+                fetched_at=now,
+            )
+        )
+    return records
 
 
 async def _run_adhoc_qualification(
@@ -274,23 +329,40 @@ async def _run_adhoc_qualification(
         raise NoCriteriaConfiguredError("no active qualification criteria configured")
 
     payload = job.payload or {}
+    focus = (payload.get("focus") or "").strip() or None
+    # Steps: gather company info, (only with a focus) look for evidence about it, judge.
+    steps_total = 3 if focus else 2
     company, created = await get_or_create_company(
         session, job.organization_id, name=payload.get("name"), domain=payload.get("domain")
     )
     await session.flush()
+    if progress_callback:
+        await progress_callback(0, steps_total, detail="Finding the website and company info")
 
     # No progress_callback passed through — _enrich_company's own internal 4-step tally would
-    # conflict with this job's coarser 2-step progress (enrich, then judge) below.
+    # conflict with this job's coarser progress below.
     await _enrich_company(
         session, job.organization_id, company,
         domain_provider, company_provider, contact_provider, signal_provider,
     )
+    done = 1
     if progress_callback:
-        await progress_callback(1, 2)
+        next_step = f"Looking for evidence about {focus}" if focus else "Judging fit"
+        await progress_callback(done, steps_total, detail=next_step)
 
-    result = await run_qualification_check(session, job.organization_id, company.id, generator)
+    focus_signals: list[EnrichmentRecord] = []
+    if focus:
+        focus_signals = await _focus_evidence(domain_provider, company, focus)
+        done += 1
+        if progress_callback:
+            await progress_callback(done, steps_total, detail="Judging fit")
+
+    result = await run_qualification_check(
+        session, job.organization_id, company.id, generator,
+        focus=focus, focus_signals=focus_signals,
+    )
     if progress_callback:
-        await progress_callback(2, 2)
+        await progress_callback(steps_total, steps_total, detail="Done")
 
     return {
         "company_id": str(company.id),
@@ -298,6 +370,7 @@ async def _run_adhoc_qualification(
         "company_domain": company.domain,
         "company_created": created,
         "qualification_result_id": str(result.id),
+        "focus": focus,
     }
 
 

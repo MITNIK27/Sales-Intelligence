@@ -85,6 +85,7 @@ class QualificationGenerator(ABC):
         company: Company,
         signals: list[EnrichmentRecord],
         criteria: list[QualificationCriterion],
+        focus: str | None = None,
     ) -> QualificationJudgment: ...
 
 
@@ -101,11 +102,12 @@ class GeminiQualificationGenerator(QualificationGenerator):
         company: Company,
         signals: list[EnrichmentRecord],
         criteria: list[QualificationCriterion],
+        focus: str | None = None,
     ) -> QualificationJudgment:
         if not self._settings.gemini_api_key:
             raise GeminiClientError("GEMINI_API_KEY is not configured")
 
-        prompt = build_qualification_prompt(company, signals, criteria)
+        prompt = build_qualification_prompt(company, signals, criteria, focus)
         client = genai.Client(api_key=self._settings.gemini_api_key)
         try:
             response = await generate_content_with_retry(

@@ -34,7 +34,8 @@ export type JobStatus = {
   finished_at: string | null;
 };
 
-export type EnrichmentStatus = "never_enriched" | "pending" | "enriched" | "failed";
+export type EnrichmentStatus =
+  "never_enriched" | "pending" | "enriched" | "failed";
 
 export const ENRICHMENT_STATUSES: EnrichmentStatus[] = [
   "never_enriched",
@@ -208,6 +209,8 @@ export type MarketDiscoveryConfirmRequest = {
   // than one product means the draft generator itself picks whichever single one best fits each
   // company/contact.
   product_ids?: string[];
+  // Role categories to treat as targets for this run only. Empty means every matched role counts.
+  role_category_ids?: string[];
   // Hard requirements for this search only; each is judged for every company with evidence.
   market_fit_criteria?: { name: string; description: string | null }[];
 };
@@ -302,11 +305,17 @@ export type WorklistRow = {
   priority_score: number | null;
   score_breakdown: ScoreBreakdown | null;
   // Where industry / size / description came from, e.g. { industry: { source: "contextdev:brand" } }.
-  provenance: Record<string, { source: string; confidence: number; fetched_at: string }>;
+  provenance: Record<
+    string,
+    { source: string; confidence: number; fetched_at: string }
+  >;
 };
 
 export type ScoreBreakdown = {
-  components?: Record<string, { weight: number; value: number; points: number; note: string }>;
+  components?: Record<
+    string,
+    { weight: number; value: number; points: number; note: string }
+  >;
   evidence_factor?: number;
   raw?: number;
   excluded?: string;
@@ -346,11 +355,19 @@ export type QualificationStageResult =
 
 export type RoleClassificationStageResult =
   | { ran: false; skipped_reason: string }
-  | { ran: true; companies_classified: number; errors: { company_id: string; error: string }[] };
+  | {
+      ran: true;
+      companies_classified: number;
+      errors: { company_id: string; error: string }[];
+    };
 
 export type DraftingStageResult =
   | { ran: false; skipped_reason: string }
-  | { ran: true; drafts_generated: number; errors: { contact_id: string; error: string }[] };
+  | {
+      ran: true;
+      drafts_generated: number;
+      errors: { contact_id: string; error: string }[];
+    };
 
 export type AutoPipelineResult = {
   discovery: {
@@ -359,16 +376,26 @@ export type AutoPipelineResult = {
     reused_from_index: number;
   };
   qualification: QualificationStageResult;
-  ranking?: { ranked: number; top: { company_id: string; score: number; verdict: string }[] };
+  ranking?: {
+    ranked: number;
+    top: { company_id: string; score: number; verdict: string }[];
+  };
   role_classification: RoleClassificationStageResult;
   drafting: DraftingStageResult;
   capped: boolean;
 };
 
+export type ProductKind = "service" | "product";
+
 export type Product = {
   id: string;
   name: string;
   description: string | null;
+  kind: ProductKind;
+  // "manual" = added by a person; "website" = imported from the InfoBeans site and approved.
+  source: "manual" | "website";
+  source_url: string | null;
+  status: "active" | "archived";
   created_at: string;
   updated_at: string;
 };
@@ -383,11 +410,100 @@ export type ProductList = {
 export type ProductCreateRequest = {
   name: string;
   description?: string | null;
+  kind?: ProductKind;
 };
 
 export type ProductUpdateRequest = {
   name?: string;
   description?: string | null;
+  kind?: ProductKind;
+  status?: "active" | "archived";
+};
+
+export type OfferingProposalChange = "new" | "changed" | "removed";
+
+// Something found on the InfoBeans website that nobody has approved yet.
+export type OfferingProposal = {
+  id: string;
+  change: OfferingProposalChange;
+  status: "pending" | "approved" | "rejected";
+  kind: ProductKind;
+  name: string;
+  description: string | null;
+  source_url: string;
+  product_id: string | null;
+  detected_at: string;
+  // What the live offering says today, for "changed" and "removed".
+  current: {
+    name: string;
+    description: string | null;
+    kind: ProductKind;
+  } | null;
+  // Which lane found it; blog-post finds ("post") are suggestions, not part of the main review.
+  origin: "site" | "extra" | "post" | "menu";
+  // The start of the page the description was written from, for checking it on the spot.
+  source_excerpt: string | null;
+  // Anything in the description the page does not back up.
+  grounding_flags: string[] | null;
+  // A live offering or another waiting proposal this may be the same thing as.
+  possible_duplicate: string | null;
+};
+
+export type OfferingPageVerdict = "offering" | "not_offering" | "failed";
+
+export type OfferingCoveragePage = {
+  url: string;
+  title: string | null;
+  lane: "site" | "extra" | "post" | "menu";
+  verdict: OfferingPageVerdict;
+  reason: string | null;
+  lastmod: string | null;
+  last_checked_at: string | null;
+  force_extract: boolean;
+};
+
+export type OfferingMenuStatus =
+  "covered" | "judged_not_offering" | "unreadable" | "missing";
+
+export type OfferingMenuItem = {
+  group: string;
+  label: string;
+  url: string;
+  status: OfferingMenuStatus;
+};
+
+export type OfferingCoverage = {
+  summary: {
+    total: number;
+    offering: number;
+    not_offering: number;
+    failed: number;
+  };
+  pages: OfferingCoveragePage[];
+  // null until a check has read the website menu.
+  menu: OfferingMenuItem[] | null;
+  menu_error: string | null;
+};
+
+export type OfferingProposalList = {
+  items: OfferingProposal[];
+  total: number;
+};
+
+export type OfferingSyncStatus = {
+  running: boolean;
+  job_id: string | null;
+  progress: { done?: number; total?: number } | null;
+  last_checked_at: string | null;
+  last_result: {
+    new?: number;
+    changed?: number;
+    removed?: number;
+    failed?: number;
+    answered_by?: string[];
+  } | null;
+  last_error: string | null;
+  pending_count: number;
 };
 
 export type QualificationCriterion = {
@@ -421,7 +537,8 @@ export type QualificationCriterionUpdateRequest = {
   is_active?: boolean;
 };
 
-export type QualificationVerdict = "qualified" | "not_qualified" | "could_not_determine";
+export type QualificationVerdict =
+  "qualified" | "not_qualified" | "could_not_determine";
 
 export type QualificationCriterionResultEntry = {
   criterion_id: string;
@@ -437,12 +554,15 @@ export type QualificationResult = {
   overall_verdict: QualificationVerdict;
   criteria_results: QualificationCriterionResultEntry[];
   model_used: string;
+  // The area this check was asked to judge fit around; null means a general judgment.
+  focus?: string | null;
   created_at: string;
 };
 
 export type AdhocQualificationCheckRequest = {
-  name?: string | null;
-  domain?: string | null;
+  // A company name or its website, whichever the person typed.
+  company: string;
+  focus?: string | null;
 };
 
 export type FramingStyle = "business" | "technical";
@@ -453,7 +573,6 @@ export type RoleCategory = {
   id: string;
   name: string;
   description: string | null;
-  is_primary_target: boolean;
   is_active: boolean;
   framing_style: FramingStyle;
   created_at: string;
@@ -470,7 +589,6 @@ export type RoleCategoryList = {
 export type RoleCategoryCreateRequest = {
   name: string;
   description?: string | null;
-  is_primary_target?: boolean;
   is_active?: boolean;
   framing_style?: FramingStyle;
 };
@@ -478,7 +596,6 @@ export type RoleCategoryCreateRequest = {
 export type RoleCategoryUpdateRequest = {
   name?: string;
   description?: string | null;
-  is_primary_target?: boolean;
   is_active?: boolean;
   framing_style?: FramingStyle;
 };
@@ -521,7 +638,10 @@ export type OutreachChannel = "email" | "linkedin";
 export type OutreachActivityType = "sent" | "response_received";
 
 export const OUTREACH_CHANNELS: OutreachChannel[] = ["email", "linkedin"];
-export const OUTREACH_ACTIVITY_TYPES: OutreachActivityType[] = ["sent", "response_received"];
+export const OUTREACH_ACTIVITY_TYPES: OutreachActivityType[] = [
+  "sent",
+  "response_received",
+];
 
 // Shared between OutreachChannel and FollowUpChannel (both "email" | "linkedin") — a single
 // label source so a rendered dropdown always reads "LinkedIn" (correct brand casing) rather
@@ -557,10 +677,16 @@ export type LogOutreachActivityResponse = {
   contact: Contact;
 };
 
-export type DraftType = "first_touch" | "follow_up";
+export type DraftType =
+  "first_touch" | "follow_up" | "follow_up_2" | "follow_up_3";
 export type DraftStatus = "draft" | "sent" | "discarded";
 
-export const DRAFT_TYPES: DraftType[] = ["first_touch", "follow_up"];
+export const DRAFT_TYPES: DraftType[] = [
+  "first_touch",
+  "follow_up",
+  "follow_up_2",
+  "follow_up_3",
+];
 
 export type Draft = {
   id: string;
@@ -710,7 +836,11 @@ export type DashboardOverview = {
   attention: DashboardAttentionItem[];
   activity: DashboardActivityEvent[];
   health: DashboardHealth;
-  setup: { products: number; active_criteria: number; active_role_categories: number };
+  setup: {
+    products: number;
+    active_criteria: number;
+    active_role_categories: number;
+  };
   run: DashboardRunHeader | null;
   searches: { run_id: string; label: string; created_at: string }[];
 };

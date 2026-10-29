@@ -115,10 +115,23 @@ def _format_criteria(criteria: list[QualificationCriterion]) -> str:
     return "\n".join(lines)
 
 
+_FOCUS_INSTRUCTION = """
+
+The person asking is researching this company specifically around: {focus}.
+Judge every criterion as it applies to that area where the criterion allows it, and prefer \
+evidence about that area. This changes what you look for, never the ground rules above: a \
+verdict still needs a quote from the numbered evidence, and no evidence about {focus} means \
+could_not_determine, not a guess.
+"""
+
+
 def build_qualification_prompt(
-    company: Company, signals: list[EnrichmentRecord], criteria: list[QualificationCriterion]
+    company: Company,
+    signals: list[EnrichmentRecord],
+    criteria: list[QualificationCriterion],
+    focus: str | None = None,
 ) -> str:
-    return _PROMPT.format(
+    prompt = _PROMPT.format(
         company_name=company.name,
         company_domain=company.domain or "unknown",
         company_industry=company.industry or "unknown",
@@ -127,3 +140,6 @@ def build_qualification_prompt(
         signals=_format_signals(signals),
         criteria=_format_criteria(criteria),
     )
+    if focus:
+        prompt += _FOCUS_INSTRUCTION.format(focus=focus)
+    return prompt

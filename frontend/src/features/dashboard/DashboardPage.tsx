@@ -98,7 +98,7 @@ export function DashboardPage() {
   }, [running, loadOverview]);
 
   useEffect(() => {
-    apiGet<ProductList>("/products")
+    apiGet<ProductList>("/products?limit=200")
       .then((list) =>
         setProductId(list.items.length === 1 ? list.items[0].id : null),
       )

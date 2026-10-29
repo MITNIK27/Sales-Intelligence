@@ -8,6 +8,7 @@ Endpoints used and their documented credit cost: brand/retrieve (10), web/scrape
 news/search (1 per 10 results). people/enrich (20, paid plans only) is exposed separately as
 `enrich_person` and is only used by the benchmark script, never by the pipeline."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -45,6 +46,9 @@ _EMPLOYEE_RANGE_MAX = 50
 _COST_BRAND = 10
 _COST_SCRAPE = 1
 _COST_NEWS = 1
+_COST_MAP = 1
+_SCRAPE_ATTEMPTS = 3
+_SCRAPE_RETRY_WAIT = 1.0  # seconds, times the attempt number
 
 
 class ContextDevBudgetExceeded(RuntimeError):
@@ -225,6 +229,80 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
                 )
             )
         return signals
+
+    # -- site pages (offerings importer) ------------------------------------------------------
+
+    async def map_urls(
+        self, domain: str, sitemap_url: str | None = None, exclude_regex: str | None = None
+    ) -> list[str]:
+        """URLs context.dev finds for a domain (1 credit). Raises on transport/server errors."""
+        pages = await self.map_pages(domain, sitemap_url, exclude_regex)
+        return [page["url"] for page in pages]
+
+    async def map_pages(
+        self, domain: str, sitemap_url: str | None = None, exclude_regex: str | None = None
+    ) -> list[dict[str, str | None]]:
+        """Like `map_urls` but keeps each page's title and description when context.dev has
+        them, which is enough to tell what a page is about without reading it."""
+        if not self.enabled:
+            return []
+        self._check_budget(_COST_MAP)
+        params: dict[str, Any] = {"domain": domain}
+        if sitemap_url:
+            params["sitemapUrl"] = sitemap_url
+        if exclude_regex:
+            params["excludeUrlRegex"] = exclude_regex
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.get(f"{_BASE_URL}/web/urls", headers=headers, params=params)
+        resp.raise_for_status()
+        body = resp.json()
+        if not isinstance(body, dict):
+            return []
+        credits = (body.get("key_metadata") or {}).get("credits_consumed")
+        if isinstance(credits, int):
+            self.credits_used += credits
+        items = body.get("urls")
+        if not isinstance(items, list):
+            return []
+
+        def text(value: Any) -> str | None:
+            return value.strip() if isinstance(value, str) and value.strip() else None
+
+        return [
+            {
+                "url": i["url"],
+                "title": text(i.get("title")),
+                "description": text(i.get("description")),
+            }
+            for i in items
+            if isinstance(i, dict) and isinstance(i.get("url"), str)
+        ]
+
+    async def scrape_markdown(self, url: str) -> str | None:
+        """A page as markdown (1 credit); `None` when it could not be read."""
+        if not self.enabled:
+            return None
+        self._check_budget(_COST_SCRAPE)
+        body = None
+        for attempt in range(_SCRAPE_ATTEMPTS):
+            try:
+                body = await self._post("/web/scrape", {"url": url, "formats": {"markdown": True}})
+                break
+            except (httpx.TransportError, httpx.TimeoutException) as exc:
+                # A dropped connection or failed DNS lookup is a blip, not "the page is empty".
+                logger.info("context.dev scrape hit a network problem for %s: %s", url, exc)
+                if attempt + 1 < _SCRAPE_ATTEMPTS:
+                    await asyncio.sleep(_SCRAPE_RETRY_WAIT * (attempt + 1))
+            except httpx.HTTPError as exc:
+                logger.info("context.dev markdown scrape failed for %s: %s", url, exc)
+                return None
+        markdown = (body or {}).get("markdown")
+        if not isinstance(markdown, dict) or not markdown.get("success"):
+            return None
+        if not markdown.get("data"):
+            return None
+        return str(markdown["data"])
 
     # -- people (benchmark only) --------------------------------------------------------------
 

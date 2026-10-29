@@ -34,6 +34,9 @@ class MarketDiscoveryConfirmRequest(BaseModel):
     # guessing which product to pitch. More than one product means the draft generator itself picks
     # whichever single product best fits each company/contact — never more than one per email.
     product_ids: list[uuid.UUID] = []
+    # Optional focus: the role categories to treat as targets for THIS run. Empty means every
+    # matched role counts, so no role is filtered out before a person has looked at the contacts.
+    role_category_ids: list[uuid.UUID] = []
     # Hard requirements for THIS search (e.g. "operates in logistics"), judged for every company
     # alongside the organization's saved criteria. Not stored as org settings.
     market_fit_criteria: list[MarketFitCriterionIn] = []

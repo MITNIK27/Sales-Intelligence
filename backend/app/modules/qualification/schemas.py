@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CriterionCreate(BaseModel):
@@ -49,15 +49,21 @@ class QualificationResultOut(BaseModel):
     # this is never written back through the API.
     criteria_results: list[dict[str, object]]
     model_used: str
+    focus: str | None = None
     created_at: datetime
 
 
 class AdhocQualificationCheckRequest(BaseModel):
+    # What the person typed: a company name or its website, in one field. `name` and `domain`
+    # remain accepted for older callers.
+    company: str | None = None
+    # Optional area to judge fit around (e.g. a technology area); empty means a general judgment.
+    focus: str | None = Field(default=None, max_length=200)
     name: str | None = None
     domain: str | None = None
 
     @model_validator(mode="after")
     def _require_identifier(self) -> Self:
-        if not (self.name or self.domain):
-            raise ValueError("Provide a company name or domain.")
+        if not (self.company and self.company.strip()) and not (self.name or self.domain):
+            raise ValueError("Provide a company name or website.")
         return self

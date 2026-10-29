@@ -341,7 +341,7 @@ function CandidateRow({
             disabled={working || !productId}
             title={
               !productId
-                ? "Choose a product above before writing a draft"
+                ? "Choose an offering above before writing a draft"
                 : undefined
             }
           >

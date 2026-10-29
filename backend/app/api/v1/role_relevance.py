@@ -45,7 +45,6 @@ async def create_category_endpoint(
         DEFAULT_ORGANIZATION_ID,
         name=body.name,
         description=body.description,
-        is_primary_target=body.is_primary_target,
         is_active=body.is_active,
         framing_style=body.framing_style,
     )
