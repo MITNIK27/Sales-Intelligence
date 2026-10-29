@@ -2,7 +2,7 @@ import type { Product, ProductKind } from "@/api/types";
 
 // The one place the user-facing words for products and services live. The API and database still
 // say "product"; only what people read is "offering", so renaming again is a one-line change.
-export const OFFERINGS_LABEL = "Offerings";
+export const OFFERINGS_LABEL = "Our Offerings";
 export const OFFERING_LABEL = "offering";
 export const OFFERINGS_TAGLINE = "The services and products InfoBeans sells.";
 
