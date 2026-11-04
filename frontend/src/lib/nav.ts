@@ -1,11 +1,8 @@
 import {
-  ClipboardCheck,
   Compass,
-  FileText,
   LayoutDashboard,
-  ListChecks,
   Package,
-  Search,
+  Send,
   Target,
   Upload,
   Users,
@@ -30,29 +27,20 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
       { to: "/market-discovery", label: "Market Discovery", icon: Compass },
+      { to: "/qualification/check", label: "Quick Check", icon: Zap },
       { to: "/companies", label: "Companies", icon: Users },
-      { to: "/needs-review", label: "Verify Contacts", icon: Search },
-      { to: "/drafts", label: "Drafts", icon: FileText },
-      { to: "/follow-ups", label: "Follow-ups", icon: ListChecks },
+      { to: "/outreach", label: "Outreach", icon: Send },
     ],
   },
   {
     label: "Configure",
     items: [
       { to: "/products", label: OFFERINGS_LABEL, icon: Package },
-      {
-        to: "/qualification/criteria",
-        label: "Qualification Criteria",
-        icon: ClipboardCheck,
-      },
       { to: "/role-categories", label: "Role Categories", icon: Target },
     ],
   },
   {
     label: "Tools",
-    items: [
-      { to: "/upload", label: "Upload CSV", icon: Upload },
-      { to: "/qualification/check", label: "Quick Check", icon: Zap },
-    ],
+    items: [{ to: "/upload", label: "Upload CSV", icon: Upload }],
   },
 ];

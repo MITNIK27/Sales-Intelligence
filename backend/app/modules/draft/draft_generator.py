@@ -35,6 +35,13 @@ from app.modules.draft.prompts import (
 from app.modules.products.models import Product
 
 
+def first_name(full_name: str | None) -> str:
+    """The only part of a person's name that is sent to the model: a greeting needs a first name,
+    and the full name is personal data that does not need to leave this system."""
+    parts = (full_name or "").split()
+    return parts[0] if parts else "Unknown name"
+
+
 class DraftResult(BaseModel):
     subject: str | None
     body: str
@@ -130,7 +137,7 @@ class GeminiDraftGenerator(DraftGenerator):
             else FOLLOW_UP_PROMPT_TEMPLATE
         )
         prompt = template.format(
-            contact_name=contact.full_name or "Unknown name",
+            contact_name=first_name(contact.full_name),
             contact_role=contact.role_title or "unknown role",
             company_name=company.name,
             company_industry=company.industry or "unknown",

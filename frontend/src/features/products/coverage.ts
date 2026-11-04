@@ -30,7 +30,10 @@ export function needsAttention(item: OfferingMenuItem): boolean {
   return item.status !== "covered";
 }
 
-export function menuSummary(menu: OfferingMenuItem[]): { total: number; attention: number } {
+export function menuSummary(menu: OfferingMenuItem[]): {
+  total: number;
+  attention: number;
+} {
   return { total: menu.length, attention: menu.filter(needsAttention).length };
 }
 
@@ -44,7 +47,8 @@ const ATTENTION_ORDER: OfferingMenuStatus[] = [
 
 export function sortMenu(menu: OfferingMenuItem[]): OfferingMenuItem[] {
   return [...menu].sort(
-    (a, b) => ATTENTION_ORDER.indexOf(a.status) - ATTENTION_ORDER.indexOf(b.status),
+    (a, b) =>
+      ATTENTION_ORDER.indexOf(a.status) - ATTENTION_ORDER.indexOf(b.status),
   );
 }
 
@@ -58,7 +62,8 @@ export function filterPages(
     if (verdict !== "all" && page.verdict !== verdict) return false;
     if (!needle) return true;
     return (
-      page.url.toLowerCase().includes(needle) || (page.title ?? "").toLowerCase().includes(needle)
+      page.url.toLowerCase().includes(needle) ||
+      (page.title ?? "").toLowerCase().includes(needle)
     );
   });
 }
@@ -85,8 +90,15 @@ export function splitScreened(pages: OfferingCoveragePage[]): {
 }
 
 // The page of a list that is currently showing, with the page number kept in range.
-export function pageSlice<T>(items: T[], page: number, pageSize: number): { rows: T[]; page: number } {
+export function pageSlice<T>(
+  items: T[],
+  page: number,
+  pageSize: number,
+): { rows: T[]; page: number } {
   const count = Math.max(1, Math.ceil(items.length / pageSize));
   const current = Math.min(Math.max(1, page), count);
-  return { rows: items.slice((current - 1) * pageSize, current * pageSize), page: current };
+  return {
+    rows: items.slice((current - 1) * pageSize, current * pageSize),
+    page: current,
+  };
 }

@@ -43,6 +43,7 @@ from app.modules.draft.models import (
     DRAFT_STATUS_SENT,
     Draft,
 )
+from app.modules.ingestion.membership import list_company_ids_for_run
 from app.modules.ingestion.models import (
     SOURCE_TYPE_MARKET_DISCOVERY,
     STATUS_AWAITING_CONFIRMATION,
@@ -56,7 +57,7 @@ from app.modules.jobs.service import find_job_for_run
 from app.modules.outreach.models import OutreachActivity
 from app.modules.products.models import Product
 from app.modules.qualification.evidence import PASS, status_for_verdict
-from app.modules.qualification.models import QualificationCriterion, QualificationResult
+from app.modules.qualification.models import QualificationResult
 from app.modules.role_relevance.models import RoleCategory, RoleRelevanceResult
 
 JOB_TYPE_AUTO_PIPELINE = "auto_pipeline"  # mirrors orchestrator.service (avoids importing it)
@@ -68,6 +69,8 @@ TOP_COMPANIES = 5
 VERDICT_QUALIFIED = "qualified"
 VERDICT_NEEDS_LOOK = "could_not_determine"
 VERDICT_REJECTED = "not_qualified"
+VERDICT_NOT_CHECKED = "not_checked"  # no criteria were chosen: not rejected, not verified
+_PURSUABLE = (VERDICT_QUALIFIED, VERDICT_NEEDS_LOOK, VERDICT_NOT_CHECKED)
 
 
 def _aware(value: datetime) -> datetime:
@@ -146,9 +149,7 @@ def build_headline(
 # -- loading -----------------------------------------------------------------------------------
 
 
-async def _runs(
-    session: AsyncSession, organization_id: uuid.UUID
-) -> list[IngestionRun]:
+async def _runs(session: AsyncSession, organization_id: uuid.UUID) -> list[IngestionRun]:
     stmt = (
         select(IngestionRun)
         .where(
@@ -164,15 +165,7 @@ async def _runs(
 async def _company_ids_for_run(
     session: AsyncSession, organization_id: uuid.UUID, run: IngestionRun
 ) -> set[uuid.UUID]:
-    ids = {uuid.UUID(cid) for cid in (run.summary or {}).get("company_ids", [])}
-    created = await session.execute(
-        select(Company.id).where(
-            Company.organization_id == organization_id,
-            Company.source_ingestion_run_id == run.id,
-        )
-    )
-    ids.update(created.scalars().all())
-    return ids
+    return set(await list_company_ids_for_run(session, organization_id, run.id))
 
 
 @dataclass
@@ -268,10 +261,13 @@ def _kpis(runs: list[IngestionRun], data: _Data) -> Kpis:
 def _funnel(data: _Data) -> list[FunnelStage]:
     live = data.live_drafts_by_company()
     contact_companies = {c.company_id for c in data.contacts}
-    checked = [cid for cid in data.companies if cid in data.latest]
-    worth = [
-        cid for cid in checked if data.verdict(cid) in (VERDICT_QUALIFIED, VERDICT_NEEDS_LOOK)
+    checked = [
+        cid
+        for cid in data.companies
+        if cid in data.latest and data.verdict(cid) != VERDICT_NOT_CHECKED
     ]
+    # Companies no criteria were chosen for are not rejected, so they stay worth pursuing.
+    worth = [cid for cid in data.companies if data.verdict(cid) in _PURSUABLE]
     with_contact = [cid for cid in worth if cid in contact_companies]
     with_draft = [cid for cid in worth if live.get(cid)]
     stages = [
@@ -363,9 +359,7 @@ def _ready_company_ids(data: _Data) -> set[uuid.UUID]:
     return {
         cid
         for cid in with_primary
-        if cid in data.companies
-        and data.verdict(cid) in (VERDICT_QUALIFIED, VERDICT_NEEDS_LOOK)
-        and not live.get(cid)
+        if cid in data.companies and data.verdict(cid) in _PURSUABLE and not live.get(cid)
     }
 
 
@@ -412,14 +406,6 @@ async def _setup(session: AsyncSession, organization_id: uuid.UUID) -> Setup:
             select(func.count())
             .select_from(Product)
             .where(Product.organization_id == organization_id)
-        ),
-        active_criteria=await count(
-            select(func.count())
-            .select_from(QualificationCriterion)
-            .where(
-                QualificationCriterion.organization_id == organization_id,
-                QualificationCriterion.is_active.is_(True),
-            )
         ),
         active_role_categories=await count(
             select(func.count())
@@ -537,9 +523,7 @@ def _attention(
 
 def _run_stats(run: IngestionRun, data: _Data) -> RunStats:
     k = _kpis([run], data)
-    scores = [
-        r.priority_score for r in data.latest.values() if r.priority_score is not None
-    ]
+    scores = [r.priority_score for r in data.latest.values() if r.priority_score is not None]
     credits = ((run.summary or {}).get("context_dev") or {}).get("credits_used")
     return RunStats(
         run_id=run.id,

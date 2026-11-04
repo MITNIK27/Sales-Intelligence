@@ -25,14 +25,20 @@ from app.modules.enrichment.providers.base import (
     SignalDataProvider,
     looks_like_person_name,
 )
-from app.modules.enrichment.signals import is_clean_text
+from app.modules.enrichment.signals import is_clean_text, looks_blocked
 
 logger = logging.getLogger(__name__)
 
 # Fixed candidate paths, tried in order until MAX_ABOUT_PAGES are found — bounds every scrape to
 # at most 1 (homepage) + MAX_ABOUT_PAGES requests, keeping jobs fast and the site lightly loaded.
 _ABOUT_TEAM_PATHS = (
-    "/about", "/about-us", "/team", "/our-team", "/leadership", "/company", "/people",
+    "/about",
+    "/about-us",
+    "/team",
+    "/our-team",
+    "/leadership",
+    "/company",
+    "/people",
 )
 _MAX_ABOUT_PAGES = 2
 
@@ -75,6 +81,9 @@ class WebsiteScraperProvider(CompanyDataProvider, ContactDataProvider, SignalDat
         # Hosts that just failed at the network level (timeout, connection refused). Every later
         # page for such a host is skipped: a blocked site used to cost ~10-20s per path tried.
         self._unreachable: set[str] = set()
+        # Why the last page fetch for a host came back empty, in words ("blocked our scraper
+        # (HTTP 403)"), so a failed scrape says what happened instead of only that it failed.
+        self._why_not: dict[str, str] = {}
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -112,6 +121,7 @@ class WebsiteScraperProvider(CompanyDataProvider, ContactDataProvider, SignalDat
             return None
         if not await self._robots_allows(domain, path):
             logger.info("robots.txt disallows %s%s, skipping", domain, path)
+            self._why_not[domain] = "its robots.txt does not allow our scraper"
             return None
         await self._throttle(domain)
         url = f"https://{domain}{path}"
@@ -119,17 +129,32 @@ class WebsiteScraperProvider(CompanyDataProvider, ContactDataProvider, SignalDat
             resp = await self._get(url)
         except (httpx.HTTPError, TimeoutError) as exc:
             logger.info("fetch failed for %s: %s", url, exc or "hard timeout")
+            self._why_not[domain] = f"the site did not respond ({exc or 'timed out'})"
             if isinstance(exc, TimeoutError | httpx.TransportError):
                 self._unreachable.add(domain)
             return None
         if resp.status_code != 200:
+            logger.info("fetch of %s returned HTTP %s", url, resp.status_code)
+            if resp.status_code in (401, 403, 429, 503):
+                self._why_not[domain] = (
+                    f"the site blocked our scraper (HTTP {resp.status_code}, "
+                    "usually bot protection)"
+                )
+            else:
+                self._why_not[domain] = f"the site answered HTTP {resp.status_code}"
             return None
         return FetchedPage(url=url, status_code=resp.status_code, text=resp.text)
+
+    async def fetch_page(self, domain: str, path: str) -> FetchedPage | None:
+        """One page of the company's own site, politely (robots.txt and the request throttle
+        apply); None when it is not allowed, not found or not reachable."""
+        return await self._fetch(domain, path)
 
     async def fetch_company_data(self, domain: str) -> ScrapedCompanyData:
         homepage = await self._fetch(domain, "/")
         if homepage is None:
-            raise ValueError(f"could not fetch homepage for {domain}")
+            why = self._why_not.get(domain)
+            raise ValueError(f"could not fetch homepage for {domain}" + (f": {why}" if why else ""))
         pages = [homepage]
 
         for path in _ABOUT_TEAM_PATHS:
@@ -153,9 +178,7 @@ class WebsiteScraperProvider(CompanyDataProvider, ContactDataProvider, SignalDat
             pages_fetched=pages,
         )
 
-    async def fetch_contacts(
-        self, domain: str, pages: list[FetchedPage]
-    ) -> list[ScrapedContact]:
+    async def fetch_contacts(self, domain: str, pages: list[FetchedPage]) -> list[ScrapedContact]:
         contacts: list[ScrapedContact] = []
         for page in pages:
             contacts.extend(extract_contacts(page.text))
@@ -178,11 +201,12 @@ def extract_description(html: str) -> str | None:
     soup = BeautifulSoup(html, "lxml")
     meta = soup.find("meta", attrs={"name": "description"})
     content = meta.get("content") if meta else None
-    if isinstance(content, str) and content.strip():
+    if isinstance(content, str) and content.strip() and not looks_blocked(content):
         return content.strip()[:500]
     for p in soup.find_all("p"):
         text = p.get_text(strip=True)
-        if len(text) >= 40:
+        # A block or error page is not a description; the next provider is asked instead.
+        if len(text) >= 40 and not looks_blocked(text):
             return text[:500]
     return None
 
@@ -250,9 +274,7 @@ def extract_news_signals(html: str, url: str) -> list[ScrapedSignal]:
         time_el = heading.find("time")
         if time_el is not None:
             datetime_attr = time_el.get("datetime")
-            date = (
-                datetime_attr if isinstance(datetime_attr, str) else time_el.get_text(strip=True)
-            )
+            date = datetime_attr if isinstance(datetime_attr, str) else time_el.get_text(strip=True)
             time_el.extract()
         else:
             sibling = heading.find_next_sibling("time")

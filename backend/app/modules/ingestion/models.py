@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String
+from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, new_uuid
@@ -34,3 +34,23 @@ class IngestionRun(Base, TimestampMixin):
     raw_input: Mapped[str | None] = mapped_column(String)
     parsed_fields: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # What the rep chose when confirming the run (offerings to pitch, target roles, extra
+    # requirements). It used to live only in the job payload, which is wiped with the test data and
+    # can only be found by scanning jobs, so the company page could never know what a run was for.
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
+class IngestionRunCompany(Base, TimestampMixin):
+    """A company a run is about. One company can belong to many runs, so this is a link table
+    rather than a column on the company. See `membership.py` for how it is read and written."""
+
+    __tablename__ = "ingestion_run_companies"
+    __table_args__ = (
+        UniqueConstraint("run_id", "company_id", name="uq_ingestion_run_companies_run_company"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ingestion_runs.id"), index=True)
+    company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("companies.id"), index=True)
+    relation: Mapped[str] = mapped_column(String(10))  # created | reused | matched

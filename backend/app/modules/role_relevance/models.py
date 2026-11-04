@@ -54,9 +54,7 @@ class RoleRelevanceResult(Base, TimestampMixin):
 
     # Nullable — null means "no configured category genuinely fits this contact," a valid and
     # expected outcome, not a failure of the judgment.
-    matched_category_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("role_categories.id")
-    )
+    matched_category_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("role_categories.id"))
     # Snapshot AS JUDGED, not a live reference — a later rename/delete of the RoleCategory must
     # never rewrite this row's history.
     matched_category_name: Mapped[str | None] = mapped_column(String(255))

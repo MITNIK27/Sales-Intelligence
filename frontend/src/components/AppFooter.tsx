@@ -11,8 +11,8 @@ export function AppFooter({ className }: { className?: string }) {
     >
       <span>
         Copyright © {COPYRIGHT_YEAR}{" "}
-        <span className="font-medium text-foreground">{COPYRIGHT_OWNER}</span>. All rights
-        reserved.
+        <span className="font-medium text-foreground">{COPYRIGHT_OWNER}</span>.
+        All rights reserved.
       </span>
       <span>Version {APP_VERSION}</span>
     </footer>

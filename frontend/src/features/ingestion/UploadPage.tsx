@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { usePersistentState } from "@/lib/usePersistentState";
+import { jobStatusLabel } from "@/lib/format";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -17,7 +18,10 @@ export function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   // The last upload's job id is remembered, so leaving this page and coming back still shows
   // that upload's result (the job itself is re-fetched, never cached).
-  const [jobId, setJobId] = usePersistentState<string | null>("upload.jobId", null);
+  const [jobId, setJobId] = usePersistentState<string | null>(
+    "upload.jobId",
+    null,
+  );
   const [job, setJob] = useState<JobStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -45,7 +49,8 @@ export function UploadPage() {
         .then((status) => {
           if (cancelled) return;
           setJob(status);
-          if (status.status !== "done" && status.status !== "failed") startPolling(jobId);
+          if (status.status !== "done" && status.status !== "failed")
+            startPolling(jobId);
         })
         .catch(() => {
           // The remembered job no longer exists (e.g. the database was wiped): forget it.
@@ -66,7 +71,10 @@ export function UploadPage() {
     setJob(null);
     setSubmitting(true);
     try {
-      const started = await uploadCsv<CsvIngestionStarted>("/ingestion/csv", file);
+      const started = await uploadCsv<CsvIngestionStarted>(
+        "/ingestion/csv",
+        file,
+      );
       setJobId(started.job_id);
       startPolling(started.job_id);
     } catch (err) {
@@ -85,7 +93,10 @@ export function UploadPage() {
 
       <Card>
         <CardContent>
-          <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-3">
+          <form
+            onSubmit={handleSubmit}
+            className="flex flex-wrap items-center gap-3"
+          >
             <Input
               type="file"
               accept=".csv"
@@ -110,7 +121,9 @@ export function UploadPage() {
       {job && (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">Upload status: {job.status}</CardTitle>
+            <CardTitle className="text-lg font-bold">
+              Upload: {jobStatusLabel(job.status)}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {job.status === "running" && job.progress && (
@@ -118,7 +131,9 @@ export function UploadPage() {
                 Processed {job.progress.done} of {job.progress.total} rows…
               </p>
             )}
-            {job.status === "failed" && <p className="text-sm text-destructive">{job.error}</p>}
+            {job.status === "failed" && (
+              <p className="text-sm text-destructive">{job.error}</p>
+            )}
             {job.result && (
               <ul className="mt-2 list-inside list-disc text-sm">
                 <li>Companies created: {job.result.companies_created}</li>
@@ -140,7 +155,10 @@ export function UploadPage() {
               </>
             )}
             {job.status === "done" && (
-              <Link to="/companies" className="mt-4 inline-block text-primary-text hover:underline">
+              <Link
+                to="/companies"
+                className="mt-4 inline-block text-primary-text hover:underline"
+              >
                 View companies →
               </Link>
             )}

@@ -32,7 +32,11 @@ export function RoleCategoryListPage() {
     setError(null);
     return apiGet<RoleCategoryList>("/role-categories")
       .then(setData)
-      .catch((err) => setError(err instanceof Error ? err.message : "failed to load categories"));
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "failed to load categories",
+        ),
+      );
   }
 
   useEffect(() => {
@@ -45,7 +49,9 @@ export function RoleCategoryListPage() {
       await apiDelete(`/role-categories/${id}`);
       await loadCategories();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to delete category");
+      setError(
+        err instanceof Error ? err.message : "failed to delete category",
+      );
     } finally {
       setDeletingId(null);
     }
@@ -81,7 +87,10 @@ export function RoleCategoryListPage() {
 
   const pageCount = Math.max(1, Math.ceil(data.items.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const rows = data.items.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const rows = data.items.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   return (
     <div>
@@ -118,7 +127,9 @@ export function RoleCategoryListPage() {
               <TableBody>
                 {rows.map((category) => (
                   <TableRow key={category.id}>
-                    <TableCell className="whitespace-normal">{category.name}</TableCell>
+                    <TableCell className="whitespace-normal">
+                      {category.name}
+                    </TableCell>
                     <TableCell className="whitespace-normal text-muted-foreground">
                       {category.description ?? "—"}
                     </TableCell>

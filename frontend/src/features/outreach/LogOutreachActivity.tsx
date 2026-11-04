@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 
 import { apiGet, apiPost } from "@/api/client";
-import { CHANNEL_LABELS, OUTREACH_ACTIVITY_TYPES, OUTREACH_CHANNELS } from "@/api/types";
+import {
+  CHANNEL_LABELS,
+  OUTREACH_ACTIVITY_TYPES,
+  OUTREACH_CHANNELS,
+} from "@/api/types";
 import type {
   Contact,
   LogOutreachActivityRequest,
@@ -20,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { formatDateTime } from "@/lib/format";
 
 const ACTIVITY_TYPE_LABELS: Record<OutreachActivityType, string> = {
   sent: "Sent",
@@ -27,9 +32,11 @@ const ACTIVITY_TYPE_LABELS: Record<OutreachActivityType, string> = {
 };
 
 function formatActivity(activity: OutreachActivity): string {
-  const when = new Date(activity.occurred_at).toLocaleString();
+  const when = formatDateTime(activity.occurred_at);
   const what = ACTIVITY_TYPE_LABELS[activity.activity_type];
-  const variant = activity.template_variant ? ` (${activity.template_variant})` : "";
+  const variant = activity.template_variant
+    ? ` (${activity.template_variant})`
+    : "";
   return `${when} — ${what} via ${activity.channel}${variant}`;
 }
 
@@ -52,9 +59,14 @@ export function LogOutreachActivity({
   prefilledDraft?: PrefilledDraft | null;
   onDraftSent?: () => void;
 }) {
-  const [channel, setChannel] = useState<OutreachChannel>(prefilledDraft?.channel ?? "email");
-  const [activityType, setActivityType] = useState<OutreachActivityType>("sent");
-  const [templateVariant, setTemplateVariant] = useState(prefilledDraft?.templateVariant ?? "");
+  const [channel, setChannel] = useState<OutreachChannel>(
+    prefilledDraft?.channel ?? "email",
+  );
+  const [activityType, setActivityType] =
+    useState<OutreachActivityType>("sent");
+  const [templateVariant, setTemplateVariant] = useState(
+    prefilledDraft?.templateVariant ?? "",
+  );
   const [urgent, setUrgent] = useState(false);
   const [logging, setLogging] = useState(false);
   const { showToast } = useToast();
@@ -70,7 +82,9 @@ export function LogOutreachActivity({
   }, [prefilledDraft]);
 
   function loadHistory() {
-    return apiGet<OutreachActivity[]>(`/contacts/${contact.id}/outreach-activities`)
+    return apiGet<OutreachActivity[]>(
+      `/contacts/${contact.id}/outreach-activities`,
+    )
       .then(setHistory)
       .catch(() => {
         // Supplementary — a failure here shouldn't block logging a new activity.
@@ -100,7 +114,10 @@ export function LogOutreachActivity({
       if (prefilledDraft) onDraftSent?.();
       if (showHistory) await loadHistory();
     } catch (err) {
-      showToast({ description: err instanceof Error ? err.message : "failed to log activity" });
+      showToast({
+        description:
+          err instanceof Error ? err.message : "failed to log activity",
+      });
     } finally {
       setLogging(false);
     }
@@ -110,11 +127,15 @@ export function LogOutreachActivity({
     <div className="mt-3 flex flex-col gap-2">
       {prefilledDraft && (
         <p className="text-xs text-muted-foreground">
-          Logging the approved draft as sent — fields below are pre-filled from it.
+          Logging the approved draft as sent — fields below are pre-filled from
+          it.
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={activityType} onValueChange={(v) => setActivityType(v as OutreachActivityType)}>
+        <Select
+          value={activityType}
+          onValueChange={(v) => setActivityType(v as OutreachActivityType)}
+        >
           <SelectTrigger className="h-9 bg-card" aria-label="Activity type">
             <SelectValue />
           </SelectTrigger>
@@ -126,7 +147,10 @@ export function LogOutreachActivity({
             ))}
           </SelectContent>
         </Select>
-        <Select value={channel} onValueChange={(v) => setChannel(v as OutreachChannel)}>
+        <Select
+          value={channel}
+          onValueChange={(v) => setChannel(v as OutreachChannel)}
+        >
           <SelectTrigger className="h-9 bg-card" aria-label="Channel">
             <SelectValue />
           </SelectTrigger>
@@ -157,7 +181,13 @@ export function LogOutreachActivity({
             Urgent (allows Thu)
           </label>
         )}
-        <Button type="button" onClick={handleLog} disabled={logging} size="sm" className="h-9">
+        <Button
+          type="button"
+          onClick={handleLog}
+          disabled={logging}
+          size="sm"
+          className="h-9"
+        >
           {logging ? "Logging…" : "Log Outreach"}
         </Button>
         <button
@@ -175,7 +205,9 @@ export function LogOutreachActivity({
           ) : history.length === 0 ? (
             <li>No outreach logged yet.</li>
           ) : (
-            history.map((activity) => <li key={activity.id}>{formatActivity(activity)}</li>)
+            history.map((activity) => (
+              <li key={activity.id}>{formatActivity(activity)}</li>
+            ))
           )}
         </ul>
       )}

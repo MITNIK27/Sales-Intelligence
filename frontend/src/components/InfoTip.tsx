@@ -1,7 +1,12 @@
 import { Info } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 // A small (i) button that explains something in a sentence. Opens on hover and on keyboard focus,

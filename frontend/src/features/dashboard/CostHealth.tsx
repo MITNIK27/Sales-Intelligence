@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { DashboardHealth } from "@/api/types";
 import { SkeletonLines } from "@/components/Skeleton";
 import { MetricBar } from "@/features/dashboard/parts";
+import { UsageSummaryCard } from "@/features/dashboard/UsageSummaryCard";
 import { formatNumber, plural } from "@/lib/format";
 
 const BRANCH_LABELS: Record<string, string> = {
@@ -12,9 +13,8 @@ const BRANCH_LABELS: Record<string, string> = {
   page_contacts: "website contacts",
 };
 
-// What the work cost and whether anything went wrong, in two short lines. Only context.dev credits
-// are tracked today; the usage of the AI model and web search is not recorded anywhere yet, which
-// is said on hover rather than in the layout.
+// What the work cost and whether anything went wrong. The bar is the context.dev credits of the
+// search in view; the estimated spend over all providers sits underneath.
 export function CostHealth({ health }: { health: DashboardHealth | null }) {
   if (health === null) return <SkeletonLines lines={3} />;
   const ceiling = health.credit_ceiling;
@@ -25,7 +25,7 @@ export function CostHealth({ health }: { health: DashboardHealth | null }) {
     errors.length === 0;
   return (
     <div className="flex flex-col gap-4 text-sm">
-      <div title="context.dev credits. Usage of the AI model and web search is not tracked yet, so it is not shown.">
+      <div title="context.dev credits used by this search.">
         <div className="flex items-baseline justify-between">
           <span>context.dev credits</span>
           <span className="tabular-nums">
@@ -98,6 +98,7 @@ export function CostHealth({ health }: { health: DashboardHealth | null }) {
           ))}
         </ul>
       )}
+      <UsageSummaryCard />
     </div>
   );
 }

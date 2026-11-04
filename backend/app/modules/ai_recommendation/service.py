@@ -27,6 +27,9 @@ async def generate_recommendation(
     product_id: uuid.UUID,
     contact_id: uuid.UUID | None,
     generator: RecommendationGenerator,
+    opportunity_id: uuid.UUID | None = None,
+    assessment_id: uuid.UUID | None = None,
+    opportunity_context: str | None = None,
 ) -> Recommendation:
     """Loads the company (+ its contacts), its recent signals, and the target product, then
     calls the given generator and persists a new `Recommendation` row. Append-only: regenerating
@@ -41,7 +44,14 @@ async def generate_recommendation(
 
     signals = await list_company_signals(session, organization_id, company_id)
 
-    result = await generator.generate(company, company.contacts, signals, product)
+    # Only passed when there is one, so a generator written without it keeps working.
+    result = await generator.generate(
+        company,
+        company.contacts,
+        signals,
+        product,
+        **({"opportunity_context": opportunity_context} if opportunity_context else {}),
+    )
 
     recommendation = Recommendation(
         organization_id=organization_id,
@@ -52,6 +62,8 @@ async def generate_recommendation(
         why_this_company=result.why_this_company,
         talking_points=result.talking_points,
         model_used=generator.model_name,
+        company_opportunity_id=opportunity_id,
+        opportunity_assessment_id=assessment_id,
     )
     session.add(recommendation)
     await session.flush()

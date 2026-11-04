@@ -27,9 +27,13 @@ export function RunProgress({ job }: { job: JobStatus }) {
 
   const progress = job.progress;
   // No progress yet means stage 1 (discovery) has not reported its first company.
-  const currentStage = progress?.stage ?? (progress ? Math.min(progress.done + 1, 4) : 1);
+  const currentStage =
+    progress?.stage ?? (progress ? Math.min(progress.done + 1, 4) : 1);
   const startedAt = job.started_at ?? job.created_at;
-  const elapsed = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
+  const elapsed = Math.max(
+    0,
+    Math.floor((now - new Date(startedAt).getTime()) / 1000),
+  );
   const stageDone = progress?.stage_done;
   const stageTotal = progress?.stage_total;
 
@@ -56,7 +60,9 @@ export function RunProgress({ job }: { job: JobStatus }) {
               ) : active ? (
                 <Loader2 className="size-3.5 animate-spin text-primary" />
               ) : (
-                <span className="inline-block size-3.5 text-center text-xs">{stageNumber}</span>
+                <span className="inline-block size-3.5 text-center text-xs">
+                  {stageNumber}
+                </span>
               )}
               {name}
             </li>
@@ -69,7 +75,9 @@ export function RunProgress({ job }: { job: JobStatus }) {
           <div className="h-2 w-full overflow-hidden rounded bg-muted">
             <div
               className="h-full bg-primary transition-all"
-              style={{ width: `${Math.round((stageDone / stageTotal) * 100)}%` }}
+              style={{
+                width: `${Math.round((stageDone / stageTotal) * 100)}%`,
+              }}
             />
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -82,9 +90,13 @@ export function RunProgress({ job }: { job: JobStatus }) {
 
       <p className="text-sm">
         {progress?.detail ??
-          (job.status === "pending" ? "Waiting for the worker to pick this up…" : "Starting…")}
+          (job.status === "pending"
+            ? "Waiting for the worker to pick this up…"
+            : "Starting…")}
       </p>
-      <p className="text-xs text-muted-foreground">Elapsed {formatElapsed(elapsed)}</p>
+      <p className="text-xs text-muted-foreground">
+        Elapsed {formatElapsed(elapsed)}
+      </p>
     </div>
   );
 }

@@ -22,7 +22,7 @@ const ICONS: Record<
 // Where a click on an event should lead: a search to its results, a draft to the Drafts page, a
 // company to its page.
 function target(event: DashboardActivityEvent): string | null {
-  if (event.kind === "draft") return "/drafts";
+  if (event.kind === "draft") return "/outreach?view=drafts";
   if (event.run_id) return `/?search=${event.run_id}`;
   if (event.company_id) return `/companies/${event.company_id}`;
   return null;

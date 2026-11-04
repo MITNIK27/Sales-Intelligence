@@ -6,7 +6,6 @@ import { apiGet } from "@/api/client";
 import type { FollowUpItem } from "@/api/types";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
-import { PageHeader } from "@/components/PageHeader";
 import { SkeletonLines } from "@/components/Skeleton";
 import { TablePagination } from "@/components/TablePagination";
 import { Card } from "@/components/ui/card";
@@ -18,6 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatDate, humanize } from "@/lib/format";
 
 export function FollowUpsPage() {
   const [items, setItems] = useState<FollowUpItem[] | null>(null);
@@ -29,24 +29,20 @@ export function FollowUpsPage() {
     setError(null);
     return apiGet<FollowUpItem[]>("/contacts/follow-ups")
       .then(setItems)
-      .catch((err) => setError(err instanceof Error ? err.message : "failed to load follow-ups"));
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "failed to load follow-ups",
+        ),
+      );
   }
 
   useEffect(() => {
     loadFollowUps();
   }, []);
 
-  const header = (
-    <PageHeader
-      title="Follow-ups Due"
-      description="Contacts whose next follow-up date is today or in the past."
-    />
-  );
-
   if (error) {
     return (
       <div>
-        {header}
         <Card>
           <ErrorState message={error} onRetry={loadFollowUps} />
         </Card>
@@ -57,7 +53,6 @@ export function FollowUpsPage() {
   if (!items) {
     return (
       <div>
-        {header}
         <Card className="p-6">
           <SkeletonLines lines={6} />
         </Card>
@@ -67,11 +62,13 @@ export function FollowUpsPage() {
 
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const rows = items.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const rows = items.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   return (
     <div>
-      {header}
       <Card className="p-0">
         {items.length === 0 ? (
           <EmptyState
@@ -106,10 +103,10 @@ export function FollowUpsPage() {
                         {item.company.name}
                       </Link>
                     </TableCell>
-                    <TableCell className="capitalize">{item.status.replace(/_/g, " ")}</TableCell>
+                    <TableCell>{humanize(item.status)}</TableCell>
                     <TableCell>
                       {item.next_follow_up_at
-                        ? new Date(item.next_follow_up_at).toLocaleDateString()
+                        ? formatDate(item.next_follow_up_at)
                         : "—"}
                     </TableCell>
                     <TableCell className="capitalize">

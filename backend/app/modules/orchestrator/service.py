@@ -2,10 +2,12 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
+from app.modules.companies.models import Company
 from app.modules.companies.service import confirm_company, list_company_ids_by_source_run
 from app.modules.contacts.service import confirm_contact
 from app.modules.discovery_agent.agent import (
@@ -32,6 +34,7 @@ from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvi
 from app.modules.ingestion.market_discovery import _run_market_discovery
 from app.modules.ingestion.models import IngestionRun
 from app.modules.jobs.models import Job
+from app.modules.opportunity.run_stage import queue_run_fit
 from app.modules.orchestrator.ranking_step import rank_judged_companies
 from app.modules.qualification.qualification_generator import (
     GeminiQualificationGenerator,
@@ -39,8 +42,9 @@ from app.modules.qualification.qualification_generator import (
 )
 from app.modules.qualification.service import (
     _run_bulk_qualification,
+    add_company_criteria,
     build_run_criteria,
-    list_active_criteria,
+    clean_criteria,
 )
 from app.modules.role_relevance.role_relevance_generator import (
     GeminiRoleRelevanceGenerator,
@@ -133,27 +137,30 @@ async def _run_auto_pipeline(
         )
 
     # Stage 2: qualification.
-    run_criteria = build_run_criteria(job.organization_id, payload.get("market_fit_criteria"))
-    if not run_criteria and not await list_active_criteria(session, job.organization_id):
-        qualification_result: dict[str, Any] = {
-            "ran": False,
-            "skipped_reason": "no active qualification criteria configured",
-        }
-        eligible_company_ids: list[uuid.UUID] = []
-    else:
-        qual = await _run_bulk_qualification(
-            session,
-            job.organization_id,
-            company_ids,
-            qualification_generator,
-            progress_callback=_stage_callback(progress_callback, 2),
-            extra_criteria=run_criteria,
-        )
-        qualification_result = {"ran": True, **qual}
-        eligible_company_ids = [
-            uuid.UUID(cid)
-            for cid in [*qual["qualified_company_ids"], *qual["needs_evidence_company_ids"]]
-        ]
+    # Only the criteria chosen for this run apply; none chosen is fine: companies stay "not
+    # checked", are ranked by offering fit, and nothing is excluded.
+    run_criteria = build_run_criteria(job.organization_id, payload.get("criteria"))
+    run_specs = clean_criteria(payload.get("criteria") or [])
+    if run_specs:
+        for found in (
+            await session.execute(select(Company).where(Company.id.in_(company_ids)))
+        ).scalars():
+            add_company_criteria(found, run_specs)
+        await session.flush()
+    qual = await _run_bulk_qualification(
+        session,
+        job.organization_id,
+        company_ids,
+        qualification_generator,
+        progress_callback=_stage_callback(progress_callback, 2),
+        criteria=run_criteria,
+    )
+    qualification_result: dict[str, Any] = {
+        "ran": True,
+        "criteria_chosen": len(run_criteria),
+        **qual,
+    }
+    eligible_company_ids = [uuid.UUID(cid) for cid in qual["eligible_company_ids"]]
     await session.commit()  # qualification results are durable before ranking starts
 
     # Ranking: score every judged company, then take the best N — not the first N discovered.
@@ -178,6 +185,17 @@ async def _run_auto_pipeline(
             if not r.excluded
         ][: settings.auto_pipeline_max_companies_to_draft],
     }
+    # Light fit stage: queue (never wait for) a judgment of the run's offerings per ranked company.
+    fit_queued = await queue_run_fit(
+        session,
+        job.organization_id,
+        uuid.UUID(payload["ingestion_run_id"]),
+        ranked_ids,
+        [uuid.UUID(p) for p in (payload.get("product_ids") or [])],
+        settings.auto_pipeline_max_companies_to_draft,
+    )
+    await session.commit()
+    ranking_result["offering_fit_queued"] = fit_queued
     if progress_callback:
         await progress_callback(2, 4, stage=3, stage_name=STAGE_NAMES[2])
 

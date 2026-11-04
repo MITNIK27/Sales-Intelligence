@@ -48,6 +48,7 @@ async def generate_draft_endpoint(
             [body.product_id],
             body.draft_type,
             generator,
+            opportunity_id=body.opportunity_id,
         )
     except (CompanyNotFoundError, ContactNotFoundError, ProductNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -1,22 +1,54 @@
-import type { EnrichmentStatus, QualificationVerdict, RolePriority } from "@/api/types";
+import type {
+  EnrichmentStatus,
+  QualificationVerdict,
+  RolePriority,
+} from "@/api/types";
 import { explainNeedsReviewReason } from "@/lib/needsReview";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
-const ENRICHMENT_MAP: Record<EnrichmentStatus, { label: string; cls: string }> = {
-  never_enriched: { label: "Not enriched", cls: "bg-muted text-muted-foreground" },
-  pending: { label: "Enriching…", cls: "bg-chip-warning-bg text-chip-warning-fg" },
-  enriched: { label: "Enriched", cls: "bg-chip-success-bg text-chip-success-fg" },
-  failed: { label: "Failed", cls: "bg-chip-rejected-bg text-chip-rejected-fg" },
-};
+const ENRICHMENT_MAP: Record<EnrichmentStatus, { label: string; cls: string }> =
+  {
+    never_enriched: {
+      label: "Not enriched",
+      cls: "bg-muted text-muted-foreground",
+    },
+    pending: {
+      label: "Enriching…",
+      cls: "bg-chip-warning-bg text-chip-warning-fg",
+    },
+    enriched: {
+      label: "Enriched",
+      cls: "bg-chip-success-bg text-chip-success-fg",
+    },
+    failed: {
+      label: "Failed",
+      cls: "bg-chip-rejected-bg text-chip-rejected-fg",
+    },
+  };
 
-const QUALIFICATION_VERDICT_MAP: Record<QualificationVerdict, { label: string; cls: string }> = {
-  qualified: { label: "Qualified", cls: "bg-chip-success-bg text-chip-success-fg" },
-  not_qualified: { label: "Not qualified", cls: "bg-chip-rejected-bg text-chip-rejected-fg" },
+const QUALIFICATION_VERDICT_MAP: Record<
+  QualificationVerdict,
+  { label: string; cls: string }
+> = {
+  qualified: {
+    label: "Qualified",
+    cls: "bg-chip-success-bg text-chip-success-fg",
+  },
+  not_qualified: {
+    label: "Not qualified",
+    cls: "bg-chip-rejected-bg text-chip-rejected-fg",
+  },
   could_not_determine: {
     label: "Could not determine",
     cls: "bg-chip-warning-bg text-chip-warning-fg",
   },
+  not_checked: { label: "Not checked", cls: "bg-muted text-muted-foreground" },
 };
 
 const CRITERION_VERDICT_MAP: Record<
@@ -24,18 +56,28 @@ const CRITERION_VERDICT_MAP: Record<
   { label: string; cls: string }
 > = {
   met: { label: "Met", cls: "bg-chip-success-bg text-chip-success-fg" },
-  not_met: { label: "Not met", cls: "bg-chip-rejected-bg text-chip-rejected-fg" },
+  not_met: {
+    label: "Not met",
+    cls: "bg-chip-rejected-bg text-chip-rejected-fg",
+  },
   could_not_determine: {
     label: "Could not determine",
     cls: "bg-chip-warning-bg text-chip-warning-fg",
   },
 };
 
-const ROLE_PRIORITY_MAP: Record<RolePriority, { label: string; cls: string }> = {
-  primary: { label: "Primary target", cls: "bg-chip-success-bg text-chip-success-fg" },
-  secondary: { label: "Secondary", cls: "bg-muted text-muted-foreground" },
-  not_relevant: { label: "Not relevant", cls: "bg-chip-rejected-bg text-chip-rejected-fg" },
-};
+const ROLE_PRIORITY_MAP: Record<RolePriority, { label: string; cls: string }> =
+  {
+    primary: {
+      label: "Primary target",
+      cls: "bg-chip-success-bg text-chip-success-fg",
+    },
+    secondary: { label: "Secondary", cls: "bg-muted text-muted-foreground" },
+    not_relevant: {
+      label: "Not relevant",
+      cls: "bg-chip-rejected-bg text-chip-rejected-fg",
+    },
+  };
 
 function Chip({ label, cls }: { label: string; cls: string }) {
   return (
@@ -51,7 +93,11 @@ function Chip({ label, cls }: { label: string; cls: string }) {
   );
 }
 
-export function EnrichmentStatusBadge({ status }: { status: EnrichmentStatus }) {
+export function EnrichmentStatusBadge({
+  status,
+}: {
+  status: EnrichmentStatus;
+}) {
   const { label, cls } = ENRICHMENT_MAP[status];
   return <Chip label={label} cls={cls} />;
 }
@@ -59,14 +105,22 @@ export function EnrichmentStatusBadge({ status }: { status: EnrichmentStatus }) 
 export function NeedsReviewBadge({ reason }: { reason?: string | null }) {
   const explanation = explainNeedsReviewReason(reason);
   if (!explanation) {
-    return <Chip label="Needs review" cls="bg-chip-warning-bg text-chip-warning-fg" />;
+    return (
+      <Chip
+        label="Needs review"
+        cls="bg-chip-warning-bg text-chip-warning-fg"
+      />
+    );
   }
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger className="cursor-default" asChild>
           <span>
-            <Chip label="Needs review" cls="bg-chip-warning-bg text-chip-warning-fg" />
+            <Chip
+              label="Needs review"
+              cls="bg-chip-warning-bg text-chip-warning-fg"
+            />
           </span>
         </TooltipTrigger>
         <TooltipContent className="block max-w-sm whitespace-normal text-left">
@@ -79,7 +133,12 @@ export function NeedsReviewBadge({ reason }: { reason?: string | null }) {
 
 /** Flags a parsed field the model could not confidently determine. */
 export function CouldNotDetermineBadge() {
-  return <Chip label="Could not determine" cls="bg-chip-warning-bg text-chip-warning-fg" />;
+  return (
+    <Chip
+      label="Could not determine"
+      cls="bg-chip-warning-bg text-chip-warning-fg"
+    />
+  );
 }
 
 /** Generic signal-type chip used on the company detail page. */
@@ -91,7 +150,11 @@ export function SignalTypeBadge({ type }: { type: "news" | "job_posting" }) {
   );
 }
 
-export function QualificationVerdictBadge({ verdict }: { verdict: QualificationVerdict }) {
+export function QualificationVerdictBadge({
+  verdict,
+}: {
+  verdict: QualificationVerdict;
+}) {
   const { label, cls } = QUALIFICATION_VERDICT_MAP[verdict];
   return <Chip label={label} cls={cls} />;
 }
@@ -112,7 +175,13 @@ export function CriterionVerdictBadge({
 
 /** Per-contact role-relevance indicator — `label` (typically the matched category name, or
  * "No match" when there wasn't one) is shown as the text, color communicates the priority. */
-export function RolePriorityBadge({ priority, label }: { priority: RolePriority; label?: string }) {
+export function RolePriorityBadge({
+  priority,
+  label,
+}: {
+  priority: RolePriority;
+  label?: string;
+}) {
   const { label: defaultLabel, cls } = ROLE_PRIORITY_MAP[priority];
   return <Chip label={label ?? defaultLabel} cls={cls} />;
 }

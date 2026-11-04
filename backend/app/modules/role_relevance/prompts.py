@@ -67,12 +67,13 @@ For each contact, output:
 
 
 def _format_contacts(contacts: list[Contact]) -> str:
+    # Only the id, title and seniority are sent: the match is made from the function a title
+    # describes, so a person's name adds nothing and is personal data that stays here.
     lines = []
     for contact in contacts:
-        name = contact.full_name or "(name unknown)"
         title = contact.role_title or "(title unknown)"
         seniority = contact.seniority or "(seniority unknown)"
-        lines.append(f"[{contact.id}] {name} — title: {title}, seniority: {seniority}")
+        lines.append(f"[{contact.id}] title: {title}, seniority: {seniority}")
     return "\n".join(lines)
 
 

@@ -29,7 +29,11 @@ import {
 import { WebsiteLink } from "@/components/WebsiteLink";
 import { CoveragePanel } from "@/features/products/CoveragePanel";
 import { ProposalReview } from "@/features/products/ProposalReview";
-import { failureLabel, lastCheckedLabel, progressLabel } from "@/features/products/proposals";
+import {
+  failureLabel,
+  lastCheckedLabel,
+  progressLabel,
+} from "@/features/products/proposals";
 import { useOfferingSync } from "@/features/products/useOfferingSync";
 import { usePersistentState } from "@/lib/usePersistentState";
 import {
@@ -47,9 +51,15 @@ export function ProductsListPage() {
   const [data, setData] = useState<ProductList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [kind, setKind] = usePersistentState<ProductKind>("ui.offerings.tab", "service");
+  const [kind, setKind] = usePersistentState<ProductKind>(
+    "ui.offerings.tab",
+    "service",
+  );
   const [proposals, setProposals] = useState<OfferingProposalList | null>(null);
-  const [showCoverage, setShowCoverage] = usePersistentState<boolean>("ui.offerings.coverage", false);
+  const [showCoverage, setShowCoverage] = usePersistentState<boolean>(
+    "ui.offerings.coverage",
+    false,
+  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
@@ -57,7 +67,11 @@ export function ProductsListPage() {
     setError(null);
     return apiGet<ProductList>("/products?limit=200")
       .then(setData)
-      .catch((err) => setError(err instanceof Error ? err.message : "failed to load offerings"));
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "failed to load offerings",
+        ),
+      );
   }
 
   // Changes the website check found, waiting for a person. A failure here only hides the panel:
@@ -90,7 +104,9 @@ export function ProductsListPage() {
       await apiDelete(`/products/${id}`);
       await loadProducts();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to delete offering");
+      setError(
+        err instanceof Error ? err.message : "failed to delete offering",
+      );
     } finally {
       setDeletingId(null);
     }
@@ -104,7 +120,10 @@ export function ProductsListPage() {
   const running = sync.status?.running ?? false;
   const checkAction = (
     <div className="flex items-center gap-3">
-      <div className="text-right text-sm text-muted-foreground" aria-live="polite">
+      <div
+        className="text-right text-sm text-muted-foreground"
+        aria-live="polite"
+      >
         {sync.error ? (
           <span className="text-destructive">{sync.error}</span>
         ) : sync.status ? (
@@ -129,7 +148,11 @@ export function ProductsListPage() {
     </div>
   );
   const header = (
-    <PageHeader title={OFFERINGS_LABEL} description={OFFERINGS_TAGLINE} action={checkAction} />
+    <PageHeader
+      title={OFFERINGS_LABEL}
+      description={OFFERINGS_TAGLINE}
+      action={checkAction}
+    />
   );
 
   if (error) {
@@ -158,7 +181,10 @@ export function ProductsListPage() {
   const inTab = data.items.filter((product) => kindOf(product) === kind);
   const pageCount = Math.max(1, Math.ceil(inTab.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const rows = inTab.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const rows = inTab.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   function selectKind(next: ProductKind) {
     setKind(next);
@@ -170,7 +196,10 @@ export function ProductsListPage() {
       {header}
 
       {proposals && proposals.items.length > 0 && (
-        <ProposalReview proposals={proposals.items} onDecided={reloadAfterDecision} />
+        <ProposalReview
+          proposals={proposals.items}
+          onDecided={reloadAfterDecision}
+        />
       )}
 
       <div className="mb-4 flex items-end justify-between gap-4 border-b border-border">
@@ -190,7 +219,9 @@ export function ProductsListPage() {
               )}
             >
               {KIND_LABEL_PLURAL[tab]}
-              <span className="ml-2 tabular-nums text-muted-foreground">{counts[tab]}</span>
+              <span className="ml-2 tabular-nums text-muted-foreground">
+                {counts[tab]}
+              </span>
             </button>
           ))}
         </div>
@@ -204,18 +235,24 @@ export function ProductsListPage() {
           >
             What was checked
             <ChevronDown
-              className={cn("size-4 transition-transform", showCoverage && "rotate-180")}
+              className={cn(
+                "size-4 transition-transform",
+                showCoverage && "rotate-180",
+              )}
               aria-hidden="true"
             />
           </Button>
           <InfoTip label="About what was checked">
-            Every page the check looked at, what it decided and why. Open it to see why something
-            is missing, or to ask for a page to be read as an offering.
+            Every page the check looked at, what it decided and why. Open it to
+            see why something is missing, or to ask for a page to be read as an
+            offering.
           </InfoTip>
         </div>
       </div>
 
-      {showCoverage && <CoveragePanel onCheckStarted={sync.refresh} onRunCheck={sync.start} />}
+      {showCoverage && (
+        <CoveragePanel onCheckStarted={sync.refresh} onRunCheck={sync.start} />
+      )}
 
       <Card className="p-0">
         {inTab.length === 0 ? (
@@ -277,13 +314,17 @@ function OfferingRow({
   const fromWebsite = product.source === "website";
   return (
     <TableRow>
-      <TableCell className="whitespace-normal font-medium">{product.name}</TableCell>
+      <TableCell className="whitespace-normal font-medium">
+        {product.name}
+      </TableCell>
       <TableCell className="whitespace-normal text-muted-foreground">
         {product.description ?? "—"}
       </TableCell>
       <TableCell className="whitespace-normal">
         <div className="flex flex-col items-start gap-1">
-          <Badge variant="outline">{fromWebsite ? "From website" : "Manual"}</Badge>
+          <Badge variant="outline">
+            {fromWebsite ? "From website" : "Manual"}
+          </Badge>
           {fromWebsite && product.source_url && (
             <WebsiteLink domain={product.source_url} className="text-xs" />
           )}

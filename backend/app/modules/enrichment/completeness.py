@@ -7,14 +7,18 @@ Sufficient signals = enough genuine news-like items (not menu text). Anything sh
 when there are too few usable signals — never both for a company that already has them."""
 
 from app.modules.enrichment.providers.base import ScrapedCompanyData, ScrapedSignal
-from app.modules.enrichment.signals import is_clean_signal
+from app.modules.enrichment.signals import is_clean_signal, looks_blocked
 
 MIN_DESCRIPTION_CHARS = 80
 MIN_CLEAN_SIGNALS = 2
 
 
 def has_real_description(data: ScrapedCompanyData) -> bool:
-    return bool(data.description and len(data.description.strip()) >= MIN_DESCRIPTION_CHARS)
+    return bool(
+        data.description
+        and len(data.description.strip()) >= MIN_DESCRIPTION_CHARS
+        and not looks_blocked(data.description)
+    )
 
 
 def missing_company_fields(data: ScrapedCompanyData) -> set[str]:

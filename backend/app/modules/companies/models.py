@@ -60,6 +60,11 @@ class Company(Base, TimestampMixin, UpdatedAtMixin):
     # Where each enriched field came from, set when enrichment fills it:
     # {"industry": {"source": "contextdev:brand", "confidence": 0.9, "fetched_at": "..."}, ...}.
     field_provenance: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    # What the person wants to know about this company, typed on its page or on the Market
+    # Discovery search that found it: [{"name", "description", "must_have"}, ...].
+    criteria: Mapped[list[dict[str, object]]] = mapped_column(
+        JSON, default=list, server_default=text("'[]'")
+    )
 
     contacts: Mapped[list["Contact"]] = relationship(back_populates="company")
 

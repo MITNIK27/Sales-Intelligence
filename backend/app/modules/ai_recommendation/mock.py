@@ -38,5 +38,6 @@ class MockRecommendationGenerator(RecommendationGenerator):
         contacts: list[Contact],
         signals: list[EnrichmentRecord],
         product: Product,
+        opportunity_context: str | None = None,
     ) -> RecommendationResult:
         return self._result

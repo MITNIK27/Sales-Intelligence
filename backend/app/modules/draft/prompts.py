@@ -84,7 +84,7 @@ def offering_guidance(kind: str) -> str:
     )
 
 
-_PREVIOUS_BODY_CHARS = 1200
+_PREVIOUS_BODY_CHARS = 600
 
 
 def format_previous_emails(emails: list[tuple[str | None, str]] | None) -> str:
@@ -164,7 +164,7 @@ template.
 {style_reference}
 
 Recipient:
-- Name: {contact_name}
+- First name: {contact_name}
 - Role: {contact_role}
 
 Company being contacted:
@@ -208,7 +208,7 @@ and so do prospects; write like a person, not a template.
 {style_reference}
 
 Recipient:
-- Name: {contact_name}
+- First name: {contact_name}
 - Role: {contact_role}
 
 Company being contacted:

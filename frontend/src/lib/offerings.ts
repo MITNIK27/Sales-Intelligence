@@ -29,7 +29,10 @@ export function countByKind(products: Product[]): Record<ProductKind, number> {
 }
 
 // What the offerings picker button says, so a closed picker still shows what is chosen.
-export function selectionSummary(products: Product[], selectedIds: Set<string>): string {
+export function selectionSummary(
+  products: Product[],
+  selectedIds: Set<string>,
+): string {
   const chosen = products.filter((product) => selectedIds.has(product.id));
   if (chosen.length === 0) return "Choose offerings";
   if (chosen.length === 1) return chosen[0].name;
@@ -37,7 +40,9 @@ export function selectionSummary(products: Product[], selectedIds: Set<string>):
 }
 
 // Services first, then products, each alphabetical, for pickers that show both at once.
-export function groupByKind(products: Product[]): { kind: ProductKind; items: Product[] }[] {
+export function groupByKind(
+  products: Product[],
+): { kind: ProductKind; items: Product[] }[] {
   return KIND_ORDER.map((kind) => ({
     kind,
     items: products

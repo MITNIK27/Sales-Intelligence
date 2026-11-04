@@ -19,9 +19,13 @@ class MarketDiscoveryParsed(BaseModel):
     parsed_fields: dict[str, Any]
 
 
-class MarketFitCriterionIn(BaseModel):
-    name: str = Field(min_length=1, max_length=255)
+class RunCriterionIn(BaseModel):
+    """One criterion typed for a search. `must_have` makes a failing company drop out of this run;
+    without it the criterion is only a note."""
+
+    name: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=1000)
+    must_have: bool = False
 
 
 class MarketDiscoveryConfirmRequest(BaseModel):
@@ -37,9 +41,9 @@ class MarketDiscoveryConfirmRequest(BaseModel):
     # Optional focus: the role categories to treat as targets for THIS run. Empty means every
     # matched role counts, so no role is filtered out before a person has looked at the contacts.
     role_category_ids: list[uuid.UUID] = []
-    # Hard requirements for THIS search (e.g. "operates in logistics"), judged for every company
-    # alongside the organization's saved criteria. Not stored as org settings.
-    market_fit_criteria: list[MarketFitCriterionIn] = []
+    # The criteria typed for THIS search; every company it finds also keeps them. None means
+    # companies are ranked by offering fit and nothing is excluded.
+    criteria: list[RunCriterionIn] = []
 
 
 class MarketDiscoveryStarted(BaseModel):
@@ -113,3 +117,4 @@ class MarketDiscoveryRunOut(BaseModel):
     confirmed_at: datetime | None
     summary: dict[str, Any] | None
     error: str | None
+    context: dict[str, Any] | None = None

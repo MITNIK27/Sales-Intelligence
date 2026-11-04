@@ -23,17 +23,80 @@ MAX_JOBS_KEPT = 5
 # Page chrome the heading extractor mistakes for headlines. A signal that starts with one of these
 # is a menu/button/banner, not company news.
 NAV_PHRASES = (
-    "track", "go to homepage", "homepage", "log in", "login", "sign in", "sign up", "subscribe",
-    "contact us", "cookie", "privacy", "accept all", "what would you like to do", "skip to",
-    "menu", "search", "my account", "get a quote", "find a", "read more", "learn more",
-    "back to", "share", "follow us", "newsletter", "press contact", "media contact",
+    "track",
+    "go to homepage",
+    "homepage",
+    "log in",
+    "login",
+    "sign in",
+    "sign up",
+    "subscribe",
+    "contact us",
+    "cookie",
+    "privacy",
+    "accept all",
+    "what would you like to do",
+    "skip to",
+    "menu",
+    "search",
+    "my account",
+    "get a quote",
+    "find a",
+    "read more",
+    "learn more",
+    "back to",
+    "share",
+    "follow us",
+    "newsletter",
+    "press contact",
+    "media contact",
 )
 
 # Personal or off-topic stories that mention a company only because of a person. Kept
 # deliberately small: legal and financial news about the business itself stays.
 LOW_VALUE_PHRASES = (
-    "divorce", "obituary", "passed away", "scandal", "affair", "horoscope", "celebrity",
+    "divorce",
+    "obituary",
+    "passed away",
+    "scandal",
+    "affair",
+    "horoscope",
+    "celebrity",
 )
+
+# What sites serve when they refuse an automated visitor: the page loads (often as a normal 200) but
+# holds an error or a bot check instead of the company's own words. Matched only near the start of
+# the text, so a real page that mentions "captcha" deep in its body is not rejected.
+BLOCK_PHRASES = (
+    "access denied",
+    "don't have permission to view",
+    "do not have permission to view",
+    "don't have permission to access",
+    "can't process your request",
+    "cannot process your request",
+    "request blocked",
+    "verify you are human",
+    "verify you are a human",
+    "are you a robot",
+    "captcha",
+    "enable javascript",
+    "javascript is disabled",
+    "attention required",
+    "checking your browser",
+    "unusual traffic",
+    "pardon our interruption",
+    "just a moment...",
+    "403 forbidden",
+    "error 403",
+)
+_BLOCK_WINDOW = 600
+
+
+def looks_blocked(text: str | None) -> bool:
+    """True when the text is a block or error page rather than the company's own words."""
+    head = (text or "")[:_BLOCK_WINDOW].lower().replace("\u2019", "'")
+    return any(phrase in head for phrase in BLOCK_PHRASES)
+
 
 _ISO_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _DATE_FORMATS = ("%d %B %Y", "%B %d, %Y", "%b %d, %Y", "%d %b %Y", "%d.%m.%Y", "%d/%m/%Y")

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,12 +40,14 @@ from app.modules.enrichment.providers.search_serper import SerperSearchProvider
 from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvider
 from app.modules.enrichment.signals import (
     is_clean_payload,
+    looks_blocked,
     normalize_signals,
     normalize_title,
     parse_published,
 )
 from app.modules.jobs.models import Job
 from app.modules.jobs.service import enqueue_job
+from app.modules.role_relevance.titles import load_search_titles
 
 JOB_TYPE_SCRAPE_COMPANY = "scrape_company"
 
@@ -68,6 +70,7 @@ def _source_confidence(source: str) -> float:
     if source.startswith("contextdev"):
         return 0.8
     return 0.7
+
 
 # One Job enqueued per company on a bulk trigger — capped so a single click can't accidentally
 # enqueue an unbounded number of jobs. Repeatable: the next call picks up whatever's still
@@ -187,6 +190,21 @@ async def list_needs_review(
     return entries
 
 
+async def _company_owning_domain(
+    session: AsyncSession, company: Company, domain: str
+) -> Company | None:
+    """Another company in the organisation that already has this website, if any."""
+    return (
+        await session.execute(
+            select(Company).where(
+                Company.organization_id == company.organization_id,
+                func.lower(Company.domain) == domain.lower(),
+                Company.id != company.id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
 async def _enrich_company(
     session: AsyncSession,
     organization_id: uuid.UUID,
@@ -228,6 +246,18 @@ async def _enrich_company(
             await session.flush()
             return {"status": ENRICHMENT_STATUS_FAILED, "reason": "no_domain"}
         domain = match.domain
+        owner = await _company_owning_domain(session, company, domain)
+        if owner is not None:
+            # The search found a website another record already owns. Writing it here would break
+            # the one-company-per-website rule, so say who has it and let the caller decide.
+            company.enrichment_status = ENRICHMENT_STATUS_FAILED
+            company.enrichment_error = "this website already belongs to another company record"
+            await session.flush()
+            return {
+                "status": ENRICHMENT_STATUS_FAILED,
+                "reason": "duplicate_domain",
+                "existing_company_id": owner.id,
+            }
         domain_discovered = True
     else:
         await tick()
@@ -239,10 +269,15 @@ async def _enrich_company(
     async def _no_search() -> list[ScrapedContact]:
         return []
 
+    titles = (
+        await load_search_titles(session, organization_id)
+        if contact_search_provider is not None
+        else None
+    )
     company_result, signals_result, search_result = await asyncio.gather(
         company_provider.fetch_company_data(domain),
         signal_provider.fetch_signals(domain),
-        contact_search_provider.search_contacts(company.name, domain)
+        contact_search_provider.search_contacts(company.name, domain, titles=titles)
         if contact_search_provider is not None
         else _no_search(),
         return_exceptions=True,
@@ -280,7 +315,10 @@ async def _enrich_company(
         provenance = dict(company.field_provenance or {})
         for field_name in ("description", "employee_count_range", "industry"):
             value = getattr(company_data, field_name)
-            if not getattr(company, field_name) and value:
+            current = getattr(company, field_name)
+            if field_name == "description" and looks_blocked(current):
+                current = None  # an earlier scrape saved a block page; replace it
+            if not current and value:
                 setattr(company, field_name, value)
                 source = company_data.field_sources.get(field_name, company_data.source_label)
                 provenance[field_name] = {
@@ -467,7 +505,9 @@ async def search_company_contacts(
         return None
 
     searched_contacts = await contact_search_provider.search_contacts(
-        company.name, company.domain
+        company.name,
+        company.domain,
+        titles=await load_search_titles(session, organization_id),
     )
     found_ids: list[uuid.UUID] = []
     for searched in searched_contacts:
@@ -489,11 +529,7 @@ async def search_company_contacts(
     # already have channels from prior website scraping, and lazily loading them later during
     # response serialization (after this function's caller commits) would hit the same
     # MissingGreenlet failure already fixed once elsewhere in this codebase (outreach/service.py).
-    stmt = (
-        select(Contact)
-        .where(Contact.id.in_(found_ids))
-        .options(selectinload(Contact.channels))
-    )
+    stmt = select(Contact).where(Contact.id.in_(found_ids)).options(selectinload(Contact.channels))
     return list((await session.execute(stmt)).scalars().all())
 
 

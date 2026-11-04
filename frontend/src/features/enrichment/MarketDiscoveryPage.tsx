@@ -13,7 +13,6 @@ import type {
   JobStatus,
   Product,
   ProductList,
-  QualificationCriterionList,
   RoleCategory,
   RoleCategoryList,
 } from "@/api/types";
@@ -27,15 +26,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { InfoTip } from "@/components/InfoTip";
 import { ProductMultiSelect } from "@/components/ProductMultiSelect";
 import { RoleCategoryMultiSelect } from "@/components/RoleCategoryMultiSelect";
+import { MarketFitRequirements } from "@/features/enrichment/MarketFitRequirements";
 import {
-  MarketFitRequirements,
+  criteriaSummary,
   seedRequirements,
   toRequestCriteria,
-} from "@/features/enrichment/MarketFitRequirements";
-import type { Requirement } from "@/features/enrichment/MarketFitRequirements";
+  type Requirement,
+} from "@/features/enrichment/runCriteria";
 import { RunProgress } from "@/features/enrichment/RunProgress";
 import { RunWorklist } from "@/features/enrichment/RunWorklist";
 import { usePersistentState } from "@/lib/usePersistentState";
+import { jobStatusLabel } from "@/lib/format";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -43,6 +44,7 @@ type BulkQualifyResult = {
   qualified: number;
   not_qualified: number;
   could_not_determine: number;
+  not_checked?: number;
   errors: { company_id: string; error: string }[];
 };
 
@@ -56,10 +58,19 @@ export function MarketDiscoveryPage() {
 
   const [runId, setRunId] = usePersistentState<string | null>("md.runId", null);
   const [jobId, setJobId] = usePersistentState<string | null>("md.jobId", null);
-  const [industryKeywords, setIndustryKeywords] = usePersistentState("md.industryKeywords", "");
+  const [industryKeywords, setIndustryKeywords] = usePersistentState(
+    "md.industryKeywords",
+    "",
+  );
   const [location, setLocation] = usePersistentState("md.location", "");
-  const [employeeSizeRange, setEmployeeSizeRange] = usePersistentState("md.employeeSize", "");
-  const [requirements, setRequirements] = usePersistentState<Requirement[]>("md.requirements", []);
+  const [employeeSizeRange, setEmployeeSizeRange] = usePersistentState(
+    "md.employeeSize",
+    "",
+  );
+  const [requirements, setRequirements] = usePersistentState<Requirement[]>(
+    "md.criteria.typed",
+    [],
+  );
   const [confidence, setConfidence] = usePersistentState<{
     industry_keywords: string;
     location: string;
@@ -69,7 +80,8 @@ export function MarketDiscoveryPage() {
   // A prompt handed over from the dashboard's search box (router state). Consumed once.
   const routerLocation = useLocation();
   const navigate = useNavigate();
-  const handoffPrompt = (routerLocation.state as { prompt?: string } | null)?.prompt ?? null;
+  const handoffPrompt =
+    (routerLocation.state as { prompt?: string } | null)?.prompt ?? null;
   const handoffStarted = useRef(false);
   const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
 
@@ -78,23 +90,21 @@ export function MarketDiscoveryPage() {
   const [run, setRun] = useState<MarketDiscoveryRun | null>(null);
   const pollRef = useRef<number | null>(null);
 
-  const [activeCriteriaCount, setActiveCriteriaCount] = useState<number | null>(null);
   const [qualifying, setQualifying] = useState(false);
   const [qualifyError, setQualifyError] = useState<string | null>(null);
   const [qualifyJob, setQualifyJob] = useState<JobStatus | null>(null);
   const qualifyPollRef = useRef<number | null>(null);
 
-  const [activeRoleCategoryCount, setActiveRoleCategoryCount] = useState<number | null>(null);
+  const [activeRoleCategoryCount, setActiveRoleCategoryCount] = useState<
+    number | null
+  >(null);
   const [products, setProducts] = useState<Product[] | null>(null);
   const [roleCategories, setRoleCategories] = useState<RoleCategory[]>([]);
-  const [selectedRoleCategoryIds, setSelectedRoleCategoryIds] = usePersistentState<string[]>(
-    "md.roleCategoryIds",
-    [],
-  );
-  const [selectedProductIds, setSelectedProductIds] = usePersistentState<string[]>(
-    "md.productIds",
-    [],
-  );
+  const [selectedRoleCategoryIds, setSelectedRoleCategoryIds] =
+    usePersistentState<string[]>("md.roleCategoryIds", []);
+  const [selectedProductIds, setSelectedProductIds] = usePersistentState<
+    string[]
+  >("md.productIds", []);
 
   // Poll a pipeline job until it finishes, then load the finished run. Used both when a run is
   // confirmed and when returning to the page while one is still going.
@@ -106,7 +116,9 @@ export function MarketDiscoveryPage() {
         setJob(status);
         if (status.status === "done" || status.status === "failed") {
           if (pollRef.current) window.clearInterval(pollRef.current);
-          const finishedRun = await apiGet<MarketDiscoveryRun>(`/market-discovery/${forRunId}`);
+          const finishedRun = await apiGet<MarketDiscoveryRun>(
+            `/market-discovery/${forRunId}`,
+          );
           setRun(finishedRun);
         }
       } catch {
@@ -136,13 +148,19 @@ export function MarketDiscoveryPage() {
   }
 
   // Restore a remembered run from the server (finished -> its results; still going -> keep polling).
-  async function restoreRun(restoreJobId: string, restoreRunId: string, isCancelled: () => boolean) {
+  async function restoreRun(
+    restoreJobId: string,
+    restoreRunId: string,
+    isCancelled: () => boolean,
+  ) {
     try {
       const status = await apiGet<JobStatus>(`/jobs/${restoreJobId}`);
       if (isCancelled()) return;
       setJob(status);
       if (status.status === "done" || status.status === "failed") {
-        const finishedRun = await apiGet<MarketDiscoveryRun>(`/market-discovery/${restoreRunId}`);
+        const finishedRun = await apiGet<MarketDiscoveryRun>(
+          `/market-discovery/${restoreRunId}`,
+        );
         if (!isCancelled()) setRun(finishedRun);
       } else {
         startPolling(restoreJobId, restoreRunId);
@@ -195,11 +213,6 @@ export function MarketDiscoveryPage() {
   }, []);
 
   useEffect(() => {
-    apiGet<QualificationCriterionList>("/qualification/criteria")
-      .then((list) => setActiveCriteriaCount(list.items.filter((c) => c.is_active).length))
-      .catch(() => {
-        // Supplementary — a failure here shouldn't block the rest of the page.
-      });
     apiGet<RoleCategoryList>("/role-categories")
       .then((list) => {
         const active = list.items.filter((c) => c.is_active);
@@ -237,13 +250,20 @@ export function MarketDiscoveryPage() {
     setJobId(null);
     setRun(null);
     try {
-      const parsed = await apiPost<MarketDiscoveryParsed>("/market-discovery/parse", {
-        raw_input: text,
-      });
+      const parsed = await apiPost<MarketDiscoveryParsed>(
+        "/market-discovery/parse",
+        {
+          raw_input: text,
+        },
+      );
       setRunId(parsed.ingestion_run_id);
-      setIndustryKeywords(parsed.parsed_fields.industry_keywords.value.join(", "));
+      setIndustryKeywords(
+        parsed.parsed_fields.industry_keywords.value.join(", "),
+      );
       setLocation(parsed.parsed_fields.location.value ?? "");
-      setEmployeeSizeRange(parsed.parsed_fields.employee_size_range.value ?? "");
+      setEmployeeSizeRange(
+        parsed.parsed_fields.employee_size_range.value ?? "",
+      );
       setRequirements(
         seedRequirements(
           parsed.parsed_fields.industry_keywords.value.join(", "),
@@ -254,10 +274,15 @@ export function MarketDiscoveryPage() {
       setConfidence({
         industry_keywords: parsed.parsed_fields.industry_keywords.confidence,
         location: parsed.parsed_fields.location.confidence,
-        employee_size_range: parsed.parsed_fields.employee_size_range.confidence,
+        employee_size_range:
+          parsed.parsed_fields.employee_size_range.confidence,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to parse market description");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "failed to parse market description",
+      );
     } finally {
       setParsing(false);
     }
@@ -277,7 +302,7 @@ export function MarketDiscoveryPage() {
         employee_size_range: employeeSizeRange.trim() || null,
         product_ids: selectedProductIds,
         role_category_ids: selectedRoleCategoryIds,
-        market_fit_criteria: toRequestCriteria(requirements),
+        criteria: toRequestCriteria(requirements),
       };
       const started = await apiPost<MarketDiscoveryStarted>(
         `/market-discovery/${runId}/confirm`,
@@ -286,7 +311,9 @@ export function MarketDiscoveryPage() {
       setJobId(started.job_id);
       startPolling(started.job_id, runId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "failed to start discovery");
+      setError(
+        err instanceof Error ? err.message : "failed to start discovery",
+      );
     } finally {
       setConfirming(false);
     }
@@ -305,11 +332,14 @@ export function MarketDiscoveryPage() {
         const status = await apiGet<JobStatus>(`/jobs/${started.job_id}`);
         setQualifyJob(status);
         if (status.status === "done" || status.status === "failed") {
-          if (qualifyPollRef.current) window.clearInterval(qualifyPollRef.current);
+          if (qualifyPollRef.current)
+            window.clearInterval(qualifyPollRef.current);
         }
       }, POLL_INTERVAL_MS);
     } catch (err) {
-      setQualifyError(err instanceof Error ? err.message : "failed to start qualification");
+      setQualifyError(
+        err instanceof Error ? err.message : "failed to start qualification",
+      );
     } finally {
       setQualifying(false);
     }
@@ -318,9 +348,10 @@ export function MarketDiscoveryPage() {
   // One line up front instead of a silently empty result: each later stage is skipped when its
   // prerequisite is missing.
   const missingSetup: string[] = [];
-  if (activeCriteriaCount === 0) missingSetup.push("no active qualification criteria");
-  if (activeRoleCategoryCount === 0) missingSetup.push("no active role categories");
-  if (products !== null && products.length === 0) missingSetup.push("no offering to pitch");
+  if (activeRoleCategoryCount === 0)
+    missingSetup.push("no active role categories");
+  if (products !== null && products.length === 0)
+    missingSetup.push("no offering to pitch");
 
   // Keyed on the remembered job id (not the fetched job) so the confirm form doesn't flash up
   // for a moment while a restored run's status is still loading.
@@ -331,9 +362,12 @@ export function MarketDiscoveryPage() {
   // action on this page should be inert too (clicking Parse again, Reset, or Confirm a second
   // time while the first request is still in flight used to all stay clickable).
   const busy = parsing || confirming || runInProgress;
-  const qualifyResult = (qualifyJob?.result as unknown as BulkQualifyResult | null) ?? null;
+  const qualifyResult =
+    (qualifyJob?.result as unknown as BulkQualifyResult | null) ?? null;
   const pipelineResult =
-    job?.status === "done" ? ((job.result as unknown as AutoPipelineResult | null) ?? null) : null;
+    job?.status === "done"
+      ? ((job.result as unknown as AutoPipelineResult | null) ?? null)
+      : null;
   // The pipeline already ran qualification automatically unless it was skipped (e.g. no active
   // criteria existed yet at confirm time) — only offer the manual catch-up button in that case.
   const showManualQualifyButton =
@@ -348,8 +382,8 @@ export function MarketDiscoveryPage() {
 
       {missingSetup.length > 0 && (
         <p className="mb-4 rounded-md border border-chip-warning-fg/30 bg-chip-warning-bg px-4 py-2 text-sm text-chip-warning-fg">
-          Before you run: {missingSetup.join("; ")}. Those stages will be skipped and the result
-          will be empty.
+          Before you run: {missingSetup.join("; ")}. Those stages will be
+          skipped and the result will be empty.
         </p>
       )}
 
@@ -357,9 +391,10 @@ export function MarketDiscoveryPage() {
         <Card className="mb-6 border-warning">
           <CardContent>
             <p className="text-sm">
-              A search is still running, so the new one was not started: &ldquo;{handoffNotice}
-              &rdquo;. When this run finishes, use &ldquo;Start a new search&rdquo; and paste it
-              in.
+              A search is still running, so the new one was not started: &ldquo;
+              {handoffNotice}
+              &rdquo;. When this run finishes, use &ldquo;Start a new
+              search&rdquo; and paste it in.
             </p>
           </CardContent>
         </Card>
@@ -372,19 +407,22 @@ export function MarketDiscoveryPage() {
             <div>
               <p className="font-semibold">What this does</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                This is how new companies enter Sales Intelligence — the whole prospecting engine
-                starts here.
+                This is how new companies enter Sales Intelligence — the whole
+                prospecting engine starts here.
               </p>
               <ol className="mt-3 flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
-                <li>You describe the market you're targeting, in plain English.</li>
                 <li>
-                  We parse it into structured filters and show you exactly what we understood —
-                  you correct anything before any search runs.
+                  You describe the market you're targeting, in plain English.
                 </li>
                 <li>
-                  Once you confirm, we automatically search for matching companies, judge whether
-                  each one is worth pursuing, figure out who to talk to there, and draft outreach
-                  messages ready for your review.
+                  We parse it into structured filters and show you exactly what
+                  we understood — you correct anything before any search runs.
+                </li>
+                <li>
+                  Once you confirm, we automatically search for matching
+                  companies, judge whether each one is worth pursuing, figure
+                  out who to talk to there, and draft outreach messages ready
+                  for your review.
                 </li>
               </ol>
             </div>
@@ -414,7 +452,8 @@ export function MarketDiscoveryPage() {
             </div>
             {runInProgress && (
               <p className="text-xs text-muted-foreground">
-                A run is in progress — you can start a new search when it finishes.
+                A run is in progress — you can start a new search when it
+                finishes.
               </p>
             )}
           </form>
@@ -425,17 +464,22 @@ export function MarketDiscoveryPage() {
       {showConfirmForm && confidence && (
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">Confirm interpretation</CardTitle>
+            <CardTitle className="text-lg font-bold">
+              Confirm interpretation
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="mb-4 text-sm text-muted-foreground">
-              Correct anything that's wrong before starting the search — fields marked "could not
-              determine" were left blank, not guessed.
+              Correct anything that's wrong before starting the search — fields
+              marked "could not determine" were left blank, not guessed.
             </p>
 
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="industry-keywords" className="flex items-center gap-2">
+                <Label
+                  htmlFor="industry-keywords"
+                  className="flex items-center gap-2"
+                >
                   Industry keywords (comma-separated)
                   {confidence.industry_keywords === "could_not_determine" && (
                     <CouldNotDetermineBadge />
@@ -451,7 +495,9 @@ export function MarketDiscoveryPage() {
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="location" className="flex items-center gap-2">
                   Location
-                  {confidence.location === "could_not_determine" && <CouldNotDetermineBadge />}
+                  {confidence.location === "could_not_determine" && (
+                    <CouldNotDetermineBadge />
+                  )}
                 </Label>
                 <Input
                   id="location"
@@ -461,7 +507,10 @@ export function MarketDiscoveryPage() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="employee-size-range" className="flex items-center gap-2">
+                <Label
+                  htmlFor="employee-size-range"
+                  className="flex items-center gap-2"
+                >
                   Employee size range
                   {confidence.employee_size_range === "could_not_determine" && (
                     <CouldNotDetermineBadge />
@@ -498,8 +547,9 @@ export function MarketDiscoveryPage() {
                 )}
                 {selectedProductIds.length > 1 && (
                   <p className="text-xs text-muted-foreground">
-                    With more than one selected, drafting picks whichever single offering best fits
-                    each company rather than pitching all of them.
+                    With more than one selected, drafting picks whichever single
+                    offering best fits each company rather than pitching all of
+                    them.
                   </p>
                 )}
               </div>
@@ -508,8 +558,9 @@ export function MarketDiscoveryPage() {
                   <Label className="flex items-center gap-2">
                     Target roles to focus on (optional)
                     <InfoTip label="About target roles">
-                      Leave this empty to look at every role. Pick roles only if you want this
-                      search to concentrate on them; you still choose which contacts to confirm.
+                      Leave this empty to look at every role. Pick roles only if
+                      you want this search to concentrate on them; you still
+                      choose which contacts to confirm.
                     </InfoTip>
                   </Label>
                   <RoleCategoryMultiSelect
@@ -525,10 +576,21 @@ export function MarketDiscoveryPage() {
                   />
                 </div>
               )}
-              <MarketFitRequirements value={requirements} onChange={setRequirements} />
+              <MarketFitRequirements
+                value={requirements}
+                onChange={setRequirements}
+              />
+              <p className="text-sm text-muted-foreground">
+                {criteriaSummary(requirements)}
+              </p>
             </div>
 
-            <Button type="button" onClick={handleConfirm} disabled={busy} className="mt-6">
+            <Button
+              type="button"
+              onClick={handleConfirm}
+              disabled={busy}
+              className="mt-6"
+            >
               {confirming ? "Starting…" : "Confirm & Start Discovery"}
             </Button>
           </CardContent>
@@ -539,17 +601,23 @@ export function MarketDiscoveryPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg font-bold">
-              {job.status === "running" && <Loader2 className="size-4 animate-spin text-primary" />}
-              Pipeline status: {job.status}
+              {job.status === "running" && (
+                <Loader2 className="size-4 animate-spin text-primary" />
+              )}
+              Progress: {jobStatusLabel(job.status)}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {(job.status === "running" || job.status === "pending") && <RunProgress job={job} />}
-            {job.status === "failed" && <p className="text-sm text-destructive">{job.error}</p>}
+            {(job.status === "running" || job.status === "pending") && (
+              <RunProgress job={job} />
+            )}
+            {job.status === "failed" && (
+              <p className="text-sm text-destructive">{job.error}</p>
+            )}
             {job.status === "done" && run?.summary && (
               <p className="text-sm text-muted-foreground">
-                {run.summary.candidates_found} candidates found · {run.summary.companies_created}{" "}
-                new companies
+                {run.summary.candidates_found} candidates found ·{" "}
+                {run.summary.companies_created} new companies
                 {pipelineResult?.qualification.ran
                   ? ` · ${pipelineResult.qualification.qualified} qualified`
                   : ""}
@@ -558,41 +626,52 @@ export function MarketDiscoveryPage() {
                   : ""}
               </p>
             )}
-            {run?.error && <p className="mt-2 text-sm text-destructive">{run.error}</p>}
+            {run?.error && (
+              <p className="mt-2 text-sm text-destructive">{run.error}</p>
+            )}
 
             {job.status === "done" &&
               run?.summary?.candidates_found === 0 &&
               (run.summary.raw_results ?? 0) > 0 && (
                 <div className="mt-3 border border-chip-warning-fg bg-chip-warning-bg p-3 text-sm text-chip-warning-fg">
                   <p>
-                    No real companies were found — the search mostly returned general articles or
-                    pages, not a company directory. Try naming a more specific company-type noun
-                    (e.g. "vendors", "providers", "operators") instead of a broad topic phrase.
+                    No real companies were found — the search mostly returned
+                    general articles or pages, not a company directory. Try
+                    naming a more specific company-type noun (e.g. "vendors",
+                    "providers", "operators") instead of a broad topic phrase.
                   </p>
-                  {run.summary.rejected_samples && run.summary.rejected_samples.length > 0 && (
-                    <>
-                      <p className="mt-2 font-semibold">Examples of what was rejected:</p>
-                      <ul className="mt-1 list-inside list-disc">
-                        {run.summary.rejected_samples.map((sample, i) => (
-                          <li key={i}>
-                            <strong>{sample.name}</strong> — {sample.reasoning}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
+                  {run.summary.rejected_samples &&
+                    run.summary.rejected_samples.length > 0 && (
+                      <>
+                        <p className="mt-2 font-semibold">
+                          Examples of what was rejected:
+                        </p>
+                        <ul className="mt-1 list-inside list-disc">
+                          {run.summary.rejected_samples.map((sample, i) => (
+                            <li key={i}>
+                              <strong>{sample.name}</strong> —{" "}
+                              {sample.reasoning}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
                 </div>
               )}
 
             {(pipelineResult || run?.summary?.enrichment) && (
               <details className="mt-3 text-sm">
-                <summary className="cursor-pointer text-muted-foreground">Run details</summary>
+                <summary className="cursor-pointer text-muted-foreground">
+                  Run details
+                </summary>
                 {run?.summary?.raw_results != null && (
                   <p className="mt-2 text-muted-foreground">
                     Search funnel: {run.summary.raw_results} raw result
-                    {run.summary.raw_results === 1 ? "" : "s"} → {run.summary.extracted ?? 0}{" "}
-                    extracted → {run.summary.accepted ?? 0} accepted as real companies
-                    {(run.summary.rejected ?? 0) > 0 && ` (${run.summary.rejected} rejected)`}
+                    {run.summary.raw_results === 1 ? "" : "s"} →{" "}
+                    {run.summary.extracted ?? 0} extracted →{" "}
+                    {run.summary.accepted ?? 0} accepted as real companies
+                    {(run.summary.rejected ?? 0) > 0 &&
+                      ` (${run.summary.rejected} rejected)`}
                   </p>
                 )}
                 {run?.summary?.context_dev && (
@@ -607,91 +686,119 @@ export function MarketDiscoveryPage() {
                 )}
                 {run?.summary?.enrichment && (
                   <p className="mt-2 text-muted-foreground">
-                    Company data source: {run.summary.company_data_source ?? "unknown"} · enriched{" "}
-                    {run.summary.enrichment.enriched}, failed {run.summary.enrichment.failed},
-                    industry filled {run.summary.enrichment.industry_filled}
-                    {Object.keys(run.summary.enrichment.branch_errors ?? {}).length > 0 &&
-                      ` · provider errors: ${Object.entries(run.summary.enrichment.branch_errors ?? {})
+                    Company data source:{" "}
+                    {run.summary.company_data_source ?? "unknown"} · enriched{" "}
+                    {run.summary.enrichment.enriched}, failed{" "}
+                    {run.summary.enrichment.failed}, industry filled{" "}
+                    {run.summary.enrichment.industry_filled}
+                    {Object.keys(run.summary.enrichment.branch_errors ?? {})
+                      .length > 0 &&
+                      ` · provider errors: ${Object.entries(
+                        run.summary.enrichment.branch_errors ?? {},
+                      )
                         .map(([branch, n]) => `${branch} ${n}`)
                         .join(", ")}`}
                     {Object.keys(run.summary.enrichment.by_source).length > 0 &&
-                      ` · by source: ${Object.entries(run.summary.enrichment.by_source)
+                      ` · by source: ${Object.entries(
+                        run.summary.enrichment.by_source,
+                      )
                         .map(([source, n]) => `${source} ${n}`)
                         .join(", ")}`}
                   </p>
                 )}
-            {pipelineResult && (
-              <div className="mt-3 flex flex-col gap-3 text-sm">
-                <div>
-                  <p className="font-semibold">Qualification</p>
-                  {pipelineResult.qualification.ran ? (
-                    <ul className="list-inside list-disc text-muted-foreground">
-                      <li>Qualified: {pipelineResult.qualification.qualified}</li>
-                      <li>Not qualified: {pipelineResult.qualification.not_qualified}</li>
-                      <li>
-                        Needs evidence (could not be verified):{" "}
-                        {pipelineResult.qualification.could_not_determine}
-                      </li>
-                    </ul>
-                  ) : (
-                    <p className="text-muted-foreground">
-                      Skipped — {pipelineResult.qualification.skipped_reason}
-                    </p>
-                  )}
-                </div>
-                {pipelineResult.ranking && (
-                  <div>
-                    <p className="font-semibold">Ranking</p>
-                    <p className="text-muted-foreground">
-                      {pipelineResult.ranking.ranked} companies scored by Priority Score; the top{" "}
-                      {pipelineResult.ranking.top.length} went on to role classification.
-                    </p>
+                {pipelineResult && (
+                  <div className="mt-3 flex flex-col gap-3 text-sm">
+                    <div>
+                      <p className="font-semibold">Qualification</p>
+                      {pipelineResult.qualification.ran ? (
+                        <ul className="list-inside list-disc text-muted-foreground">
+                          <li>
+                            Qualified: {pipelineResult.qualification.qualified}
+                          </li>
+                          <li>
+                            Not qualified:{" "}
+                            {pipelineResult.qualification.not_qualified}
+                          </li>
+                          <li>
+                            Needs evidence (could not be verified):{" "}
+                            {pipelineResult.qualification.could_not_determine}
+                          </li>
+                          {(pipelineResult.qualification.not_checked ?? 0) >
+                            0 && (
+                            <li>
+                              Not checked (no criteria chosen):{" "}
+                              {pipelineResult.qualification.not_checked}
+                            </li>
+                          )}
+                        </ul>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          Skipped —{" "}
+                          {pipelineResult.qualification.skipped_reason}
+                        </p>
+                      )}
+                    </div>
+                    {pipelineResult.ranking && (
+                      <div>
+                        <p className="font-semibold">Ranking</p>
+                        <p className="text-muted-foreground">
+                          {pipelineResult.ranking.ranked} companies scored by
+                          Priority Score; the top{" "}
+                          {pipelineResult.ranking.top.length} went on to role
+                          classification.
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-semibold">Role classification</p>
+                      {pipelineResult.role_classification.ran ? (
+                        <p className="text-muted-foreground">
+                          Companies classified:{" "}
+                          {
+                            pipelineResult.role_classification
+                              .companies_classified
+                          }
+                        </p>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          Skipped —{" "}
+                          {pipelineResult.role_classification.skipped_reason}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <p className="font-semibold">Drafting</p>
+                      {pipelineResult.drafting.ran ? (
+                        <p className="text-muted-foreground">
+                          Drafts generated:{" "}
+                          {pipelineResult.drafting.drafts_generated}
+                        </p>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          Skipped — {pipelineResult.drafting.skipped_reason}
+                        </p>
+                      )}
+                    </div>
+                    {pipelineResult.capped && (
+                      <p className="text-xs text-muted-foreground">
+                        More companies qualified than this run's automatic cap
+                        allows through to role classification and drafting — the
+                        rest are qualified only; classify/draft them
+                        individually from their company pages if needed.
+                      </p>
+                    )}
                   </div>
                 )}
-                <div>
-                  <p className="font-semibold">Role classification</p>
-                  {pipelineResult.role_classification.ran ? (
-                    <p className="text-muted-foreground">
-                      Companies classified: {pipelineResult.role_classification.companies_classified}
-                    </p>
-                  ) : (
-                    <p className="text-muted-foreground">
-                      Skipped — {pipelineResult.role_classification.skipped_reason}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <p className="font-semibold">Drafting</p>
-                  {pipelineResult.drafting.ran ? (
-                    <p className="text-muted-foreground">
-                      Drafts generated: {pipelineResult.drafting.drafts_generated}
-                    </p>
-                  ) : (
-                    <p className="text-muted-foreground">
-                      Skipped — {pipelineResult.drafting.skipped_reason}
-                    </p>
-                  )}
-                </div>
-                {pipelineResult.capped && (
-                  <p className="text-xs text-muted-foreground">
-                    More companies qualified than this run's automatic cap allows through to role
-                    classification and drafting — the rest are qualified only; classify/draft them
-                    individually from their company pages if needed.
-                  </p>
-                )}
-              </div>
-            )}
               </details>
             )}
 
             {job.status === "done" && (
               <p className="mt-3 text-sm">
-                <Link to="/companies" className="text-primary-text hover:underline">
+                <Link
+                  to="/companies"
+                  className="text-primary-text hover:underline"
+                >
                   View companies →
-                </Link>{" "}
-                or{" "}
-                <Link to="/needs-review" className="text-primary-text hover:underline">
-                  verify contacts →
                 </Link>
               </p>
             )}
@@ -713,62 +820,62 @@ export function MarketDiscoveryPage() {
               run.summary.companies_created > 0 &&
               showManualQualifyButton && (
                 <div className="mt-4 border-t border-border pt-4">
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleQualifyRunCompanies}
-                  disabled={qualifying || activeCriteriaCount === 0 || !!qualifyJob}
-                >
-                  {qualifying
-                    ? "Starting…"
-                    : `Qualify ${run.summary.companies_created} new companies`}
-                </Button>
-                {activeCriteriaCount === 0 && (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    No active qualification criteria yet —{" "}
-                    <Link
-                      to="/qualification/criteria/new"
-                      className="text-primary-text hover:underline"
-                    >
-                      add one
-                    </Link>{" "}
-                    before qualifying.
-                  </p>
-                )}
-                {qualifyError && (
-                  <p className="mt-2 text-sm text-destructive">{qualifyError}</p>
-                )}
-                {qualifyJob && (
-                  <div className="mt-2 text-sm">
-                    {qualifyJob.status === "running" && qualifyJob.progress && (
-                      <p className="text-muted-foreground">
-                        Qualifying {qualifyJob.progress.done} of {qualifyJob.progress.total}…
-                      </p>
-                    )}
-                    {qualifyJob.status === "failed" && (
-                      <p className="text-destructive">{qualifyJob.error}</p>
-                    )}
-                    {qualifyJob.status === "done" && qualifyResult && (
-                      <>
-                        <ul className="list-inside list-disc">
-                          <li>Qualified: {qualifyResult.qualified}</li>
-                          <li>Not qualified: {qualifyResult.not_qualified}</li>
-                          <li>Could not determine: {qualifyResult.could_not_determine}</li>
-                          {qualifyResult.errors.length > 0 && (
-                            <li className="text-destructive">
-                              Failed: {qualifyResult.errors.length}
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleQualifyRunCompanies}
+                    disabled={qualifying || !!qualifyJob}
+                  >
+                    {qualifying
+                      ? "Starting…"
+                      : `Qualify ${run.summary.companies_created} new companies`}
+                  </Button>
+                  {qualifyError && (
+                    <p className="mt-2 text-sm text-destructive">
+                      {qualifyError}
+                    </p>
+                  )}
+                  {qualifyJob && (
+                    <div className="mt-2 text-sm">
+                      {qualifyJob.status === "running" &&
+                        qualifyJob.progress && (
+                          <p className="text-muted-foreground">
+                            Qualifying {qualifyJob.progress.done} of{" "}
+                            {qualifyJob.progress.total}…
+                          </p>
+                        )}
+                      {qualifyJob.status === "failed" && (
+                        <p className="text-destructive">{qualifyJob.error}</p>
+                      )}
+                      {qualifyJob.status === "done" && qualifyResult && (
+                        <>
+                          <ul className="list-inside list-disc">
+                            <li>Qualified: {qualifyResult.qualified}</li>
+                            <li>
+                              Not qualified: {qualifyResult.not_qualified}
                             </li>
-                          )}
-                        </ul>
-                        <Link to="/companies" className="text-primary-text hover:underline">
-                          View companies →
-                        </Link>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+                            <li>
+                              Could not determine:{" "}
+                              {qualifyResult.could_not_determine}
+                            </li>
+                            {qualifyResult.errors.length > 0 && (
+                              <li className="text-destructive">
+                                Failed: {qualifyResult.errors.length}
+                              </li>
+                            )}
+                          </ul>
+                          <Link
+                            to="/companies"
+                            className="text-primary-text hover:underline"
+                          >
+                            View companies →
+                          </Link>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
           </CardContent>
         </Card>
       )}
@@ -779,7 +886,9 @@ export function MarketDiscoveryPage() {
           // RunWorklist's own per-contact "write draft" button still sends exactly one product —
           // only pass one through when the rep's selection for this run is unambiguous;
           // otherwise its existing "choose an offering above" messaging covers the rest.
-          productId={selectedProductIds.length === 1 ? selectedProductIds[0] : null}
+          productId={
+            selectedProductIds.length === 1 ? selectedProductIds[0] : null
+          }
           live={job.status === "running" || job.status === "pending"}
         />
       )}

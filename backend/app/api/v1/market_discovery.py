@@ -2,18 +2,19 @@ import uuid
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
-from app.modules.companies.service import list_company_ids_by_source_run
 from app.modules.ingestion.market_discovery import (
     confirm_market_discovery,
     get_default_market_description_parser,
     get_market_discovery_run,
     start_market_discovery_parse,
 )
+from app.modules.ingestion.membership import list_company_ids_for_run
 from app.modules.ingestion.models import STATUS_DONE, STATUS_PENDING, STATUS_RUNNING
 from app.modules.ingestion.run_results import build_run_worklist
 from app.modules.ingestion.schemas import (
@@ -26,8 +27,12 @@ from app.modules.ingestion.schemas import (
 )
 from app.modules.jobs.service import enqueue_job, find_job_for_run
 from app.modules.orchestrator.service import JOB_TYPE_AUTO_PIPELINE
+from app.modules.products.models import Product
 from app.modules.products.service import list_products
-from app.modules.qualification.service import JOB_TYPE_BULK_QUALIFY
+from app.modules.qualification.service import (
+    JOB_TYPE_BULK_QUALIFY,
+    clean_criteria,
+)
 
 router = APIRouter(prefix="/market-discovery", tags=["market-discovery"])
 
@@ -73,6 +78,8 @@ async def confirm_market_discovery_endpoint(
             )
         return MarketDiscoveryStarted(job_id=existing_job.id)
 
+    criteria = clean_criteria([c.model_dump() for c in body.criteria])
+
     run = await confirm_market_discovery(
         session,
         DEFAULT_ORGANIZATION_ID,
@@ -93,6 +100,12 @@ async def confirm_market_discovery_endpoint(
         if total == 1:
             product_ids = [products[0].id]  # unambiguous default; >1 or 0 leaves drafting skipped
 
+    # Remember what was chosen on the run itself, not only in the job, so it can be read back later.
+    run.context = {
+        "product_ids": [str(p) for p in product_ids],
+        "role_category_ids": [str(r) for r in body.role_category_ids],
+        "criteria": criteria,
+    }
     job = await enqueue_job(
         session,
         DEFAULT_ORGANIZATION_ID,
@@ -101,32 +114,32 @@ async def confirm_market_discovery_endpoint(
             "ingestion_run_id": str(run.id),
             "product_ids": [str(p) for p in product_ids],
             "role_category_ids": [str(r) for r in body.role_category_ids],
-            "market_fit_criteria": [c.model_dump() for c in body.market_fit_criteria],
+            "criteria": criteria,
         },
     )
     await session.commit()
     return MarketDiscoveryStarted(job_id=job.id)
 
 
-@router.post(
-    "/{run_id}/qualify-companies", response_model=MarketDiscoveryStarted, status_code=202
-)
+@router.post("/{run_id}/qualify-companies", response_model=MarketDiscoveryStarted, status_code=202)
 async def qualify_run_companies_endpoint(
     run_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> MarketDiscoveryStarted:
     run = await get_market_discovery_run(session, DEFAULT_ORGANIZATION_ID, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="market discovery run not found")
-    company_ids = await list_company_ids_by_source_run(session, DEFAULT_ORGANIZATION_ID, run_id)
+    company_ids = await list_company_ids_for_run(session, DEFAULT_ORGANIZATION_ID, run_id)
     if not company_ids:
-        raise HTTPException(
-            status_code=422, detail="this run has no newly-created companies to qualify"
-        )
+        raise HTTPException(status_code=422, detail="this run has no companies to qualify")
     job = await enqueue_job(
         session,
         DEFAULT_ORGANIZATION_ID,
         JOB_TYPE_BULK_QUALIFY,
-        {"company_ids": [str(cid) for cid in company_ids]},
+        {
+            "company_ids": [str(cid) for cid in company_ids],
+            # The criteria chosen when the run was confirmed; none means "not checked".
+            "criteria": (run.context or {}).get("criteria") or [],
+        },
     )
     await session.commit()
     return MarketDiscoveryStarted(job_id=job.id)
@@ -158,3 +171,19 @@ async def get_market_discovery_run_endpoint(
     if run is None:
         raise HTTPException(status_code=404, detail="market discovery run not found")
     return MarketDiscoveryRunOut.model_validate(run)
+
+
+@router.get("/{run_id}/offerings")
+async def get_run_offerings_endpoint(
+    run_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> list[dict[str, str]]:
+    """The offerings chosen when this run was confirmed, so a company opened from the run can
+    start with them selected. Older runs with no stored choice return an empty list."""
+    run = await get_market_discovery_run(session, DEFAULT_ORGANIZATION_ID, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="market discovery run not found")
+    ids = [uuid.UUID(p) for p in ((run.context or {}).get("product_ids") or [])]
+    if not ids:
+        return []
+    rows = (await session.execute(select(Product).where(Product.id.in_(ids)))).scalars()
+    return [{"id": str(p.id), "name": p.name, "kind": p.kind} for p in rows]

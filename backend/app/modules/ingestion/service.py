@@ -7,6 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.companies.service import get_or_create_company
 from app.modules.contacts.service import get_or_create_contact, upsert_contact_channel
 from app.modules.ingestion.csv_parser import ParsedRow, parse_csv
+from app.modules.ingestion.membership import (
+    RELATION_CREATED,
+    RELATION_MATCHED,
+    link_company_to_run,
+)
 from app.modules.ingestion.models import SOURCE_TYPE_CSV, STATUS_PENDING, IngestionRun
 from app.modules.jobs.models import Job
 from app.modules.jobs.service import enqueue_job
@@ -81,6 +86,13 @@ async def process_csv_ingestion_job(
                         industry=row.fields.get("industry") or None,
                         employee_count_range=row.fields.get("employee_count_range") or None,
                         source_ingestion_run_id=run.id,
+                    )
+                    await link_company_to_run(
+                        session,
+                        job.organization_id,
+                        run.id,
+                        company.id,
+                        RELATION_CREATED if created else RELATION_MATCHED,
                     )
 
                     if row.fields.get("contact_full_name") or row.fields.get("contact_email"):

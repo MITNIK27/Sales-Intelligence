@@ -54,18 +54,22 @@ async def build_draft_evidence(
     ]
 
     latest = (
-        await session.execute(
-            select(QualificationResult)
-            .where(QualificationResult.company_id == company.id)
-            .order_by(QualificationResult.created_at.desc())
-            .limit(1)
+        (
+            await session.execute(
+                select(QualificationResult)
+                .where(QualificationResult.company_id == company.id)
+                .order_by(QualificationResult.created_at.desc())
+                .limit(1)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     points: list[str] = []
     for entry in (latest.criteria_results if latest else None) or []:
         # Only points that passed WITH a verified quote: an unverified "met" is not a fact.
         if entry.get("status") == "PASS" and entry.get("evidence_quote"):
-            points.append(f"{entry.get('criterion_name')}: \"{entry.get('evidence_quote')}\"")
+            points.append(f'{entry.get("criterion_name")}: "{entry.get("evidence_quote")}"')
     return DraftEvidence(
         signals=signals,
         qualification_points=points[:MAX_POINTS],

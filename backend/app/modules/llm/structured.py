@@ -22,6 +22,7 @@ from app.modules.ai_recommendation.gemini_client import (
     format_gemini_error,
     generate_content_with_retry,
 )
+from app.modules.usage.recorder import elapsed_ms, record_usage, started
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,10 @@ class LLMError(RuntimeError):
 
 
 class StructuredLLM(ABC):
+    # Whether this vendor may be sent prompts that contain personal data. Off by default so a new
+    # vendor is excluded from such chains until someone decides otherwise.
+    allows_personal_data = False
+
     name: str
 
     @abstractmethod
@@ -50,6 +55,7 @@ class GroqStructuredLLM(StructuredLLM):
     name = "groq"
 
     def __init__(self, settings: Settings, model: str | None = None) -> None:
+        self.allows_personal_data = settings.groq_may_receive_personal_data
         self._api_key = settings.groq_api_key
         self._model = model or settings.groq_model
         self._timeout = settings.groq_timeout_seconds
@@ -72,8 +78,10 @@ class GroqStructuredLLM(StructuredLLM):
         headers = {"Authorization": f"Bearer {self._api_key}"}
         try:
             for attempt in range(_GROQ_ATTEMPTS):
+                begin = started()
                 async with httpx.AsyncClient(timeout=self._timeout) as client:
                     resp = await client.post(_GROQ_URL, headers=headers, json=body)
+                await _meter_groq(self._model, resp, begin)
                 wait = _retry_after_seconds(resp)
                 if resp.status_code == 429 and attempt + 1 < _GROQ_ATTEMPTS and wait is not None:
                     await asyncio.sleep(wait)
@@ -90,6 +98,26 @@ class GroqStructuredLLM(StructuredLLM):
             raise LLMError(f"Groq did not return a valid answer: {exc}") from exc
 
 
+async def _meter_groq(model: str, resp: httpx.Response, begin: float) -> None:
+    ok = resp.status_code < 400
+    tokens_in = tokens_out = None
+    if ok:
+        try:
+            usage = resp.json().get("usage") or {}
+            tokens_in, tokens_out = usage.get("prompt_tokens"), usage.get("completion_tokens")
+        except Exception:  # noqa: BLE001 - a body without usage just means no token counts
+            pass
+    await record_usage(
+        provider="groq",
+        kind="llm",
+        status="ok" if ok else "error",
+        model=model,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        latency_ms=elapsed_ms(begin),
+    )
+
+
 def _retry_after_seconds(resp: httpx.Response) -> float | None:
     """How long Groq asks us to wait, when that is short enough to be worth waiting for."""
     try:
@@ -101,6 +129,7 @@ def _retry_after_seconds(resp: httpx.Response) -> float | None:
 
 class GeminiStructuredLLM(StructuredLLM):
     name = "gemini"
+    allows_personal_data = True
 
     def __init__(self, settings: Settings) -> None:
         self._api_key = settings.gemini_api_key
@@ -156,10 +185,15 @@ class FallbackStructuredLLM(StructuredLLM):
 
 
 def build_structured_llm(
-    settings: Settings, order: str | None = None, groq_model: str | None = None
+    settings: Settings,
+    order: str | None = None,
+    groq_model: str | None = None,
+    personal_data: bool = False,
 ) -> FallbackStructuredLLM:
     """`order` is a comma list such as "groq,gemini"; unknown names are ignored. `groq_model`
-    swaps in a different Groq model (the light screening one) for this chain."""
+    swaps in a different Groq model (the light screening one) for this chain. With
+    `personal_data=True` the chain only contains vendors cleared to receive personal data, so a
+    prompt with names or emails can never fall through to one that is not."""
     names = [n.strip().lower() for n in (order or settings.offerings_llm_order).split(",")]
     vendors: list[StructuredLLM] = []
     for name in names:
@@ -167,4 +201,6 @@ def build_structured_llm(
             vendors.append(GroqStructuredLLM(settings, groq_model))
         elif name == "gemini":
             vendors.append(GeminiStructuredLLM(settings))
+    if personal_data:
+        vendors = [v for v in vendors if v.allows_personal_data]
     return FallbackStructuredLLM(vendors)

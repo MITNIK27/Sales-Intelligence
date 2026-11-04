@@ -43,6 +43,7 @@ class CompanyDetail(BaseModel):
     needs_review_reason: str | None
     last_enriched_at: datetime | None
     enrichment_error: str | None
+    criteria: list[dict[str, object]] = []
     contacts: list[ContactOut]
 
 

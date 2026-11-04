@@ -6,7 +6,13 @@ import { cn } from "@/lib/utils";
  * InfoBeans logo. Brand rule: black wordmark on light grounds,
  * white/red wordmark on dark grounds. Never recolor the mark.
  */
-export function Logo({ on = "light", className }: { on?: "light" | "dark"; className?: string }) {
+export function Logo({
+  on = "light",
+  className,
+}: {
+  on?: "light" | "dark";
+  className?: string;
+}) {
   return (
     <img
       src={on === "dark" ? logoWhiteRed : logoBlack}

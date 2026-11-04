@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.companies.models import Company
 from app.modules.companies.schemas import (
     CompanyConfirmRequest,
     CompanyConfirmResult,
@@ -15,7 +16,8 @@ from app.modules.companies.schemas import (
     CompanyListItem,
 )
 from app.modules.companies.service import confirm_company, get_company_detail, list_companies
-from app.modules.contacts.schemas import ContactOut
+from app.modules.contacts.schemas import ContactOut, PersonCreate
+from app.modules.contacts.service import PersonAlreadyListedError, add_person
 from app.modules.draft.draft_generator import GeminiDraftGenerator
 from app.modules.enrichment.providers.search_contacts import SerperContactSearchProvider
 from app.modules.enrichment.providers.search_serper import SerperSearchProvider
@@ -112,6 +114,33 @@ async def scrape_company_endpoint(
         raise HTTPException(status_code=404, detail="company not found")
     await session.commit()
     return ScrapeJobStarted(job_id=job.id)
+
+
+@router.post("/{company_id}/contacts", response_model=ContactOut, status_code=201)
+async def add_person_endpoint(
+    company_id: uuid.UUID, payload: PersonCreate, session: AsyncSession = Depends(get_db)
+) -> ContactOut:
+    """A rep adds a person they know, for when the people search finds no one useful."""
+    company = await session.get(Company, company_id)
+    if company is None or company.organization_id != DEFAULT_ORGANIZATION_ID:
+        raise HTTPException(status_code=404, detail="company not found")
+    try:
+        contact = await add_person(
+            session,
+            DEFAULT_ORGANIZATION_ID,
+            company_id,
+            payload.full_name,
+            payload.role_title,
+            payload.linkedin_url,
+            payload.email,
+        )
+    except PersonAlreadyListedError as exc:
+        raise HTTPException(
+            status_code=409, detail=f"{payload.full_name} is already listed for this company"
+        ) from exc
+    await session.commit()
+    await session.refresh(contact, attribute_names=["channels"])
+    return ContactOut.model_validate(contact)
 
 
 @router.post("/{company_id}/search-contacts", response_model=list[ContactOut])

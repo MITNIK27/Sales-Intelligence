@@ -89,7 +89,8 @@ function ProposalCard({
   const [pageSize, setPageSize] = useState(10);
   const { rows, page: currentPage } = pageSlice(proposals, page, pageSize);
 
-  const allSelected = proposals.length > 0 && proposals.every((p) => selected.has(p.id));
+  const allSelected =
+    proposals.length > 0 && proposals.every((p) => selected.has(p.id));
   const chosen = proposals.filter((p) => selected.has(p.id)).map((p) => p.id);
 
   function toggle(id: string) {
@@ -105,11 +106,16 @@ function ProposalCard({
     setBusy(true);
     setError(null);
     try {
-      await apiPost("/products/proposals/decide", { proposal_ids: ids, decision });
+      await apiPost("/products/proposals/decide", {
+        proposal_ids: ids,
+        decision,
+      });
       setSelected(new Set());
       onDecided();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "could not save your decision");
+      setError(
+        err instanceof Error ? err.message : "could not save your decision",
+      );
     } finally {
       setBusy(false);
     }
@@ -126,7 +132,11 @@ function ProposalCard({
             onClick={() => setOpen((v) => !v)}
             className="focus-visible:outline-2 focus-visible:outline-primary"
           >
-            {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+            {open ? (
+              <ChevronDown className="size-4" />
+            ) : (
+              <ChevronRight className="size-4" />
+            )}
           </button>
         )}
         {open && (
@@ -134,7 +144,9 @@ function ProposalCard({
             checked={allSelected}
             indeterminate={selected.size > 0}
             onChange={() =>
-              setSelected(allSelected ? new Set() : new Set(proposals.map((p) => p.id)))
+              setSelected(
+                allSelected ? new Set() : new Set(proposals.map((p) => p.id)),
+              )
             }
             label="Select all"
           />
@@ -163,7 +175,9 @@ function ProposalCard({
           </div>
         )}
       </div>
-      {open && error && <p className="px-5 pt-3 text-sm text-destructive">{error}</p>}
+      {open && error && (
+        <p className="px-5 pt-3 text-sm text-destructive">{error}</p>
+      )}
       {open && (
         <ul>
           {rows.map((proposal) => (
@@ -209,20 +223,33 @@ function ProposalRow({
 }) {
   const before = proposal.current;
   const textChanged =
-    proposal.change === "changed" && before !== null && before.description !== proposal.description;
+    proposal.change === "changed" &&
+    before !== null &&
+    before.description !== proposal.description;
   const flags = proposal.grounding_flags ?? [];
   return (
     <li className="flex items-start gap-3 border-b border-border px-5 py-4 last:border-b-0">
       <div className="pt-1">
-        <Checkbox checked={checked} onChange={onToggle} label={`Select ${proposal.name}`} />
+        <Checkbox
+          checked={checked}
+          onChange={onToggle}
+          label={`Select ${proposal.name}`}
+        />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={cn("px-2 py-0.5 text-xs font-medium", CHANGE_STYLE[proposal.change])}>
+          <span
+            className={cn(
+              "px-2 py-0.5 text-xs font-medium",
+              CHANGE_STYLE[proposal.change],
+            )}
+          >
             {CHANGE_LABEL[proposal.change]}
           </span>
           <span className="font-medium">{proposal.name}</span>
-          <span className="text-xs text-muted-foreground">{KIND_LABEL[proposal.kind]}</span>
+          <span className="text-xs text-muted-foreground">
+            {KIND_LABEL[proposal.kind]}
+          </span>
           <WebsiteLink domain={proposal.source_url} className="text-xs" />
           {proposal.possible_duplicate && (
             <span className="bg-chip-warning-bg px-2 py-0.5 text-xs font-medium text-chip-warning-fg">
@@ -249,12 +276,19 @@ function ProposalRow({
             <summary className="cursor-pointer text-primary-text hover:underline">
               Compare with the page
             </summary>
-            <p className="mt-1 border-l-2 border-border pl-3">{proposal.source_excerpt}…</p>
+            <p className="mt-1 border-l-2 border-border pl-3">
+              {proposal.source_excerpt}…
+            </p>
           </details>
         )}
       </div>
       <div className="flex shrink-0 gap-2">
-        <Button type="button" size="sm" disabled={busy} onClick={() => onDecide("approve")}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={busy}
+          onClick={() => onDecide("approve")}
+        >
           {APPROVE_LABEL[proposal.change]}
         </Button>
         <Button

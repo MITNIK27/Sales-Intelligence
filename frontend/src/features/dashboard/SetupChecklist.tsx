@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 
 type Setup = {
   products: number;
-  active_criteria: number;
   active_role_categories: number;
 };
 
@@ -11,11 +10,10 @@ type Setup = {
 export function SetupChecklist({ setup }: { setup: Setup | null }) {
   if (!setup) return null;
   const steps = [
-    { done: setup.products > 0, label: "Add your services and products", to: "/products" },
     {
-      done: setup.active_criteria > 0,
-      label: "Set your qualification criteria",
-      to: "/qualification/criteria",
+      done: setup.products > 0,
+      label: "Add your services and products",
+      to: "/products",
     },
     {
       done: setup.active_role_categories > 0,

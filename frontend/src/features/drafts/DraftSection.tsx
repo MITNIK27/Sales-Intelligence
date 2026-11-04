@@ -10,7 +10,10 @@ import type {
   DraftUpdateRequest,
   Product,
 } from "@/api/types";
-import { OfferingSelectItems } from "@/components/OfferingSelectItems";
+import { Link } from "react-router-dom";
+
+import { OfferingPicker } from "@/components/OfferingPicker";
+import type { SuggestedOffering } from "@/features/companies/lib/suggestedOfferings";
 import {
   DRAFT_TYPE_LABELS,
   suggestedDraftType,
@@ -30,12 +33,16 @@ export function DraftSection({
   companyId,
   companyNeedsReview,
   products,
+  researched,
   onLogAsSent,
 }: {
   contact: Contact;
   companyId: string;
   companyNeedsReview: boolean;
   products: Product[];
+  // The offerings already researched for this company in the Brief, best fit first. Drafts are
+  // written about these; the full list is only offered when nothing has been researched.
+  researched: SuggestedOffering[];
   onLogAsSent: (draft: Draft) => void;
 }) {
   const blockedByReview = companyNeedsReview || contact.needs_review;
@@ -74,6 +81,12 @@ export function DraftSection({
   useEffect(() => {
     loadLatestDraft();
   }, [contact.id]);
+
+  // Start on the offering the research says fits best.
+  const recommended = researched[0]?.product.id ?? "";
+  useEffect(() => {
+    if (recommended) setSelectedProductId((current) => current || recommended);
+  }, [recommended]);
 
   async function handleGenerate() {
     if (!selectedProductId) return;
@@ -162,14 +175,14 @@ export function DraftSection({
   return (
     <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-          <SelectTrigger className="h-9 min-w-40 bg-card" aria-label="Offering">
-            <SelectValue placeholder="Select an offering…" />
-          </SelectTrigger>
-          <SelectContent>
-            <OfferingSelectItems products={products} />
-          </SelectContent>
-        </Select>
+        <OfferingPicker
+          products={products}
+          researched={researched}
+          onlyResearched
+          value={selectedProductId}
+          onChange={setSelectedProductId}
+          className="min-w-56"
+        />
         <Select
           value={draftType}
           onValueChange={(v) => setDraftType(v as DraftType)}
@@ -200,6 +213,25 @@ export function DraftSection({
           {generating ? "Generating…" : "Generate Draft"}
         </Button>
       </div>
+      {researched.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          {selectedProductId === recommended
+            ? "Recommended from the Brief: the best fit for this company."
+            : "Only offerings researched in the Brief are listed."}
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          No offering has been matched to this company in the Brief yet, so
+          every offering is listed.{" "}
+          <Link
+            to={`/companies/${companyId}?tab=opportunity`}
+            className="font-medium text-primary-text hover:underline"
+          >
+            Open the Brief
+          </Link>{" "}
+          to research an area and get a recommendation.
+        </p>
+      )}
       {generateError && (
         <p className="text-sm text-destructive">{generateError}</p>
       )}

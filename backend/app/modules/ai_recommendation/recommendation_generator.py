@@ -37,9 +37,8 @@ class RecommendationResult(BaseModel):
 def _format_contacts(contacts: list[Contact]) -> str:
     if not contacts:
         return "No known contacts at this company."
-    lines = [
-        f"- {c.full_name or 'Unknown name'} ({c.role_title or 'unknown role'})" for c in contacts
-    ]
+    # Roles only: names are personal data and the prep notes do not need them.
+    lines = [f"- {c.role_title or 'unknown role'}" for c in contacts]
     return "\n".join(lines)
 
 
@@ -75,7 +74,7 @@ Recent buying signals:
 Product being pitched:
 - Name: {product_name}
 - Description: {product_description}
-
+{opportunity_section}
 Write:
 - pitch_summary: a concise summary of what to pitch and why it's relevant right now.
 - why_this_company: a paragraph explaining why this company specifically is a good fit, \
@@ -100,7 +99,11 @@ class RecommendationGenerator(ABC):
         contacts: list[Contact],
         signals: list[EnrichmentRecord],
         product: Product,
-    ) -> RecommendationResult: ...
+        opportunity_context: str | None = None,
+    ) -> RecommendationResult:
+        """`opportunity_context`, when given, names the business area being discussed and what has
+        been verified about the company in it, so the pitch is about that area."""
+        ...
 
 
 class GeminiRecommendationGenerator(RecommendationGenerator):
@@ -117,6 +120,7 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
         contacts: list[Contact],
         signals: list[EnrichmentRecord],
         product: Product,
+        opportunity_context: str | None = None,
     ) -> RecommendationResult:
         if not self._settings.gemini_api_key:
             raise GeminiClientError("GEMINI_API_KEY is not configured")
@@ -131,6 +135,7 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
             signals=_format_signals(signals),
             product_name=product.name,
             product_description=product.description or "No description available.",
+            opportunity_section=(f"\n{opportunity_context}\n" if opportunity_context else ""),
         )
 
         client = genai.Client(api_key=self._settings.gemini_api_key)

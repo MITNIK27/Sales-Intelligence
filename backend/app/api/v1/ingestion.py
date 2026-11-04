@@ -22,8 +22,6 @@ async def upload_csv(
     except UnicodeDecodeError as exc:
         raise HTTPException(status_code=400, detail="file is not valid UTF-8 text") from exc
 
-    run, job = await start_csv_ingestion(
-        session, DEFAULT_ORGANIZATION_ID, file.filename, raw_text
-    )
+    run, job = await start_csv_ingestion(session, DEFAULT_ORGANIZATION_ID, file.filename, raw_text)
     await session.commit()
     return CsvIngestionStarted(ingestion_run_id=run.id, job_id=job.id)

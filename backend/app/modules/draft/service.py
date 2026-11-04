@@ -19,7 +19,7 @@ from app.modules.draft.models import (
 )
 from app.modules.draft.schemas import DraftListItem, DraftListOut
 from app.modules.products.service import get_product
-from app.modules.role_relevance.models import FRAMING_STYLE_BUSINESS
+from app.modules.role_relevance.models import FRAMING_STYLE_BUSINESS, FRAMING_STYLE_TECHNICAL
 from app.modules.role_relevance.service import get_latest_role_relevance_for_contact
 
 
@@ -47,22 +47,38 @@ class NeedsReviewError(Exception):
 
 
 async def _get_latest_recommendation(
-    session: AsyncSession, organization_id: uuid.UUID, company_id: uuid.UUID, product_id: uuid.UUID
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    company_id: uuid.UUID,
+    product_id: uuid.UUID,
+    opportunity_id: uuid.UUID | None = None,
 ) -> Recommendation | None:
     """Best-effort grounding reuse: the most recent Recommendation for this exact
     (company, product) pair, if one has ever been generated (Phase A's ai_recommendation module).
     A draft can still be generated without one — see draft_generator.py's anti-hallucination
     fallback instruction for that case."""
-    stmt = (
-        select(Recommendation)
-        .where(
-            Recommendation.organization_id == organization_id,
-            Recommendation.company_id == company_id,
-            Recommendation.product_id == product_id,
-        )
-        .order_by(Recommendation.created_at.desc())
-        .limit(1)
+    base = select(Recommendation).where(
+        Recommendation.organization_id == organization_id,
+        Recommendation.company_id == company_id,
+        Recommendation.product_id == product_id,
     )
+    if opportunity_id is not None:
+        # A recommendation written for this opportunity is the right grounding; fall back to the
+        # newest company-and-offering one only when there is none.
+        scoped = (
+            (
+                await session.execute(
+                    base.where(Recommendation.company_opportunity_id == opportunity_id)
+                    .order_by(Recommendation.created_at.desc())
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if scoped is not None:
+            return scoped
+    stmt = base.order_by(Recommendation.created_at.desc()).limit(1)
     return (await session.execute(stmt)).scalars().first()
 
 
@@ -87,6 +103,25 @@ async def _previous_emails(
     return [(d.subject, d.body) for d in reversed(drafts)]
 
 
+async def _style_from_buying_role(
+    session: AsyncSession,
+    opportunity_id: uuid.UUID | None,
+    contact_id: uuid.UUID,
+    product_ids: list[uuid.UUID],
+) -> str:
+    """Someone who would use the offering is written to technically; anyone else (and anyone not
+    judged) in business terms, which was always the fallback."""
+    if opportunity_id is None:
+        return FRAMING_STYLE_BUSINESS
+    from app.modules.opportunity.relevance import resolve_relevance
+
+    for product_id in product_ids:
+        resolved = (await resolve_relevance(session, opportunity_id, product_id)).get(contact_id)
+        if resolved is not None:
+            return FRAMING_STYLE_TECHNICAL if resolved.role == "user" else FRAMING_STYLE_BUSINESS
+    return FRAMING_STYLE_BUSINESS
+
+
 async def generate_draft(
     session: AsyncSession,
     organization_id: uuid.UUID,
@@ -95,6 +130,7 @@ async def generate_draft(
     product_ids: list[uuid.UUID],
     draft_type: str,
     generator: DraftGenerator,
+    opportunity_id: uuid.UUID | None = None,
 ) -> Draft:
     """Fetches company/contact/every candidate product, the most recent matching Recommendation
     for each (grounding), and the contact's latest RoleRelevanceResult if one exists (framing_style
@@ -125,7 +161,9 @@ async def generate_draft(
         products.append(product)
 
     recommendations = [
-        await _get_latest_recommendation(session, organization_id, company_id, product_id)
+        await _get_latest_recommendation(
+            session, organization_id, company_id, product_id, opportunity_id
+        )
         for product_id in product_ids
     ]
 
@@ -135,8 +173,14 @@ async def generate_draft(
     framing_style = (
         role_relevance.matched_category_framing_style
         if role_relevance and role_relevance.matched_category_framing_style
-        else FRAMING_STYLE_BUSINESS
+        else None
     )
+    if framing_style is None:
+        # Not classified the old way: let the person's part in this opportunity (as set or judged
+        # in the Company Brief) decide the tone, so the draft agrees with what the Brief shows.
+        framing_style = await _style_from_buying_role(
+            session, opportunity_id, contact_id, product_ids
+        )
 
     evidence = await build_draft_evidence(session, organization_id, company, contact)
     # A follow-up sees what this person was already written, so "add something new" is checkable.
@@ -167,6 +211,7 @@ async def generate_draft(
         contact_id=contact_id,
         product_id=chosen_product.id,
         recommendation_id=chosen_recommendation.id if chosen_recommendation else None,
+        company_opportunity_id=opportunity_id,
         draft_type=draft_type,
         channel=DRAFT_CHANNEL_EMAIL,
         subject=result.subject,

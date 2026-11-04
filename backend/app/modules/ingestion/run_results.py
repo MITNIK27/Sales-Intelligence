@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.companies.models import ENRICHMENT_STATUS_FAILED, Company
@@ -27,13 +27,14 @@ from app.modules.contacts.models import (
 )
 from app.modules.draft.models import DRAFT_STATUS_DISCARDED, Draft
 from app.modules.enrichment.models import ENTITY_TYPE_COMPANY, EnrichmentRecord
-from app.modules.ingestion.models import IngestionRun
+from app.modules.ingestion.membership import list_company_ids_for_run
 from app.modules.qualification.evidence import overall_confidence, status_for_verdict
 from app.modules.qualification.models import QualificationResult
 from app.modules.role_relevance.models import RoleRelevanceResult
 
 VERDICT_QUALIFIED = "qualified"
 VERDICT_NOT_QUALIFIED = "not_qualified"
+VERDICT_NOT_CHECKED = "not_checked"
 PRIORITY_PRIMARY = "primary"
 # Not in contacts.models yet: the contact-search work that creates these channels is a later step
 # of this round; the results view reads them already so the two land independently.
@@ -135,11 +136,14 @@ def _qualification_why(result: QualificationResult | None) -> tuple[str | None, 
     """(why it qualified, why it did not) — each one line, taken from the stored per-criterion
     reasoning (hard requirements first), never re-derived."""
     if result is None:
-        return None, "not qualified yet (no active criteria, or the run stopped early)"
+        return None, "not checked yet (the run stopped early)"
     criteria: list[dict[str, Any]] = [dict(c) for c in result.criteria_results or []]
 
     def line(entry: dict[str, Any]) -> str:
         return f"{entry.get('criterion_name')}: {entry.get('reasoning')}".strip()
+
+    if result.overall_verdict == VERDICT_NOT_CHECKED:
+        return "no criteria were chosen for this search, so it was ranked by offering fit", None
 
     if result.overall_verdict == VERDICT_QUALIFIED:
         met = sorted(
@@ -169,20 +173,14 @@ def _qualification_why(result: QualificationResult | None) -> tuple[str | None, 
 async def build_run_worklist(
     session: AsyncSession, organization_id: uuid.UUID, run_id: uuid.UUID
 ) -> Worklist:
-    # A run covers the companies it created AND the ones it reused from the existing index
-    # (recorded in the run summary; those carry another run's id as their source).
-    run = await session.get(IngestionRun, run_id)
-    summary_ids = [
-        uuid.UUID(cid) for cid in ((run.summary if run else None) or {}).get("company_ids", [])
-    ]
+    # A run covers every company it is about: created, reused from the index, or matched to one
+    # that already existed.
+    member_ids = await list_company_ids_for_run(session, organization_id, run_id)
     companies = list(
         (
             await session.execute(
                 select(Company)
-                .where(
-                    Company.organization_id == organization_id,
-                    or_(Company.source_ingestion_run_id == run_id, Company.id.in_(summary_ids)),
-                )
+                .where(Company.organization_id == organization_id, Company.id.in_(member_ids))
                 .order_by(Company.name)
             )
         )
@@ -354,7 +352,5 @@ async def build_run_worklist(
         (not_shown if skip_reason else ready).append(row)
 
     # Best opportunity first: fully verified before needs-evidence, then by Priority Score.
-    ready.sort(
-        key=lambda r: (r.verdict != VERDICT_QUALIFIED, -(r.priority_score or 0.0), r.name)
-    )
+    ready.sort(key=lambda r: (r.verdict != VERDICT_QUALIFIED, -(r.priority_score or 0.0), r.name))
     return Worklist(ready=ready, not_shown=not_shown)

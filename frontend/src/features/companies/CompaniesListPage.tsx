@@ -30,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatDate } from "@/lib/format";
 
 // After a bulk scrape is triggered, refresh the list on an interval for a short window so
 // status badges update without a manual page reload — there's no single job to poll here.
@@ -230,14 +231,10 @@ export function CompaniesListPage() {
                     </TableCell>
                     <TableCell>{company.industry ?? "—"}</TableCell>
                     <TableCell>{company.contact_count}</TableCell>
-                    <TableCell>
-                      {new Date(company.created_at).toLocaleDateString()}
-                    </TableCell>
+                    <TableCell>{formatDate(company.created_at)}</TableCell>
                     <TableCell>
                       {company.last_enriched_at
-                        ? new Date(
-                            company.last_enriched_at,
-                          ).toLocaleDateString()
+                        ? formatDate(company.last_enriched_at)
                         : "—"}
                     </TableCell>
                     <TableCell>

@@ -56,8 +56,7 @@ def _format_search_results(results: list[RawSearchResult]) -> str:
     if not results:
         return "(no search results were found)"
     return "\n\n".join(
-        f"[{i}] {r.title}\n{r.snippet}\n(source: {r.link})"
-        for i, r in enumerate(results, start=1)
+        f"[{i}] {r.title}\n{r.snippet}\n(source: {r.link})" for i, r in enumerate(results, start=1)
     )
 
 

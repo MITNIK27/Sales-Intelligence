@@ -9,10 +9,12 @@ from app.modules.enrichment.providers.base import (
     DomainDiscoveryProvider,
     DomainMatch,
 )
+from app.modules.usage.recorder import elapsed_ms, record_usage, started
 
 logger = logging.getLogger(__name__)
 
 _ENDPOINT = "https://google.serper.dev/search"
+_NEWS_ENDPOINT = "https://google.serper.dev/news"
 
 
 class SerperSearchProvider(DomainDiscoveryProvider, CompanyDiscoveryProvider):
@@ -31,16 +33,53 @@ class SerperSearchProvider(DomainDiscoveryProvider, CompanyDiscoveryProvider):
 
         headers = {"X-API-KEY": self._api_key, "Content-Type": "application/json"}
         payload = {"q": query, "num": num}
+        begin = started()
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
                 resp = await client.post(_ENDPOINT, headers=headers, json=payload)
                 resp.raise_for_status()
             except httpx.HTTPError as exc:
                 logger.info("serper search failed for %r: %s", query, exc)
+                # Serper charges only for successful responses.
+                await record_usage(
+                    provider="serper",
+                    kind="search",
+                    status="error",
+                    units=0,
+                    latency_ms=elapsed_ms(begin),
+                )
                 return []
+        await record_usage(provider="serper", kind="search", units=1, latency_ms=elapsed_ms(begin))
 
         organic = resp.json().get("organic") or []
         return [item for item in organic if isinstance(item, dict)]
+
+    async def search_news_raw(self, query: str, num: int) -> list[dict[str, str]]:
+        """News results for a query, through Serper's news endpoint (same key, same billing).
+        Each has a title, link, snippet and a date that may be relative ("2 days ago")."""
+        if not self._api_key:
+            return []
+        headers = {"X-API-KEY": self._api_key, "Content-Type": "application/json"}
+        begin = started()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                resp = await client.post(
+                    _NEWS_ENDPOINT, headers=headers, json={"q": query, "num": num, "tbs": "qdr:y"}
+                )
+                resp.raise_for_status()
+            except httpx.HTTPError as exc:
+                logger.info("serper news failed for %r: %s", query, exc)
+                await record_usage(
+                    provider="serper",
+                    kind="search",
+                    status="error",
+                    units=0,
+                    latency_ms=elapsed_ms(begin),
+                )
+                return []
+        await record_usage(provider="serper", kind="search", units=1, latency_ms=elapsed_ms(begin))
+        news = resp.json().get("news") or []
+        return [item for item in news if isinstance(item, dict)]
 
     async def find_domain(self, company_name: str) -> DomainMatch | None:
         results = await self._search(f"{company_name} official website", num=1)

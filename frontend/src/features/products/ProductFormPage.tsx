@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { BuyerProfileEditor } from "@/features/products/BuyerProfileEditor";
 import { KIND_LABEL, KIND_ORDER } from "@/lib/offerings";
 
 export function ProductFormPage() {
@@ -35,6 +36,7 @@ export function ProductFormPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [kind, setKind] = useState<ProductKind>("service");
+  const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(isEdit);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -45,12 +47,17 @@ export function ProductFormPage() {
     setLoadError(null);
     setLoading(true);
     return apiGet<Product>(`/products/${productId}`)
-      .then((product) => {
-        setName(product.name);
-        setDescription(product.description ?? "");
-        setKind(product.kind);
+      .then((loaded) => {
+        setProduct(loaded);
+        setName(loaded.name);
+        setDescription(loaded.description ?? "");
+        setKind(loaded.kind);
       })
-      .catch((err) => setLoadError(err instanceof Error ? err.message : "failed to load offering"))
+      .catch((err) =>
+        setLoadError(
+          err instanceof Error ? err.message : "failed to load offering",
+        ),
+      )
       .finally(() => setLoading(false));
   }
 
@@ -141,7 +148,10 @@ export function ProductFormPage() {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="product-kind">Type</Label>
-              <Select value={kind} onValueChange={(v) => setKind(v as ProductKind)}>
+              <Select
+                value={kind}
+                onValueChange={(v) => setKind(v as ProductKind)}
+              >
                 <SelectTrigger id="product-kind" className="w-48 bg-card">
                   <SelectValue />
                 </SelectTrigger>
@@ -163,13 +173,21 @@ export function ProductFormPage() {
                 rows={4}
               />
             </div>
-            <Button type="submit" disabled={!name.trim() || saving} className="self-start">
+            <Button
+              type="submit"
+              disabled={!name.trim() || saving}
+              className="self-start"
+            >
               {saving ? "Saving…" : isEdit ? "Save changes" : "Create offering"}
             </Button>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </form>
         </CardContent>
       </Card>
+
+      {isEdit && product && (
+        <BuyerProfileEditor product={product} onChanged={setProduct} />
+      )}
     </div>
   );
 }

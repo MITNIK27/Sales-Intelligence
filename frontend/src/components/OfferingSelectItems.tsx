@@ -10,7 +10,9 @@ export function OfferingSelectItems({ products }: { products: Product[] }) {
     <>
       {groups.map((group) => (
         <SelectGroup key={group.kind}>
-          {groups.length > 1 && <SelectLabel>{KIND_LABEL_PLURAL[group.kind]}</SelectLabel>}
+          {groups.length > 1 && (
+            <SelectLabel>{KIND_LABEL_PLURAL[group.kind]}</SelectLabel>
+          )}
           {group.items.map((product) => (
             <SelectItem key={product.id} value={product.id}>
               {product.name}

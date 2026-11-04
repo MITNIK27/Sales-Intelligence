@@ -10,6 +10,8 @@ class DraftGenerateRequest(BaseModel):
     contact_id: uuid.UUID
     product_id: uuid.UUID
     draft_type: str
+    # The opportunity (business area) the draft is for, when it was started from one.
+    opportunity_id: uuid.UUID | None = None
 
     @field_validator("draft_type")
     @classmethod

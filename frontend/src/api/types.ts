@@ -74,7 +74,7 @@ export type CompanyList = {
 
 export type ContactChannel = {
   id: string;
-  channel_type: "email" | "phone";
+  channel_type: "email" | "phone" | "linkedin";
   value: string;
   verification_status: string;
 };
@@ -148,7 +148,15 @@ export type CompanyDetail = {
   needs_review_reason: string | null;
   last_enriched_at: string | null;
   enrichment_error: string | null;
+  // What the person wants to know about this company, typed here or on the search that found it.
+  criteria?: CompanyCriterion[];
   contacts: Contact[];
+};
+
+export type CompanyCriterion = {
+  name: string;
+  description: string | null;
+  must_have: boolean;
 };
 
 export type CompanyConfirmRequest = {
@@ -211,8 +219,13 @@ export type MarketDiscoveryConfirmRequest = {
   product_ids?: string[];
   // Role categories to treat as targets for this run only. Empty means every matched role counts.
   role_category_ids?: string[];
-  // Hard requirements for this search only; each is judged for every company with evidence.
-  market_fit_criteria?: { name: string; description: string | null }[];
+  // The criteria typed for this search. A
+  // must-have drops a company that clearly fails it; nothing chosen means nothing is excluded.
+  criteria?: {
+    name?: string | null;
+    description?: string | null;
+    must_have: boolean;
+  }[];
 };
 
 export type MarketDiscoveryStarted = {
@@ -349,6 +362,8 @@ export type QualificationStageResult =
       qualified: number;
       not_qualified: number;
       could_not_determine: number;
+      not_checked?: number;
+      criteria_chosen?: number;
       qualified_company_ids: string[];
       errors: { company_id: string; error: string }[];
     };
@@ -396,8 +411,127 @@ export type Product = {
   source: "manual" | "website";
   source_url: string | null;
   status: "active" | "archived";
+  // Who buys and influences this offering; null until generated or written by hand.
+  buyer_profile?: BuyerProfile | null;
+  profile_status?: "generated" | "edited" | null;
+  // True when a generated profile no longer matches the offering's current description.
+  profile_stale?: boolean;
   created_at: string;
   updated_at: string;
+};
+
+// What a company is doing in one business area, with the evidence for it. Findings that could not
+// be verified against their cited evidence are discarded before they get here.
+export type OpportunityVerdict =
+  "supported" | "emerging" | "weak" | "insufficient_evidence";
+
+export type OpportunityFinding = {
+  kind: string;
+  statement: string;
+  evidence: {
+    record_id: string | null;
+    field: string | null;
+    kind: string;
+    url: string | null;
+    date: string | null;
+    fetched_at: string | null;
+    content_hash: string;
+    quote: string;
+  };
+};
+
+export type OpportunityAssessment = {
+  id: string;
+  version: number;
+  verdict: OpportunityVerdict;
+  summary: string;
+  findings: OpportunityFinding[];
+  not_found: string[];
+  dropped_count: number;
+  evidence_count: number;
+  model_used: string;
+  created_at: string;
+};
+
+// What one research collector (news, hiring or web) did last time for an opportunity.
+export type ResearchEntry = {
+  at?: string;
+  found: number;
+  searched: string[];
+  error: string | null;
+  // People search only: where the results were lost, in one sentence.
+  summary?: string;
+  // Hiring only: every open role on the board, the board used, and the counts over time.
+  total_open?: number | null;
+  board?: string | null;
+  snapshots?: { at: string; total: number | null; matching: number }[];
+};
+
+export type CompanyOpportunity = {
+  id: string;
+  company_id: string;
+  area_key: string;
+  area_label: string;
+  origin: string;
+  status: "suggested" | "active" | "archived";
+  suggestion_reason: string | null;
+  industry_context: string | null;
+  created_at: string;
+  assessment: OpportunityAssessment | null;
+  research?: Record<string, ResearchEntry> | null;
+};
+
+export type FitBand = "strong" | "potential" | "weak" | "insufficient_evidence";
+
+// How well one offering fits a company in an area. The band comes from rules over `factors`; every
+// citation in `evidence` was checked to be a real quote from its source.
+export type OfferingFit = {
+  product_id: string;
+  product_name: string;
+  product_kind: ProductKind;
+  band: FitBand;
+  score: number;
+  reasoning: string;
+  factors: {
+    verified_evidence: number;
+    area_alignment: boolean;
+    keyword_hits: number;
+    assessment_verdict: string | null;
+    dropped_citations: number;
+  };
+  evidence: OpportunityFinding["evidence"][];
+  needs_review: boolean;
+  created_at: string;
+};
+
+export type BuyingRole =
+  "decision_maker" | "influencer" | "user" | "not_relevant";
+
+// A person and the part they play for an opportunity. `source` says who decided: the model or a
+// person; when a person overrode the model, the model's own view is kept in model_role.
+export type ContactRelevance = {
+  contact_id: string;
+  full_name: string | null;
+  role_title: string | null;
+  seniority: string | null;
+  contact_needs_review: boolean;
+  role: BuyingRole | null;
+  function: string | null;
+  reasoning: string | null;
+  confidence: "low" | "medium" | "high" | null;
+  needs_review: boolean;
+  source: "model" | "human" | null;
+  note: string | null;
+  model_role: BuyingRole | null;
+  model_reasoning: string | null;
+};
+
+export type BuyerProfile = {
+  buyer_functions: string[];
+  influencer_functions: string[];
+  problems: string[];
+  keywords: string[];
+  area_tags: string[];
 };
 
 export type ProductList = {
@@ -506,39 +640,10 @@ export type OfferingSyncStatus = {
   pending_count: number;
 };
 
-export type QualificationCriterion = {
-  id: string;
-  name: string;
-  description: string | null;
-  is_disqualifying: boolean;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
-export type QualificationCriterionList = {
-  items: QualificationCriterion[];
-  total: number;
-  limit: number;
-  offset: number;
-};
-
-export type QualificationCriterionCreateRequest = {
-  name: string;
-  description?: string | null;
-  is_disqualifying?: boolean;
-  is_active?: boolean;
-};
-
-export type QualificationCriterionUpdateRequest = {
-  name?: string;
-  description?: string | null;
-  is_disqualifying?: boolean;
-  is_active?: boolean;
-};
-
+// "not_checked": nothing was decided about the company (no criteria were chosen for the run, or
+// it was an informational check). It is never shown as Qualified or Not qualified.
 export type QualificationVerdict =
-  "qualified" | "not_qualified" | "could_not_determine";
+  "qualified" | "not_qualified" | "could_not_determine" | "not_checked";
 
 export type QualificationCriterionResultEntry = {
   criterion_id: string;
@@ -563,6 +668,8 @@ export type AdhocQualificationCheckRequest = {
   // A company name or its website, whichever the person typed.
   company: string;
   focus?: string | null;
+  // Offerings to judge fit for; empty means only the single best match.
+  product_ids?: string[];
 };
 
 export type FramingStyle = "business" | "technical";
@@ -838,7 +945,6 @@ export type DashboardOverview = {
   health: DashboardHealth;
   setup: {
     products: number;
-    active_criteria: number;
     active_role_categories: number;
   };
   run: DashboardRunHeader | null;
@@ -893,4 +999,21 @@ export type DashboardDraftList = {
   limit: number;
   offset: number;
   counts: { draft: number; sent: number; discarded: number };
+};
+
+export type UsageLine = {
+  provider: string;
+  task: string;
+  calls: number;
+  errors: number;
+  tokens_in: number;
+  tokens_out: number;
+  units: number;
+  est_cost_usd: number;
+};
+
+export type UsageSummary = {
+  days: number;
+  lines: UsageLine[];
+  total_est_cost_usd: number;
 };

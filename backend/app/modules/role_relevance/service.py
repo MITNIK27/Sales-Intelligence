@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
@@ -40,8 +40,10 @@ async def create_category(
 async def list_categories(
     session: AsyncSession, organization_id: uuid.UUID, limit: int = 50, offset: int = 0
 ) -> tuple[list[RoleCategory], int]:
-    count_stmt = select(func.count()).select_from(RoleCategory).where(
-        RoleCategory.organization_id == organization_id
+    count_stmt = (
+        select(func.count())
+        .select_from(RoleCategory)
+        .where(RoleCategory.organization_id == organization_id)
     )
     total = (await session.execute(count_stmt)).scalar_one()
 
@@ -89,6 +91,13 @@ async def delete_category(
     category = await get_category(session, organization_id, category_id)
     if category is None:
         return False
+    # Earlier classifications keep the category's name; only the link to it is cleared, so the
+    # category can go without a foreign-key failure and the history still reads correctly.
+    await session.execute(
+        update(RoleRelevanceResult)
+        .where(RoleRelevanceResult.matched_category_id == category_id)
+        .values(matched_category_id=None)
+    )
     await session.delete(category)
     await session.flush()
     return True

@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+from app.modules.offerings.profile import BuyerProfile
+
 Kind = Literal["service", "product"]
 
 
@@ -31,6 +33,9 @@ class ProductOut(BaseModel):
     source: str
     source_url: str | None
     status: str
+    buyer_profile: BuyerProfile | None = None
+    profile_status: str | None = None
+    profile_stale: bool = False
     created_at: datetime
     updated_at: datetime
 

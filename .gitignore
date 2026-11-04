@@ -31,3 +31,8 @@ docs/assessment/screenshots/
 
 # Local run logs (benchmark / A-B snapshots)
 backend/logs/
+
+# Tests are kept local and are not committed
+backend/tests/
+frontend/src/**/*.test.ts
+frontend/src/**/*.test.tsx

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -127,6 +127,38 @@ async def upsert_contact_channel(
     return channel
 
 
+class PersonAlreadyListedError(Exception):
+    """The company already has a contact with this name (or email)."""
+
+
+MANUAL_SOURCE = "manual"
+
+
+async def add_person(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    company_id: uuid.UUID,
+    full_name: str,
+    role_title: str,
+    linkedin_url: str | None = None,
+    email: str | None = None,
+) -> Contact:
+    """A rep adding someone they know works at the company. Unlike a search result this person is
+    not flagged for review (the rep is vouching for them), but their email stays unverified until
+    it is checked. Raises `PersonAlreadyListedError` instead of silently merging with an existing
+    contact, so the rep sees the person is already there."""
+    contact, created = await get_or_create_contact(
+        session, organization_id, company_id, full_name, role_title, email
+    )
+    if not created:
+        raise PersonAlreadyListedError(full_name)
+    contact.source = MANUAL_SOURCE
+    await upsert_contact_channel(session, contact.id, "linkedin", linkedin_url, MANUAL_SOURCE)
+    await upsert_contact_channel(session, contact.id, "email", email, MANUAL_SOURCE)
+    await session.flush()
+    return contact
+
+
 async def update_contact_tracking(
     session: AsyncSession,
     organization_id: uuid.UUID,
@@ -194,7 +226,9 @@ async def delete_contact(
     # Late imports to avoid a module-load-time cycle (outreach/draft/role_relevance's own
     # service.py modules import from contacts.models, not the reverse) — only their leaf .models
     # modules are needed here.
+    from app.modules.ai_recommendation.models import Recommendation
     from app.modules.draft.models import Draft
+    from app.modules.opportunity.models import ContactOpportunityRelevance
     from app.modules.outreach.models import OutreachActivity
     from app.modules.role_relevance.models import RoleRelevanceResult
 
@@ -215,18 +249,42 @@ async def delete_contact(
     # constraint the delete must satisfy, not an optional guard. Cascade-delete these rows
     # alongside the contact rather than orphaning a re-runnable classification artifact.
     role_relevance_results = (
-        await session.execute(
-            select(RoleRelevanceResult).where(RoleRelevanceResult.contact_id == contact_id)
+        (
+            await session.execute(
+                select(RoleRelevanceResult).where(RoleRelevanceResult.contact_id == contact_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for result in role_relevance_results:
         await session.delete(result)
+
+    # The same holds for the buying-role judgments and a rep's role overrides in the Company
+    # Brief: they describe this person and mean nothing without them. A recommendation that
+    # mentioned the person stays, with the link cleared.
+    await session.execute(
+        delete(ContactOpportunityRelevance).where(
+            ContactOpportunityRelevance.contact_id == contact_id
+        )
+    )
+    await session.execute(
+        update(Recommendation)
+        .where(Recommendation.contact_id == contact_id)
+        .values(contact_id=None)
+    )
 
     # ContactChannel rows are just the contact's own detail records (email/phone), not an audit
     # trail — deleting them alongside the contact is correct, unlike the history tables above.
     channels = (
-        await session.execute(select(ContactChannel).where(ContactChannel.contact_id == contact_id))
-    ).scalars().all()
+        (
+            await session.execute(
+                select(ContactChannel).where(ContactChannel.contact_id == contact_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     for channel in channels:
         await session.delete(channel)
     await session.delete(contact)

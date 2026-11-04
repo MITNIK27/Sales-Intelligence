@@ -7,8 +7,19 @@ from typing import Any, Literal
 # a team page listing every employee shouldn't import every employee, only plausible sales
 # targets.
 DECISION_MAKER_KEYWORDS = (
-    "ceo", "cto", "coo", "cfo", "founder", "co-founder", "president", "vp",
-    "vice president", "director", "head of", "owner", "manager",
+    "ceo",
+    "cto",
+    "coo",
+    "cfo",
+    "founder",
+    "co-founder",
+    "president",
+    "vp",
+    "vice president",
+    "director",
+    "head of",
+    "owner",
+    "manager",
 )
 
 _PERSON_NAME_MIN_WORDS = 2
@@ -19,9 +30,25 @@ _PERSON_NAME_MAX_WORDS = 4
 # accepting an organization name as if it were a person.
 _COMPANY_WORD_STOPLIST = frozenset(
     {
-        "inc", "inc.", "llc", "ltd", "ltd.", "corp", "corp.", "co", "co.", "company",
-        "group", "technologies", "solutions", "services", "partners", "holdings",
-        "enterprises", "industries", "consulting",
+        "inc",
+        "inc.",
+        "llc",
+        "ltd",
+        "ltd.",
+        "corp",
+        "corp.",
+        "co",
+        "co.",
+        "company",
+        "group",
+        "technologies",
+        "solutions",
+        "services",
+        "partners",
+        "holdings",
+        "enterprises",
+        "industries",
+        "consulting",
     }
 )
 
@@ -39,6 +66,18 @@ def looks_like_person_name(candidate: str) -> bool:
     if any(word.lower().strip(".,") in _COMPANY_WORD_STOPLIST for word in words):
         return False
     return all(word[0].isupper() for word in words if word)
+
+
+@dataclass(frozen=True)
+class SearchTitles:
+    """Job titles to search for, taken from the organisation's own role categories: `primary` from
+    the categories marked as first-reach targets, `other` from the rest. Nothing is built in."""
+
+    primary: tuple[str, ...] = ()
+    other: tuple[str, ...] = ()
+
+    def all(self) -> tuple[str, ...]:
+        return (*self.primary, *self.other)
 
 
 @dataclass(frozen=True)

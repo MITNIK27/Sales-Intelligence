@@ -52,12 +52,16 @@ async def duplicate_hints(
     it may be the same thing as (the same product reached by two addresses, for example), so a
     person approves one and skips the other."""
     live = (
-        await session.execute(
-            select(Product.name).where(
-                Product.organization_id == organization_id, Product.status == STATUS_ACTIVE
+        (
+            await session.execute(
+                select(Product.name).where(
+                    Product.organization_id == organization_id, Product.status == STATUS_ACTIVE
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     hints: dict[uuid.UUID, str] = {}
     waiting = [p for p in proposals if p.change == CHANGE_NEW and p.status == PROPOSAL_PENDING]
     for proposal in waiting:
@@ -181,9 +185,7 @@ async def start_sync(session: AsyncSession, organization_id: uuid.UUID) -> Job:
     return await enqueue_job(session, organization_id, JOB_TYPE_SYNC_OFFERINGS, {})
 
 
-async def sync_due(
-    session: AsyncSession, organization_id: uuid.UUID, interval_days: int
-) -> bool:
+async def sync_due(session: AsyncSession, organization_id: uuid.UUID, interval_days: int) -> bool:
     """True when no sync is waiting or running and the last finished one is older than the
     interval (or there has never been one)."""
     if await _latest_job(session, organization_id, STATUS_PENDING, STATUS_RUNNING) is not None:

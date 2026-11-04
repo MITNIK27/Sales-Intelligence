@@ -53,3 +53,7 @@ class Draft(Base, TimestampMixin, UpdatedAtMixin):
     body: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String(20), default=DRAFT_STATUS_DRAFT)
     model_used: Mapped[str] = mapped_column(String(50))
+    # The opportunity (business area) this was written for; null for drafts made without one.
+    company_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("company_opportunities.id"), index=True
+    )

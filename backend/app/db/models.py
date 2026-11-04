@@ -12,7 +12,10 @@ from app.modules.enrichment import models as enrichment_models  # noqa: F401
 from app.modules.ingestion import models as ingestion_models  # noqa: F401
 from app.modules.jobs import models as jobs_models  # noqa: F401
 from app.modules.offerings import models as offerings_models  # noqa: F401
+from app.modules.opportunity import models as opportunity_models  # noqa: F401
 from app.modules.outreach import models as outreach_models  # noqa: F401
 from app.modules.products import models as products_models  # noqa: F401
 from app.modules.qualification import models as qualification_models  # noqa: F401
+from app.modules.quicklook import models as quicklook_models  # noqa: F401
 from app.modules.role_relevance import models as role_relevance_models  # noqa: F401
+from app.modules.usage import models as usage_models  # noqa: F401

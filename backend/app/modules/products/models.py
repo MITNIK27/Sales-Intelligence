@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
@@ -40,3 +41,22 @@ class Product(Base, TimestampMixin, UpdatedAtMixin):
         String(20), default=STATUS_ACTIVE, server_default=STATUS_ACTIVE
     )
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Who buys and influences this offering (see offerings/profile.py). Null until generated or
+    # written by hand. `profile_hash` fingerprints the profile (cache key for judgments made with
+    # it); `profile_source_hash` fingerprints what it was generated from, to flag it as stale when
+    # the offering's own description later changes.
+    buyer_profile: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    profile_status: Mapped[str | None] = mapped_column(String(10))  # generated | edited
+    profile_hash: Mapped[str | None] = mapped_column(String(64))
+    profile_source_hash: Mapped[str | None] = mapped_column(String(64))
+
+    @property
+    def profile_stale(self) -> bool:
+        """True when a generated profile no longer matches the offering's current details. A
+        profile a person edited is theirs and is never called stale."""
+        if self.buyer_profile is None or self.profile_status != "generated":
+            return False
+        from app.modules.offerings.profile import source_hash
+
+        return source_hash(self.name, self.description, self.kind) != self.profile_source_hash

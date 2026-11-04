@@ -57,7 +57,11 @@ export function RoleCategoryFormPage() {
         setIsActive(category.is_active);
         setFramingStyle(category.framing_style);
       })
-      .catch((err) => setLoadError(err instanceof Error ? err.message : "failed to load category"))
+      .catch((err) =>
+        setLoadError(
+          err instanceof Error ? err.message : "failed to load category",
+        ),
+      )
       .finally(() => setLoading(false));
   }
 
@@ -177,7 +181,8 @@ export function RoleCategoryFormPage() {
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Which register Phase B drafts use for contacts matched to this category.
+                Which register Phase B drafts use for contacts matched to this
+                category.
               </p>
             </div>
             <div className="flex flex-col gap-3">
@@ -191,7 +196,11 @@ export function RoleCategoryFormPage() {
                 Active — used when classifying contacts
               </label>
             </div>
-            <Button type="submit" disabled={!name.trim() || saving} className="self-start">
+            <Button
+              type="submit"
+              disabled={!name.trim() || saving}
+              className="self-start"
+            >
               {saving ? "Saving…" : isEdit ? "Save changes" : "Create category"}
             </Button>
             {error && <p className="text-sm text-destructive">{error}</p>}

@@ -65,10 +65,25 @@ class Settings(BaseSettings):
     offerings_unknown_lastmod_days: int = 6
     # Pages that are never offerings (news, people, legal, events). Matched as path prefixes.
     offerings_exclude_paths: list[str] = [
-        "/blog", "/podcasts", "/wow_podcast", "/true-stories", "/careers", "/current-openings",
-        "/life-at-infobeans", "/investors", "/leadership", "/infobeans-foundation", "/contact-us",
-        "/privacy-policy", "/disclaimer", "/testimonial", "/linkedin-feedback",
-        "/ibf-registration", "/dreamforce", "/infobeans-knowledge", "/strategic-gold",
+        "/blog",
+        "/podcasts",
+        "/wow_podcast",
+        "/true-stories",
+        "/careers",
+        "/current-openings",
+        "/life-at-infobeans",
+        "/investors",
+        "/leadership",
+        "/infobeans-foundation",
+        "/contact-us",
+        "/privacy-policy",
+        "/disclaimer",
+        "/testimonial",
+        "/linkedin-feedback",
+        "/ibf-registration",
+        "/dreamforce",
+        "/infobeans-knowledge",
+        "/strategic-gold",
     ]
     # context.dev spend allowed for one sync (map 1 + about 1 per page), separate from the
     # per-run ceiling above so a sync can never use up a discovery run's budget.
@@ -94,14 +109,17 @@ class Settings(BaseSettings):
     # per-run total). Once reached, further paid calls are skipped and the run carries on with
     # scraper data only. Estimated cost: brand 10, page scrape 1, news 1.
     context_dev_max_credits_per_run: int = 150
+    # How many context.dev requests this process keeps in flight at once. The API limits an
+    # organisation by concurrency and answers 429 above it, so calls queue here instead of failing.
+    context_dev_max_concurrency: int = 2
     # Which source feeds company firmographics + signals in every enrichment path:
     #   scraper                          — in-house WebsiteScraperProvider only (the default)
     #   contextdev                       — context.dev only
     #   scraper_with_contextdev_fallback — scraper first; context.dev fills what it couldn't
     #                                      (industry, failed homepages) and adds news signals
-    company_data_source: Literal[
-        "scraper", "contextdev", "scraper_with_contextdev_fallback"
-    ] = "scraper"
+    company_data_source: Literal["scraper", "contextdev", "scraper_with_contextdev_fallback"] = (
+        "scraper"
+    )
 
     # Google Custom Search JSON API — used only for domain discovery when a company has no
     # domain on file. Both unset is a valid, graceful state (GoogleCustomSearchProvider just
@@ -113,6 +131,19 @@ class Settings(BaseSettings):
     # discovery backend for both domain lookup (2a) and candidate discovery (2c), since Google
     # Custom Search no longer supports whole-web search on newly created engines.
     serper_api_key: str | None = None
+
+    # Record every model call, search query and context.dev credit in `api_usage`, so cost is
+    # measured. Turning it off only stops the recording; nothing else depends on it.
+    usage_logging_enabled: bool = True
+
+    # Language models for opportunity research, tried in this order. Gemini first: the judgment
+    # needs a stronger model than the importer's small calls, and Groq's free per-minute token
+    # limit is easily exceeded by a long evidence prompt.
+    opportunity_llm_order: str = "gemini,groq"
+    # Privacy switch for the structured-output seam. Groq may receive personal data (names, emails)
+    # only after InfoBeans security has confirmed its terms; until then a chain built for
+    # personal data skips it. Gemini is allowed (use a paid key, whose terms do not train on input).
+    groq_may_receive_personal_data: bool = False
 
     # Aggregator/directory/social domains that occasionally rank for company-search queries but
     # are never themselves the company being searched for — filtered out of Market Discovery

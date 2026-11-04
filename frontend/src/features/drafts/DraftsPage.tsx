@@ -18,7 +18,6 @@ import type {
 } from "@/api/types";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
-import { PageHeader } from "@/components/PageHeader";
 import { SkeletonLines } from "@/components/Skeleton";
 import { TablePagination } from "@/components/TablePagination";
 import { Button } from "@/components/ui/button";
@@ -87,16 +86,19 @@ export function DraftsPage() {
 
   function chooseTab(next: Tab) {
     setPage(1);
-    setParams(next === "draft" ? {} : { status: next });
+    setParams(
+      (prev) => {
+        const out = new URLSearchParams(prev);
+        if (next === "draft") out.delete("status");
+        else out.set("status", next);
+        return out;
+      },
+      { replace: true },
+    );
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Drafts"
-        description="Every message the system has written for you. Review it, edit it, then copy it out and mark it sent — or discard it."
-      />
-
       <div
         role="tablist"
         aria-label="Draft status"

@@ -179,8 +179,8 @@ async def list_companies(
     sort_dir: str = "asc",
 ) -> tuple[list[tuple[Company, int, str | None]], int]:
     """Returns ([(company, contact_count, latest_qualification_verdict), ...], total_count)."""
-    count_stmt = select(func.count()).select_from(Company).where(
-        Company.organization_id == organization_id
+    count_stmt = (
+        select(func.count()).select_from(Company).where(Company.organization_id == organization_id)
     )
     total = (await session.execute(count_stmt)).scalar_one()
 
@@ -200,8 +200,7 @@ async def list_companies(
         .label("rn"),
     ).subquery()
     latest_qual = (
-        select(ranked_qual.c.company_id, ranked_qual.c.overall_verdict)
-        .where(ranked_qual.c.rn == 1)
+        select(ranked_qual.c.company_id, ranked_qual.c.overall_verdict).where(ranked_qual.c.rn == 1)
     ).subquery()
 
     sortable_columns = {

@@ -25,7 +25,12 @@ import {
 import { formatNumber, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const VERDICTS: (OfferingPageVerdict | "all")[] = ["all", "offering", "not_offering", "failed"];
+const VERDICTS: (OfferingPageVerdict | "all")[] = [
+  "all",
+  "offering",
+  "not_offering",
+  "failed",
+];
 
 // "What was checked": every page the importer looked at and what it concluded, and the website
 // menu checked against the catalogue, so a missing offering is never a mystery.
@@ -51,7 +56,11 @@ export function CoveragePanel({
     setError(null);
     return apiGet<OfferingCoverage>("/products/coverage")
       .then(setCoverage)
-      .catch((err) => setError(err instanceof Error ? err.message : "could not load coverage"));
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "could not load coverage",
+        ),
+      );
   }
 
   useEffect(() => {
@@ -67,7 +76,9 @@ export function CoveragePanel({
       onCheckStarted();
       await load();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "could not queue the page");
+      setActionError(
+        err instanceof Error ? err.message : "could not queue the page",
+      );
     } finally {
       setBusy(false);
     }
@@ -99,12 +110,19 @@ export function CoveragePanel({
 
   return (
     <Card className="mb-6 p-0">
-      <section className="border-b border-border px-5 py-4" aria-labelledby="menu-check">
-        <h2 id="menu-check" className="flex items-center gap-2 text-base font-semibold">
+      <section
+        className="border-b border-border px-5 py-4"
+        aria-labelledby="menu-check"
+      >
+        <h2
+          id="menu-check"
+          className="flex items-center gap-2 text-base font-semibold"
+        >
           Website menu check
           <InfoTip label="About the website menu check">
-            The company's own website menu lists what it puts forward. Each entry should be in the
-            catalogue; anything marked "Not imported" is a possible gap.
+            The company's own website menu lists what it puts forward. Each
+            entry should be in the catalogue; anything marked "Not imported" is
+            a possible gap.
           </InfoTip>
         </h2>
         {menu ? (
@@ -116,7 +134,10 @@ export function CoveragePanel({
             </p>
             <ul className="mt-3 flex flex-col gap-1.5">
               {menu.map((item) => (
-                <li key={item.url} className="flex flex-wrap items-center gap-2 text-sm">
+                <li
+                  key={item.url}
+                  className="flex flex-wrap items-center gap-2 text-sm"
+                >
                   <span
                     className={cn(
                       "px-2 py-0.5 text-xs font-medium",
@@ -130,7 +151,9 @@ export function CoveragePanel({
                     {MENU_STATUS_LABEL[item.status]}
                   </span>
                   <span className="font-medium">{item.label}</span>
-                  <span className="text-xs text-muted-foreground">{item.group}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {item.group}
+                  </span>
                   <WebsiteLink domain={item.url} className="text-xs" />
                   {needsAttention(item) && (
                     <Button
@@ -153,7 +176,12 @@ export function CoveragePanel({
               {coverage.menu_error ??
                 "Run a check for updates to compare the website menu with the catalogue."}
             </span>
-            <Button type="button" size="sm" variant="outline" onClick={onRunCheck}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={onRunCheck}
+            >
               Check again
             </Button>
           </div>
@@ -164,18 +192,21 @@ export function CoveragePanel({
       </section>
 
       <section className="px-5 py-4" aria-labelledby="pages-checked">
-        <h2 id="pages-checked" className="flex items-center gap-2 text-base font-semibold">
+        <h2
+          id="pages-checked"
+          className="flex items-center gap-2 text-base font-semibold"
+        >
           Pages checked
           <InfoTip label="About the pages checked">
-            Every page the check looked at, with what it decided and why. If something is missing
-            from the catalogue, find its page here, and use "Read as an offering" to ask for it to
-            be read again.
+            Every page the check looked at, with what it decided and why. If
+            something is missing from the catalogue, find its page here, and use
+            "Read as an offering" to ask for it to be read again.
           </InfoTip>
         </h2>
         <p className="mt-1 text-sm text-muted-foreground tabular-nums">
-          {formatNumber(summary.total)} pages · {formatNumber(summary.offering)} offerings ·{" "}
-          {formatNumber(summary.not_offering)} not offerings · {formatNumber(summary.failed)} could
-          not be read
+          {formatNumber(summary.total)} pages · {formatNumber(summary.offering)}{" "}
+          offerings · {formatNumber(summary.not_offering)} not offerings ·{" "}
+          {formatNumber(summary.failed)} could not be read
         </p>
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -190,7 +221,11 @@ export function CoveragePanel({
             aria-label="Search checked pages"
             className="w-72 bg-card"
           />
-          <div role="group" aria-label="Filter by result" className="flex flex-wrap gap-1">
+          <div
+            role="group"
+            aria-label="Filter by result"
+            className="flex flex-wrap gap-1"
+          >
             {VERDICTS.map((v) => (
               <Button
                 key={v}
@@ -224,11 +259,18 @@ export function CoveragePanel({
             aria-label="Address of a page to add"
             className="w-96 max-w-full bg-card"
           />
-          <Button type="submit" size="sm" variant="outline" disabled={busy || !newUrl.trim()}>
+          <Button
+            type="submit"
+            size="sm"
+            variant="outline"
+            disabled={busy || !newUrl.trim()}
+          >
             Add page
           </Button>
         </form>
-        {actionError && <p className="mt-2 text-sm text-destructive">{actionError}</p>}
+        {actionError && (
+          <p className="mt-2 text-sm text-destructive">{actionError}</p>
+        )}
 
         {screened.length > 0 && !searching && (
           <button
@@ -248,14 +290,18 @@ export function CoveragePanel({
 
         <div className="mt-3 border border-border">
           {rows.length === 0 && (
-            <p className="px-4 py-3 text-sm text-muted-foreground">No pages match.</p>
+            <p className="px-4 py-3 text-sm text-muted-foreground">
+              No pages match.
+            </p>
           )}
           {rows.map((row) => (
             <div
               key={row.url}
               className="grid grid-cols-1 items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2 text-sm last:border-b-0 md:grid-cols-[9rem_minmax(0,1.4fr)_minmax(0,1fr)_9.5rem]"
             >
-              <span className="text-xs text-muted-foreground">{VERDICT_LABEL[row.verdict]}</span>
+              <span className="text-xs text-muted-foreground">
+                {VERDICT_LABEL[row.verdict]}
+              </span>
               <div className="min-w-0 truncate">
                 <WebsiteLink domain={row.url} className="text-sm" />
               </div>
@@ -299,7 +345,8 @@ export function CoveragePanel({
 function detailText(row: OfferingCoverage["pages"][number]): string {
   const parts = [LANE_LABEL[row.lane]];
   if (row.reason) parts.push(row.reason);
-  if (row.last_checked_at) parts.push(`checked ${timeAgo(row.last_checked_at)}`);
+  if (row.last_checked_at)
+    parts.push(`checked ${timeAgo(row.last_checked_at)}`);
   if (row.force_extract) parts.push("will be read next check");
   return parts.join(" · ");
 }

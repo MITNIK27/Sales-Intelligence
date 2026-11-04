@@ -54,9 +54,7 @@ class Contact(Base, TimestampMixin, UpdatedAtMixin):
     role_title: Mapped[str | None] = mapped_column(String(255))
     seniority: Mapped[str | None] = mapped_column(String(50))
     status: Mapped[str] = mapped_column(String(30), default=TRACKING_STATUS_NOT_CONTACTED)
-    next_follow_up_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), index=True
-    )
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     next_follow_up_channel: Mapped[str | None] = mapped_column(String(20))
     # IANA name, e.g. "Europe/Berlin" — nullable, since most contacts won't have one set; Phase C's
     # cadence math (outreach/cadence.py) falls back to settings.default_timezone when absent.

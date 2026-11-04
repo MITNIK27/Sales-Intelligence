@@ -10,6 +10,8 @@ news/search (1 per 10 results). people/enrich (20, paid plans only) is exposed s
 
 import asyncio
 import logging
+import random
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -26,6 +28,7 @@ from app.modules.enrichment.providers.website_scraper import (
     extract_description,
     extract_employee_count,
 )
+from app.modules.usage.recorder import elapsed_ms, record_usage, started
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,38 @@ _COST_NEWS = 1
 _COST_MAP = 1
 _SCRAPE_ATTEMPTS = 3
 _SCRAPE_RETRY_WAIT = 1.0  # seconds, times the attempt number
+# A 429 means "too many requests at once" and is not charged: wait as long as the API asks (kept
+# within sensible bounds) and try again a few times before giving up.
+_RATE_LIMIT_ATTEMPTS = 4
+_RATE_LIMIT_MIN_WAIT = 0.5
+_RATE_LIMIT_MAX_WAIT = 10.0
+_limiters: dict[int, asyncio.Semaphore] = {}
+
+
+def _limiter(size: int) -> asyncio.Semaphore:
+    """One queue per event loop and process, shared by every provider instance, so parallel callers
+    (a look-up searching news and the web at once) line up instead of tripping the limit."""
+    key = id(asyncio.get_running_loop())
+    if key not in _limiters:
+        _limiters[key] = asyncio.Semaphore(max(1, size))
+    return _limiters[key]
+
+
+def _retry_wait(resp: httpx.Response) -> float:
+    try:
+        asked = float(resp.headers.get("retry-after", ""))
+    except ValueError:
+        asked = 1.0
+    return min(max(asked, _RATE_LIMIT_MIN_WAIT), _RATE_LIMIT_MAX_WAIT) + random.uniform(0, 0.4)
+
+
+def _published_ms(value: str) -> float:
+    """When an article was published, in epoch milliseconds; a date that cannot be read counts as
+    recent, so an odd format never hides an article."""
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp() * 1000
+    except ValueError:
+        return float("inf")
 
 
 class ContextDevBudgetExceeded(RuntimeError):
@@ -61,6 +96,7 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
         self._api_key = settings.context_dev_api_key
         self._timeout = settings.context_dev_timeout_seconds
         self._ceiling = settings.context_dev_max_credits_per_run
+        self._concurrency = settings.context_dev_max_concurrency
         self.budget_exhausted = False
         # Running total of `key_metadata.credits_consumed` across this instance's calls, so the
         # benchmark can report real spend per company rather than an estimate.
@@ -84,19 +120,52 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
                 f"context.dev credit ceiling reached ({self.credits_used} of {self._ceiling})"
             )
 
+    async def _send(
+        self, path: str, headers: dict[str, str], payload: dict[str, Any]
+    ) -> httpx.Response:
+        """One request, repeated after the wait the API asks for while it answers 429."""
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            for attempt in range(_RATE_LIMIT_ATTEMPTS):
+                resp = await client.post(f"{_BASE_URL}{path}", headers=headers, json=payload)
+                if resp.status_code != 429 or attempt + 1 == _RATE_LIMIT_ATTEMPTS:
+                    return resp
+                wait = _retry_wait(resp)
+                logger.info("context.dev %s is rate limited; retrying in %.1fs", path, wait)
+                await asyncio.sleep(wait)
+        return resp  # pragma: no cover - the loop always returns
+
     async def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         """POST and return the JSON body; `None` for a 404 ("nothing known"). Any other failure
         raises `httpx.HTTPError` — callers decide whether that is fatal."""
         headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(f"{_BASE_URL}{path}", headers=headers, json=payload)
+        begin = started()
+        async with _limiter(self._concurrency):
+            resp = await self._send(path, headers, payload)
         if resp.status_code == 404:
+            await record_usage(
+                provider="contextdev", kind="credits", units=0, latency_ms=elapsed_ms(begin)
+            )
             return None
         if resp.status_code == 400:
+            await record_usage(
+                provider="contextdev",
+                kind="credits",
+                status="error",
+                units=0,
+                latency_ms=elapsed_ms(begin),
+            )
             # A rejected request (e.g. a domain the vendor cannot resolve) means "no data", not a
             # provider outage; the body says why, so keep it in the log.
             logger.info("context.dev %s rejected the request: %s", path, resp.text[:200])
             return None
+        if resp.status_code >= 400:
+            await record_usage(
+                provider="contextdev",
+                kind="credits",
+                status="error",
+                units=0,
+                latency_ms=elapsed_ms(begin),
+            )
         resp.raise_for_status()
         body = resp.json()
         if not isinstance(body, dict):
@@ -104,6 +173,12 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
         credits = (body.get("key_metadata") or {}).get("credits_consumed")
         if isinstance(credits, int):
             self.credits_used += credits
+        await record_usage(
+            provider="contextdev",
+            kind="credits",
+            units=credits if isinstance(credits, int) else 0,
+            latency_ms=elapsed_ms(begin),
+        )
         return body
 
     # -- company data -------------------------------------------------------------------------
@@ -170,9 +245,7 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
         if brand.raw_brand is None and not pages:
             raise ValueError(f"context.dev returned no data for {domain}")
 
-        description = brand.description or (
-            extract_description(pages[0].text) if pages else None
-        )
+        description = brand.description or (extract_description(pages[0].text) if pages else None)
         employee_count_range = brand.employee_count_range
         if not employee_count_range:
             for page in pages:
@@ -230,6 +303,126 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
             )
         return signals
 
+    # -- opportunity research -----------------------------------------------------------------
+
+    async def search_company_news(
+        self, domain: str, since_ms: int, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """News about the company that owns `domain`, newest first, published since `since_ms`.
+        Searching by the company's website, not its name, avoids other companies with the same
+        name. 1 credit per 10 results."""
+        if not self.enabled:
+            return []
+        self._check_budget(_COST_NEWS)
+        payload = {
+            "searchBy": {"type": "entity", "entity": {"type": "domain", "domain": domain}},
+            "limit": limit,
+        }
+        body = await self._post("/news/search", payload)
+        articles = (body or {}).get("data")
+        found: list[dict[str, Any]] = []
+        for article in articles if isinstance(articles, list) else []:
+            if not isinstance(article, dict):
+                continue
+            title, url = article.get("title"), article.get("url")
+            published = article.get("published_at")
+            if not isinstance(title, str) or not title.strip() or not isinstance(url, str):
+                continue
+            if isinstance(published, str) and _published_ms(published) < since_ms:
+                continue
+            description = article.get("description")
+            found.append(
+                {
+                    "title": title.strip()[:200],
+                    "url": url,
+                    "published_at": published if isinstance(published, str) else None,
+                    "description": (
+                        description.strip()[:400]
+                        if isinstance(description, str) and description.strip()
+                        else None
+                    ),
+                }
+            )
+        return found
+
+    async def search_news(self, query: str, since_ms: int, limit: int = 10) -> list[dict[str, Any]]:
+        """News matching a natural-language query, published since `since_ms` (epoch ms). 1 credit
+        per 10 results. Raises on transport or server errors, like the other calls here."""
+        if not self.enabled:
+            return []
+        self._check_budget(_COST_NEWS)
+        payload = {
+            "searchBy": {"type": "natural_language", "query": query[:1000]},
+            "filterBy": {"date": {"from": since_ms}},
+            "limit": limit,
+        }
+        body = await self._post("/news/search", payload)
+        articles = (body or {}).get("data")
+        found: list[dict[str, Any]] = []
+        for article in articles if isinstance(articles, list) else []:
+            if not isinstance(article, dict):
+                continue
+            title, url = article.get("title"), article.get("url")
+            if not isinstance(title, str) or not title.strip() or not isinstance(url, str):
+                continue
+            description = article.get("description")
+            published = article.get("published_at")
+            found.append(
+                {
+                    "title": title.strip()[:200],
+                    "url": url,
+                    "published_at": published if isinstance(published, str) else None,
+                    "description": (
+                        description.strip()[:400]
+                        if isinstance(description, str) and description.strip()
+                        else None
+                    ),
+                }
+            )
+        return found
+
+    async def search_web(
+        self,
+        query: str,
+        include_domains: list[str] | None = None,
+        limit: int = 10,
+        freshness: str = "last_year",
+    ) -> list[dict[str, Any]]:
+        """Web search, optionally limited to some domains and to the last year. 1 credit per 10
+        results. The response carries no publication date, so results are undated."""
+        if not self.enabled:
+            return []
+        self._check_budget(_COST_NEWS)
+        payload: dict[str, Any] = {
+            "query": query[:500],
+            "numResults": limit,
+            "freshness": freshness,
+        }
+        if include_domains:
+            payload["includeDomains"] = include_domains
+        body = await self._post("/web/search", payload)
+        results = (body or {}).get("results")
+        found: list[dict[str, Any]] = []
+        for item in results if isinstance(results, list) else []:
+            if not isinstance(item, dict):
+                continue
+            title, url = item.get("title"), item.get("url")
+            if not isinstance(title, str) or not title.strip() or not isinstance(url, str):
+                continue
+            description = item.get("description")
+            found.append(
+                {
+                    "title": title.strip()[:200],
+                    "url": url,
+                    "description": (
+                        description.strip()[:400]
+                        if isinstance(description, str) and description.strip()
+                        else None
+                    ),
+                }
+            )
+        return found
+
     # -- site pages (offerings importer) ------------------------------------------------------
 
     async def map_urls(
@@ -253,8 +446,17 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
         if exclude_regex:
             params["excludeUrlRegex"] = exclude_regex
         headers = {"Authorization": f"Bearer {self._api_key}"}
+        begin = started()
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.get(f"{_BASE_URL}/web/urls", headers=headers, params=params)
+        if resp.status_code >= 400:
+            await record_usage(
+                provider="contextdev",
+                kind="credits",
+                status="error",
+                units=0,
+                latency_ms=elapsed_ms(begin),
+            )
         resp.raise_for_status()
         body = resp.json()
         if not isinstance(body, dict):
@@ -262,6 +464,12 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
         credits = (body.get("key_metadata") or {}).get("credits_consumed")
         if isinstance(credits, int):
             self.credits_used += credits
+        await record_usage(
+            provider="contextdev",
+            kind="credits",
+            units=credits if isinstance(credits, int) else 0,
+            latency_ms=elapsed_ms(begin),
+        )
         items = body.get("urls")
         if not isinstance(items, list):
             return []

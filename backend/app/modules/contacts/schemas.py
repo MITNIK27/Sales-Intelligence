@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.contacts.models import FOLLOW_UP_CHANNELS, TRACKING_STATUSES
 
@@ -28,6 +28,41 @@ class ContactOut(BaseModel):
     needs_review: bool
     needs_review_reason: str | None
     channels: list[ContactChannelOut]
+
+
+class PersonCreate(BaseModel):
+    full_name: str = Field(min_length=2, max_length=255)
+    role_title: str = Field(min_length=2, max_length=255)
+    linkedin_url: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+
+    @field_validator("full_name", "role_title")
+    @classmethod
+    def tidy(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if len(v) < 2:
+            raise ValueError("this is too short")
+        return v
+
+    @field_validator("linkedin_url")
+    @classmethod
+    def validate_linkedin(cls, v: str | None) -> str | None:
+        v = (v or "").strip()
+        if not v:
+            return None
+        if "linkedin.com/in/" not in v.lower():
+            raise ValueError("use a LinkedIn profile link, like linkedin.com/in/name")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str | None) -> str | None:
+        v = (v or "").strip()
+        if not v:
+            return None
+        if "@" not in v or " " in v:
+            raise ValueError("this does not look like an email address")
+        return v
 
 
 class ContactTrackingUpdate(BaseModel):

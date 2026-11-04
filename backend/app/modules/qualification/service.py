@@ -1,16 +1,15 @@
 import uuid
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
 from app.modules.companies.models import Company
 from app.modules.companies.service import get_company_detail, get_or_create_company
-from app.modules.enrichment.models import ENTITY_TYPE_COMPANY, EnrichmentRecord
+from app.modules.enrichment.models import EnrichmentRecord
 from app.modules.enrichment.providers.base import (
     CompanyDataProvider,
     ContactDataProvider,
@@ -18,10 +17,20 @@ from app.modules.enrichment.providers.base import (
     SignalDataProvider,
 )
 from app.modules.enrichment.providers.factory import build_company_providers
+from app.modules.enrichment.providers.search_contacts import (
+    ContactSearchProvider,
+    SerperContactSearchProvider,
+)
 from app.modules.enrichment.providers.search_serper import SerperSearchProvider
 from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvider
 from app.modules.enrichment.service import _enrich_company, list_company_signals
 from app.modules.jobs.models import Job
+from app.modules.llm.structured import StructuredLLM, build_structured_llm
+from app.modules.opportunity.models import ORIGIN_QUICK_CHECK, CompanyOpportunity
+from app.modules.opportunity.quickcheck import run_quick_check_opportunity
+from app.modules.opportunity.research.sources import build_research_sources
+from app.modules.opportunity.research.types import ResearchSources
+from app.modules.opportunity.service import get_or_create_opportunity, save_focus_evidence
 from app.modules.qualification.evidence import describe_source, status_for_verdict
 from app.modules.qualification.models import QualificationCriterion, QualificationResult
 from app.modules.qualification.qualification_generator import (
@@ -32,97 +41,9 @@ from app.modules.qualification.qualification_generator import (
 ProgressCallback = Callable[..., Awaitable[None]]
 JOB_TYPE_BULK_QUALIFY = "bulk_qualify"
 JOB_TYPE_ADHOC_QUALIFY = "adhoc_qualify"
-
-
-async def create_criterion(
-    session: AsyncSession,
-    organization_id: uuid.UUID,
-    name: str,
-    description: str | None,
-    is_disqualifying: bool,
-    is_active: bool,
-) -> QualificationCriterion:
-    criterion = QualificationCriterion(
-        organization_id=organization_id,
-        name=name,
-        description=description,
-        is_disqualifying=is_disqualifying,
-        is_active=is_active,
-    )
-    session.add(criterion)
-    await session.flush()
-    return criterion
-
-
-async def list_criteria(
-    session: AsyncSession, organization_id: uuid.UUID, limit: int = 50, offset: int = 0
-) -> tuple[list[QualificationCriterion], int]:
-    count_stmt = select(func.count()).select_from(QualificationCriterion).where(
-        QualificationCriterion.organization_id == organization_id
-    )
-    total = (await session.execute(count_stmt)).scalar_one()
-
-    stmt = (
-        select(QualificationCriterion)
-        .where(QualificationCriterion.organization_id == organization_id)
-        .order_by(QualificationCriterion.name)
-        .limit(limit)
-        .offset(offset)
-    )
-    criteria = (await session.execute(stmt)).scalars().all()
-    return list(criteria), total
-
-
-async def get_criterion(
-    session: AsyncSession, organization_id: uuid.UUID, criterion_id: uuid.UUID
-) -> QualificationCriterion | None:
-    criterion = await session.get(QualificationCriterion, criterion_id)
-    if criterion is None or criterion.organization_id != organization_id:
-        return None
-    return criterion
-
-
-async def update_criterion(
-    session: AsyncSession,
-    organization_id: uuid.UUID,
-    criterion_id: uuid.UUID,
-    updates: dict[str, object],
-) -> QualificationCriterion | None:
-    """`updates` should already be limited to explicitly-provided fields (e.g. via
-    `CriterionUpdate.model_dump(exclude_unset=True)`) so an omitted field is left untouched
-    while an explicit `null` still clears it."""
-    criterion = await get_criterion(session, organization_id, criterion_id)
-    if criterion is None:
-        return None
-    for field, value in updates.items():
-        setattr(criterion, field, value)
-    await session.flush()
-    return criterion
-
-
-async def delete_criterion(
-    session: AsyncSession, organization_id: uuid.UUID, criterion_id: uuid.UUID
-) -> bool:
-    criterion = await get_criterion(session, organization_id, criterion_id)
-    if criterion is None:
-        return False
-    await session.delete(criterion)
-    await session.flush()
-    return True
-
-
-async def list_active_criteria(
-    session: AsyncSession, organization_id: uuid.UUID
-) -> list[QualificationCriterion]:
-    stmt = (
-        select(QualificationCriterion)
-        .where(
-            QualificationCriterion.organization_id == organization_id,
-            QualificationCriterion.is_active.is_(True),
-        )
-        .order_by(QualificationCriterion.name)
-    )
-    return list((await session.execute(stmt)).scalars().all())
+# A check that did not decide anything about the company: no criteria were chosen for the run, or
+# the person asked for an informational check on one company. Never Qualified / Not qualified.
+VERDICT_NOT_CHECKED = "not_checked"
 
 
 class CompanyNotFoundError(Exception):
@@ -131,16 +52,42 @@ class CompanyNotFoundError(Exception):
 
 
 class NoCriteriaConfiguredError(Exception):
-    """Raised by `run_qualification_check` when the org has zero active qualification criteria —
-    judging against nothing isn't a qualification. The router surfaces this as a 422."""
+    """Raised by `run_qualification_check` when there is nothing to judge against: judging against
+    no criteria isn't a check. The router surfaces this as a 422."""
+
+
+def clean_criteria(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The criteria a person typed, as plain specs `{name, description, must_have}`. Blank ones
+    and repeats (ignoring case) are dropped."""
+    specs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        name = str(item.get("name") or "").strip()
+        if not name or name.lower() in seen:
+            continue
+        seen.add(name.lower())
+        specs.append(
+            {
+                "name": name[:255],
+                "description": (str(item.get("description") or "").strip() or None),
+                "must_have": bool(item.get("must_have")),
+            }
+        )
+    return specs
+
+
+def add_company_criteria(company: Company, specs: list[dict[str, Any]]) -> None:
+    """Adds the criteria to the company's own list, skipping names it already has."""
+    merged = clean_criteria([*(company.criteria or []), *specs])
+    company.criteria = merged  # a new list, so the change is saved
 
 
 def build_run_criteria(
     organization_id: uuid.UUID, specs: list[dict[str, Any]] | None
 ) -> list[QualificationCriterion]:
-    """Turns the per-search "hard requirements" from the confirm card into transient criteria.
-    They are always hard (that is the point of defining them for a search), have fresh ids and
-    are never added to a session — they exist only for this run's judgments."""
+    """Turns the criteria chosen for a run (or one check) into transient criteria. A criterion is
+    hard only when the person marked it "must have" for this run; each has a fresh id and is never
+    added to a session, so it exists only for this run's judgments."""
     criteria: list[QualificationCriterion] = []
     for spec in specs or []:
         name = str(spec.get("name") or "").strip()
@@ -152,7 +99,7 @@ def build_run_criteria(
                 organization_id=organization_id,
                 name=name[:255],
                 description=(str(spec.get("description") or "").strip() or None),
-                is_disqualifying=True,
+                is_disqualifying=bool(spec.get("must_have")),
                 is_active=True,
             )
         )
@@ -191,9 +138,7 @@ async def judge_qualification(
     criteria_by_id = {str(criterion.id): criterion for criterion in criteria}
     verdicts_by_id = {v.criterion_id: v for v in judgment.criteria_results}
     if set(verdicts_by_id) != set(criteria_by_id):
-        raise GeminiClientError(
-            "Gemini did not return exactly one verdict per given criterion"
-        )
+        raise GeminiClientError("Gemini did not return exactly one verdict per given criterion")
 
     criteria_results: list[dict[str, object]] = []
     for criterion_id, criterion in criteria_by_id.items():
@@ -225,30 +170,39 @@ async def run_qualification_check(
     organization_id: uuid.UUID,
     company_id: uuid.UUID,
     generator: QualificationGenerator,
-    extra_criteria: list[QualificationCriterion] | None = None,
+    criteria: list[QualificationCriterion],
+    run_criterion_ids: frozenset[str] = frozenset(),
+    informational: bool = False,
+    allow_empty: bool = False,
     focus: str | None = None,
     focus_signals: list[EnrichmentRecord] | None = None,
 ) -> QualificationResult:
-    """`extra_criteria` are per-run requirements (never persisted) judged in the same call as the
-    organization's saved criteria. `focus` is the area a Quick Check was asked to judge fit around;
-    `focus_signals` are evidence gathered for it, shown to the model first (they are not stored
-    as company signals, so a focused search never colours the company's general record)."""
+    """Judges one company against exactly the `criteria` given: nothing is added from the saved
+    list, so a saved criterion only counts when someone chose it. With `informational`, the
+    per-criterion answers are kept but the overall verdict is "not checked", never Qualified or Not
+    qualified. With no criteria and `allow_empty` (a run where none were chosen), a "not checked"
+    result is stored without a model call, so the company can still be ranked. `focus` is the area
+    a Quick Check was asked to judge fit around; `focus_signals` are evidence gathered for it,
+    shown to the model first (not stored as company signals)."""
     company = await get_company_detail(session, organization_id, company_id)
     if company is None:
         raise CompanyNotFoundError(f"company {company_id} not found")
 
-    extra = extra_criteria or []
-    criteria = [*await list_active_criteria(session, organization_id), *extra]
-    if not criteria:
-        raise NoCriteriaConfiguredError("no active qualification criteria configured")
+    if not criteria and not allow_empty:
+        raise NoCriteriaConfiguredError("no criteria chosen to check against")
 
-    signals = [
-        *(focus_signals or []),
-        *await list_company_signals(session, organization_id, company_id),
-    ]
-    overall_verdict, criteria_results = await judge_qualification(
-        company, signals, criteria, generator, frozenset(str(c.id) for c in extra), focus
-    )
+    if not criteria:
+        overall_verdict, criteria_results = VERDICT_NOT_CHECKED, []
+    else:
+        signals = [
+            *(focus_signals or []),
+            *await list_company_signals(session, organization_id, company_id),
+        ]
+        overall_verdict, criteria_results = await judge_qualification(
+            company, signals, criteria, generator, run_criterion_ids, focus
+        )
+        if informational:
+            overall_verdict = VERDICT_NOT_CHECKED
 
     result = QualificationResult(
         organization_id=organization_id,
@@ -267,11 +221,16 @@ _FOCUS_RESULTS = 5
 
 
 async def _focus_evidence(
-    domain_provider: DomainDiscoveryProvider, company: Company, focus: str
+    session: AsyncSession,
+    domain_provider: DomainDiscoveryProvider,
+    company: Company,
+    opportunity: CompanyOpportunity,
+    focus: str,
 ) -> list[EnrichmentRecord]:
-    """A web search for "{company} {focus}", turned into evidence the judgment can cite. In-memory
-    only (never added to a session): focused research must not colour the company's general
-    record. A provider that cannot search, or a failed search, just means no extra evidence."""
+    """A web search for "{company} {focus}", kept as evidence tagged with the opportunity so it
+    has an id and can be cited and re-checked later. It is evidence for that area only, so it
+    never colours the company's general signal list. A provider that cannot search, or a failed
+    search, just means no extra evidence."""
     search = getattr(domain_provider, "search_raw", None)
     if search is None:
         return []
@@ -279,30 +238,7 @@ async def _focus_evidence(
         results = await search(f"{company.name} {focus}", _FOCUS_RESULTS)
     except Exception:  # noqa: BLE001 - extra evidence is best-effort
         return []
-    now = datetime.now(UTC)
-    records: list[EnrichmentRecord] = []
-    for item in results:
-        title = (item.get("title") or "").strip()
-        snippet = (item.get("snippet") or "").strip()
-        if not (title or snippet):
-            continue
-        records.append(
-            EnrichmentRecord(
-                organization_id=company.organization_id,
-                entity_type=ENTITY_TYPE_COMPANY,
-                entity_id=company.id,
-                source="serper:focus_search",
-                raw_payload={
-                    "signal_type": "focus_search",
-                    "text": f"{title}. {snippet}".strip(),
-                    "url": item.get("link"),
-                    "date": item.get("date"),
-                    "provider": "serper",
-                },
-                fetched_at=now,
-            )
-        )
-    return records
+    return await save_focus_evidence(session, company, opportunity, results)
 
 
 async def _run_adhoc_qualification(
@@ -314,6 +250,9 @@ async def _run_adhoc_qualification(
     signal_provider: SignalDataProvider,
     generator: QualificationGenerator,
     progress_callback: ProgressCallback | None = None,
+    opportunity_llm: StructuredLLM | None = None,
+    research_sources: ResearchSources | None = None,
+    contact_search: ContactSearchProvider | None = None,
 ) -> dict[str, Any]:
     """Testable core — takes providers/generator explicitly so tests inject fakes/mocks instead
     of hitting the network or Gemini. Resolves-or-creates a Company from a name/domain the user
@@ -322,16 +261,17 @@ async def _run_adhoc_qualification(
     not because the company was genuinely unqualified), then runs the same judgment core used for
     an existing company.
 
-    Checks active criteria FIRST, before creating or enriching anything, so a misconfigured org
+    Checks that criteria were given FIRST, before creating or enriching anything, so a bad request
     fails fast without a wasted scrape (same reasoning as the bulk-qualify job checking once up
     front instead of per company)."""
-    if not await list_active_criteria(session, job.organization_id):
-        raise NoCriteriaConfiguredError("no active qualification criteria configured")
-
     payload = job.payload or {}
+    typed_criteria = build_run_criteria(job.organization_id, payload.get("criteria"))
+    if not typed_criteria:
+        raise NoCriteriaConfiguredError("no criteria chosen to check against")
     focus = (payload.get("focus") or "").strip() or None
-    # Steps: gather company info, (only with a focus) look for evidence about it, judge.
-    steps_total = 3 if focus else 2
+    # Steps: gather company info, (only with a focus) look for evidence about it, judge, and (when
+    # a model is given) look at the opportunity.
+    steps_total = (3 if focus else 2) + (1 if opportunity_llm else 0)
     company, created = await get_or_create_company(
         session, job.organization_id, name=payload.get("name"), domain=payload.get("domain")
     )
@@ -341,26 +281,76 @@ async def _run_adhoc_qualification(
 
     # No progress_callback passed through — _enrich_company's own internal 4-step tally would
     # conflict with this job's coarser progress below.
-    await _enrich_company(
-        session, job.organization_id, company,
-        domain_provider, company_provider, contact_provider, signal_provider,
+    enriched = await _enrich_company(
+        session,
+        job.organization_id,
+        company,
+        domain_provider,
+        company_provider,
+        contact_provider,
+        signal_provider,
     )
+    if created and enriched.get("reason") == "duplicate_domain":
+        # Typed by name only, but the website found belongs to a company we already have. The
+        # row made a moment ago is empty, so drop it and check the existing company instead.
+        existing = await session.get(Company, enriched["existing_company_id"])
+        await session.delete(company)
+        await session.flush()
+        company, created = existing, False
+        await _enrich_company(
+            session,
+            job.organization_id,
+            company,
+            domain_provider,
+            company_provider,
+            contact_provider,
+            signal_provider,
+        )
     done = 1
     if progress_callback:
         next_step = f"Looking for evidence about {focus}" if focus else "Judging fit"
         await progress_callback(done, steps_total, detail=next_step)
 
     focus_signals: list[EnrichmentRecord] = []
+    focus_opportunity = None
     if focus:
-        focus_signals = await _focus_evidence(domain_provider, company, focus)
+        focus_opportunity, _ = await get_or_create_opportunity(
+            session, company, focus, origin=ORIGIN_QUICK_CHECK
+        )
+        focus_signals = await _focus_evidence(
+            session, domain_provider, company, focus_opportunity, focus
+        )
         done += 1
         if progress_callback:
             await progress_callback(done, steps_total, detail="Judging fit")
 
     result = await run_qualification_check(
-        session, job.organization_id, company.id, generator,
-        focus=focus, focus_signals=focus_signals,
+        session,
+        job.organization_id,
+        company.id,
+        generator,
+        typed_criteria,
+        focus=focus,
+        focus_signals=focus_signals,
     )
+
+    opportunity: dict[str, Any] | None = None
+    if opportunity_llm is not None:
+        if progress_callback:
+            await progress_callback(
+                steps_total - 1,
+                steps_total,
+                detail="Assessing the opportunity" if focus else "Looking for opportunity areas",
+            )
+        opportunity = await run_quick_check_opportunity(
+            session,
+            opportunity_llm,
+            company,
+            focus_opportunity,
+            research_sources,
+            contact_search=contact_search,
+            chosen_ids={uuid.UUID(p) for p in payload.get("product_ids") or []},
+        )
     if progress_callback:
         await progress_callback(steps_total, steps_total, detail="Done")
 
@@ -371,6 +361,13 @@ async def _run_adhoc_qualification(
         "company_created": created,
         "qualification_result_id": str(result.id),
         "focus": focus,
+        "opportunity": opportunity,
+        # How the website and company look-up went, so a bare-name check says so.
+        "lookup": {
+            "status": enriched.get("status"),
+            "reason": enriched.get("reason"),
+            "domain": company.domain,
+        },
     }
 
 
@@ -384,6 +381,7 @@ async def run_adhoc_qualification_job(
     scraper = WebsiteScraperProvider(settings)
     providers = build_company_providers(settings, scraper)
     generator = GeminiQualificationGenerator(settings)
+    research_sources, closers = build_research_sources(settings, scraper)
     try:
         return await _run_adhoc_qualification(
             session,
@@ -394,9 +392,14 @@ async def run_adhoc_qualification_job(
             providers.signals,
             generator,
             progress_callback,
+            opportunity_llm=build_structured_llm(settings, order=settings.opportunity_llm_order),
+            research_sources=research_sources,
+            contact_search=SerperContactSearchProvider(settings, domain_provider),
         )
     finally:
         await scraper.aclose()
+        for closer in closers:
+            await closer.aclose()
 
 
 async def list_qualification_results(
@@ -419,7 +422,7 @@ async def _run_bulk_qualification(
     company_ids: list[uuid.UUID],
     generator: QualificationGenerator,
     progress_callback: ProgressCallback | None = None,
-    extra_criteria: list[QualificationCriterion] | None = None,
+    criteria: list[QualificationCriterion] | None = None,
 ) -> dict[str, Any]:
     """Testable core — qualifies every given company id sequentially, same judgment core as a
     single check (`run_qualification_check`), so a Market Discovery run's newly-found companies
@@ -428,29 +431,38 @@ async def _run_bulk_qualification(
     explicit id list, without needing a `Job` row of its own — same reasoning as
     `_run_adhoc_qualification`.
 
-    Checks active criteria exist once up front rather than per company: a misconfigured org
-    should fail the whole job immediately and clearly, not produce N identical per-company
-    failures. A single company's `GeminiClientError` (e.g. a transient Gemini hiccup) is caught
-    and recorded in `errors` rather than aborting the rest of the batch — one bad company
-    shouldn't cost every other company in the run its result."""
-    if not extra_criteria and not await list_active_criteria(session, organization_id):
-        raise NoCriteriaConfiguredError("no active qualification criteria configured")
+    `criteria` are the ones chosen for this run; none chosen is allowed and leaves each company
+    "not checked" (it is then ranked by offering fit and nothing is excluded).
 
+    A single company's `GeminiClientError` (e.g. a transient Gemini hiccup) is caught and recorded
+    in `errors` rather than aborting the rest of the batch — one bad company shouldn't cost every
+    other company in the run its result."""
+    chosen = criteria or []
+    run_ids = frozenset(str(c.id) for c in chosen)
     total = len(company_ids) or 1
-    counts = {"qualified": 0, "not_qualified": 0, "could_not_determine": 0}
+    counts = {"qualified": 0, "not_qualified": 0, "could_not_determine": 0, "not_checked": 0}
     qualified_company_ids: list[str] = []
     needs_evidence_company_ids: list[str] = []
+    eligible_company_ids: list[str] = []
     errors: list[dict[str, str]] = []
     for i, company_id in enumerate(company_ids, start=1):
         try:
             result = await run_qualification_check(
-                session, organization_id, company_id, generator, extra_criteria
+                session,
+                organization_id,
+                company_id,
+                generator,
+                chosen,
+                run_criterion_ids=run_ids,
+                allow_empty=True,
             )
             counts[result.overall_verdict] += 1
             if result.overall_verdict == "qualified":
                 qualified_company_ids.append(str(company_id))
             elif result.overall_verdict == "could_not_determine":
                 needs_evidence_company_ids.append(str(company_id))
+            if result.overall_verdict != "not_qualified":
+                eligible_company_ids.append(str(company_id))
         except (CompanyNotFoundError, GeminiClientError) as exc:
             errors.append({"company_id": str(company_id), "error": str(exc)})
         if progress_callback:
@@ -459,6 +471,8 @@ async def _run_bulk_qualification(
         **counts,
         "qualified_company_ids": qualified_company_ids,
         "needs_evidence_company_ids": needs_evidence_company_ids,
+        # Everything that may go on to ranking: not rejected by a must-have criterion.
+        "eligible_company_ids": eligible_company_ids,
         "errors": errors,
     }
 
@@ -467,10 +481,15 @@ async def run_bulk_qualification_job(
     session: AsyncSession, job: Job, progress_callback: ProgressCallback | None = None
 ) -> dict[str, Any]:
     """Handler registered with the job worker (Phase A2.4) — unpacks `job.payload["company_ids"]`
-    and delegates to `_run_bulk_qualification`."""
+    and the run's chosen `criteria`, and delegates to `_run_bulk_qualification`."""
     generator = GeminiQualificationGenerator(get_settings())
     payload = job.payload or {}
     company_ids = [uuid.UUID(cid) for cid in payload.get("company_ids", [])]
     return await _run_bulk_qualification(
-        session, job.organization_id, company_ids, generator, progress_callback
+        session,
+        job.organization_id,
+        company_ids,
+        generator,
+        progress_callback,
+        build_run_criteria(job.organization_id, payload.get("criteria")),
     )

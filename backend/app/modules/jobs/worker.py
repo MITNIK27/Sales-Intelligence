@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+import uuid
 
 from app.core.config import get_settings
 from app.core.logging import configure_logging
@@ -13,6 +14,7 @@ from app.modules.ingestion.market_discovery import (
     process_market_discovery_job,
 )
 from app.modules.ingestion.service import JOB_TYPE_INGEST_CSV, process_csv_ingestion_job
+from app.modules.jobs.errors import friendly_error
 from app.modules.jobs.models import Job
 from app.modules.jobs.service import (
     claim_next_pending_job,
@@ -23,6 +25,18 @@ from app.modules.jobs.service import (
 )
 from app.modules.offerings.review import enqueue_sync_if_due
 from app.modules.offerings.service import JOB_TYPE_SYNC_OFFERINGS, process_sync_offerings_job
+from app.modules.opportunity.jobs import (
+    JOB_TYPE_ANALYSE_OPPORTUNITY,
+    JOB_TYPE_ASSESS_OPPORTUNITY,
+    JOB_TYPE_COMPANY_OFFERS,
+    JOB_TYPE_RECOMMEND_OPPORTUNITY,
+    JOB_TYPE_SUGGEST_AREAS,
+    process_analyse_opportunity_job,
+    process_assess_opportunity_job,
+    process_company_offers_job,
+    process_recommend_opportunity_job,
+    process_suggest_areas_job,
+)
 from app.modules.orchestrator.service import (
     JOB_TYPE_AUTO_PIPELINE,
     JOB_TYPE_BULK_CONFIRM,
@@ -35,6 +49,7 @@ from app.modules.qualification.service import (
     run_adhoc_qualification_job,
     run_bulk_qualification_job,
 )
+from app.modules.usage.context import usage_scope
 from app.modules.verification.service import (
     JOB_TYPE_VERIFY_CONTACTS,
     process_verify_contacts_job,
@@ -58,7 +73,19 @@ _HANDLERS = {
     JOB_TYPE_AUTO_PIPELINE: run_auto_pipeline_job,
     JOB_TYPE_BULK_CONFIRM: run_bulk_confirm_job,
     JOB_TYPE_SYNC_OFFERINGS: process_sync_offerings_job,
+    JOB_TYPE_ASSESS_OPPORTUNITY: process_assess_opportunity_job,
+    JOB_TYPE_ANALYSE_OPPORTUNITY: process_analyse_opportunity_job,
+    JOB_TYPE_RECOMMEND_OPPORTUNITY: process_recommend_opportunity_job,
+    JOB_TYPE_SUGGEST_AREAS: process_suggest_areas_job,
+    JOB_TYPE_COMPANY_OFFERS: process_company_offers_job,
 }
+
+
+def _as_uuid(value: object) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(value)) if value else None
+    except ValueError:
+        return None
 
 
 async def _process_one_job(job: Job) -> None:
@@ -72,7 +99,13 @@ async def _process_one_job(job: Job) -> None:
             if handler is None:
                 raise ValueError(f"no handler registered for job_type={job.job_type!r}")
             job_in_session = await session.get_one(Job, job.id)
-            result = await handler(session, job_in_session, progress_callback)
+            with usage_scope(
+                organization_id=job.organization_id,
+                job_id=job.id,
+                task=job.job_type,
+                run_id=_as_uuid((job.payload or {}).get("ingestion_run_id")),
+            ):
+                result = await handler(session, job_in_session, progress_callback)
             await mark_job_done(session, job_in_session, result)
             logger.info("job done: %s (%s)", job.id, job.job_type)
         except Exception as exc:  # noqa: BLE001 - isolate worker loop from any handler failure
@@ -80,7 +113,7 @@ async def _process_one_job(job: Job) -> None:
             logger.debug("job %s traceback", job.id, exc_info=True)
             await session.rollback()
             job_in_session = await session.get_one(Job, job.id)
-            await mark_job_failed(session, job_in_session, str(exc))
+            await mark_job_failed(session, job_in_session, friendly_error(exc))
         await session.commit()
 
 

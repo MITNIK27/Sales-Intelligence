@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.core.config import Settings
+from app.modules.usage.recorder import elapsed_ms, record_usage, started
 
 Confidence = Literal["confident", "could_not_determine"]
 
@@ -42,9 +43,7 @@ def _is_quota_exhausted(exc: genai_errors.APIError) -> bool:
     if exc.code != 429 or exc.status != "RESOURCE_EXHAUSTED":
         return False
     details = exc.details if isinstance(exc.details, dict) else {}
-    violations = (
-        details.get("error", {}).get("details", []) if isinstance(details, dict) else []
-    )
+    violations = details.get("error", {}).get("details", []) if isinstance(details, dict) else []
     for detail in violations:
         for violation in detail.get("violations", []):
             if "PerDay" in violation.get("quotaId", ""):
@@ -80,6 +79,34 @@ def format_gemini_error(exc: genai_errors.APIError) -> str:
     return f"Gemini request failed ({exc.code} {exc.status}): {exc.message}"
 
 
+async def _generate_metered(client: genai.Client, **kwargs: Any) -> types.GenerateContentResponse:
+    """One attempt, recorded in the usage log: tokens when it succeeded, an error row when it did
+    not. Every retry is its own attempt, so retries show up in the counts."""
+    begin = started()
+    model = kwargs.get("model")
+    try:
+        response = await client.aio.models.generate_content(**kwargs)
+    except Exception:
+        await record_usage(
+            provider="gemini", kind="llm", status="error", model=model, latency_ms=elapsed_ms(begin)
+        )
+        raise
+    usage = getattr(response, "usage_metadata", None)
+    # Thinking tokens are billed as output, so they are counted with it.
+    out = (getattr(usage, "candidates_token_count", None) or 0) + (
+        getattr(usage, "thoughts_token_count", None) or 0
+    )
+    await record_usage(
+        provider="gemini",
+        kind="llm",
+        model=model,
+        tokens_in=getattr(usage, "prompt_token_count", None),
+        tokens_out=out if usage is not None else None,
+        latency_ms=elapsed_ms(begin),
+    )
+    return response
+
+
 async def generate_content_with_retry(
     client: genai.Client, **kwargs: Any
 ) -> types.GenerateContentResponse:
@@ -96,7 +123,7 @@ async def generate_content_with_retry(
             reraise=True,
         ):
             with attempt:
-                return await client.aio.models.generate_content(**kwargs)
+                return await _generate_metered(client, **kwargs)
     except httpx.TransportError as exc:
         raise GeminiClientError(
             f"Could not reach Gemini after {_RETRY_ATTEMPTS} tries — this is a network problem "

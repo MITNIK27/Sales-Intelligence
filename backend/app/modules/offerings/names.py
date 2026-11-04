@@ -11,7 +11,7 @@ def _words(text: str) -> str:
 
 
 def names_match(a: str, b: str) -> bool:
-    """"Expona AI" and "Expona", "Spacewarp for ServiceNow" and "Spacewarp" match; "Cloud" and
+    """ "Expona AI" and "Expona", "Spacewarp for ServiceNow" and "Spacewarp" match; "Cloud" and
     "Cloud Migration Suite" do not."""
     wa, wb = _words(a), _words(b)
     if wa == wb:

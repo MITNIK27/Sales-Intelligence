@@ -119,9 +119,7 @@ async def run_role_relevance_check_endpoint(
     return [RoleRelevanceResultOut.model_validate(r) for r in results]
 
 
-@company_router.get(
-    "/{company_id}/role-relevance", response_model=list[RoleRelevanceResultOut]
-)
+@company_router.get("/{company_id}/role-relevance", response_model=list[RoleRelevanceResultOut])
 async def list_role_relevance_endpoint(
     company_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> list[RoleRelevanceResultOut]:

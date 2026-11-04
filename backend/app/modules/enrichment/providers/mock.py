@@ -10,6 +10,7 @@ from app.modules.enrichment.providers.base import (
     ScrapedCompanyData,
     ScrapedContact,
     ScrapedSignal,
+    SearchTitles,
     SignalDataProvider,
 )
 from app.modules.enrichment.providers.search_contacts import ContactSearchProvider
@@ -35,9 +36,7 @@ class MockContactDataProvider(ContactDataProvider):
     def __init__(self, contacts: list[ScrapedContact] | None = None) -> None:
         self._contacts = contacts or []
 
-    async def fetch_contacts(
-        self, domain: str, pages: list[FetchedPage]
-    ) -> list[ScrapedContact]:
+    async def fetch_contacts(self, domain: str, pages: list[FetchedPage]) -> list[ScrapedContact]:
         return self._contacts
 
 
@@ -54,8 +53,16 @@ class MockContactSearchProvider(ContactSearchProvider):
         self._contacts = contacts or []
 
     async def search_contacts(
-        self, company_name: str, domain: str | None
+        self,
+        company_name: str,
+        domain: str | None,
+        focus: str | None = None,
+        functions: list[str] | None = None,
+        titles: SearchTitles | None = None,
     ) -> list[ScrapedContact]:
+        self.last_focus = focus
+        self.last_functions = functions
+        self.last_titles = titles
         return self._contacts
 
 

@@ -3,7 +3,8 @@ import type { LucideIcon } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 
-export type PipelineStepStatus = "done" | "pending" | "in_progress" | "attention";
+export type PipelineStepStatus =
+  "done" | "pending" | "in_progress" | "attention";
 
 export type PipelineStep = {
   label: string;

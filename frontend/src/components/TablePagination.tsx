@@ -1,4 +1,9 @@
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -43,7 +48,10 @@ export function TablePagination({
             onPageChange(1);
           }}
         >
-          <SelectTrigger className="h-9 w-20 bg-card" aria-label="Rows per page">
+          <SelectTrigger
+            className="h-9 w-20 bg-card"
+            aria-label="Rows per page"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

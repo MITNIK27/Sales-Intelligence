@@ -20,9 +20,7 @@ from app.modules.ai_recommendation.service import (
 router = APIRouter(prefix="/companies", tags=["recommendations"])
 
 
-@router.post(
-    "/{company_id}/recommendations", response_model=RecommendationOut, status_code=201
-)
+@router.post("/{company_id}/recommendations", response_model=RecommendationOut, status_code=201)
 async def generate_recommendation_endpoint(
     company_id: uuid.UUID,
     body: RecommendationGenerateRequest,

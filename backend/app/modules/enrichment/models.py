@@ -27,3 +27,9 @@ class EnrichmentRecord(Base, TimestampMixin):
     source: Mapped[str] = mapped_column(String(100))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Set when the record was gathered for one business area of a company (a focused search, say);
+    # null means company-level and shared by every area. Area evidence has its own `source`
+    # prefix, so the company-level signal lists never include it.
+    company_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("company_opportunities.id"), index=True
+    )

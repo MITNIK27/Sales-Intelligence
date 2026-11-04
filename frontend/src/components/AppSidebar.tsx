@@ -35,8 +35,11 @@ export function AppSidebar({
   }, []);
 
   const badgeFor = (to: string): number | null => {
-    if (to === "/drafts") return draftsToReview;
-    if (to === "/follow-ups") return dueFollowUpCount;
+    if (to === "/outreach") {
+      return draftsToReview === null && dueFollowUpCount === null
+        ? null
+        : (draftsToReview ?? 0) + (dueFollowUpCount ?? 0);
+    }
     return null;
   };
 

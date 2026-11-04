@@ -55,6 +55,7 @@ def parse_menu(html: str, base_url: str, groups: list[str]) -> list[MenuItem]:
 
 async def read_menu(url: str, groups: list[str], user_agent: str) -> list[MenuItem]:
     """Raises `httpx.HTTPError` when the home page cannot be read."""
+
     async def fetch() -> httpx.Response:
         async with httpx.AsyncClient(
             headers={"User-Agent": user_agent}, timeout=20.0, follow_redirects=True

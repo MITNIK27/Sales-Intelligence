@@ -65,6 +65,7 @@ async def read_sitemap(
     """Every page in a sitemap (following an index into its children). Raises
     `httpx.HTTPError` or `ET.ParseError` when the top-level sitemap cannot be read; a broken
     child is logged and skipped so one bad file does not lose the rest."""
+
     async def fetch() -> httpx.Response:
         async with httpx.AsyncClient(
             headers={"User-Agent": user_agent}, timeout=20.0, follow_redirects=True

@@ -104,6 +104,7 @@ export function RunWorklist({
         <ReadyRow
           key={row.company_id}
           row={row}
+          runId={runId}
           productId={productId}
           onChanged={load}
         />
@@ -118,7 +119,7 @@ export function RunWorklist({
             {notShown.map((row) => (
               <li key={row.company_id} className="px-4 py-2 text-sm">
                 <Link
-                  to={`/companies/${row.company_id}`}
+                  to={`/companies/${row.company_id}?run=${runId}`}
                   className="font-medium hover:underline"
                 >
                   {row.name}
@@ -138,10 +139,12 @@ export function RunWorklist({
 
 function ReadyRow({
   row,
+  runId,
   productId,
   onChanged,
 }: {
   row: WorklistRow;
+  runId: string;
   productId: string | null;
   onChanged: () => void;
 }) {
@@ -154,7 +157,7 @@ function ReadyRow({
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>
             <Link
-              to={`/companies/${row.company_id}`}
+              to={`/companies/${row.company_id}?run=${runId}`}
               className="text-base font-semibold hover:underline"
             >
               {row.name}

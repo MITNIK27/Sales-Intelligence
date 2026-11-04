@@ -5,39 +5,6 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class CriterionCreate(BaseModel):
-    name: str
-    description: str | None = None
-    is_disqualifying: bool = False
-    is_active: bool = True
-
-
-class CriterionUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    is_disqualifying: bool | None = None
-    is_active: bool | None = None
-
-
-class CriterionOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str
-    description: str | None
-    is_disqualifying: bool
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
-
-
-class CriterionList(BaseModel):
-    items: list[CriterionOut]
-    total: int
-    limit: int
-    offset: int
-
-
 class QualificationResultOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -53,12 +20,32 @@ class QualificationResultOut(BaseModel):
     created_at: datetime
 
 
+class CompanyCriterionIn(BaseModel):
+    """One thing to find out about a company, typed by the person."""
+
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=1000)
+    must_have: bool = False
+
+
+class CompanyCriterionOut(CompanyCriterionIn):
+    pass
+
+
+class CompanyCriteriaUpdate(BaseModel):
+    """The company's whole list of criteria; it replaces what was stored."""
+
+    criteria: list[CompanyCriterionIn] = Field(default_factory=list, max_length=10)
+
+
 class AdhocQualificationCheckRequest(BaseModel):
     # What the person typed: a company name or its website, in one field. `name` and `domain`
     # remain accepted for older callers.
     company: str | None = None
     # Optional area to judge fit around (e.g. a technology area); empty means a general judgment.
     focus: str | None = Field(default=None, max_length=200)
+    # Offerings to judge fit for. Empty means: judge only the single best match.
+    product_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10)
     name: str | None = None
     domain: str | None = None
 

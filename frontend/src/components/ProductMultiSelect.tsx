@@ -2,8 +2,16 @@ import { ChevronDown } from "lucide-react";
 
 import type { Product } from "@/api/types";
 import { Checkbox } from "@/components/Checkbox";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { KIND_LABEL_PLURAL, groupByKind, selectionSummary } from "@/lib/offerings";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  KIND_LABEL_PLURAL,
+  groupByKind,
+  selectionSummary,
+} from "@/lib/offerings";
 
 // A button that opens the checklist, so the choice never takes room on the page: with dozens of
 // offerings an always-open list covered the screen. One offering means there's nothing to choose
@@ -27,8 +35,13 @@ export function ProductMultiSelect({
           aria-label="Offerings to pitch"
           className="flex h-8 max-w-64 items-center gap-2 border border-border bg-card px-3 text-sm hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary"
         >
-          <span className="truncate">{selectionSummary(products, selectedIds)}</span>
-          <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <span className="truncate">
+            {selectionSummary(products, selectedIds)}
+          </span>
+          <ChevronDown
+            className="size-4 shrink-0 text-muted-foreground"
+            aria-hidden="true"
+          />
         </button>
       </PopoverTrigger>
       <PopoverContent>
@@ -43,7 +56,10 @@ export function ProductMultiSelect({
               {group.items.map((product) => (
                 // A native <label> wrapping the input forwards a click anywhere in it to the
                 // checkbox, so this gives a clickable name without needing an id for htmlFor.
-                <label key={product.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                <label
+                  key={product.id}
+                  className="flex cursor-pointer items-center gap-2 text-sm"
+                >
                   <Checkbox
                     checked={selectedIds.has(product.id)}
                     onChange={() => onToggle(product.id)}

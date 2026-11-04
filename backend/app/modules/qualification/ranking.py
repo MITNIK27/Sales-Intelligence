@@ -56,7 +56,7 @@ class RankResult:
 
 
 def parse_size_range(text: str | None) -> tuple[float, float] | None:
-    """"1,000-10,000" -> (1000, 10000); "10000+" -> (10000, inf); "50" -> (50, 50)."""
+    """ "1,000-10,000" -> (1000, 10000); "10000+" -> (10000, inf); "50" -> (50, 50)."""
     if not text:
         return None
     cleaned = text.lower().replace(",", "").replace("–", "-").replace("—", "-")

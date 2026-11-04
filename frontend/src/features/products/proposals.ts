@@ -1,4 +1,8 @@
-import type { OfferingProposal, OfferingProposalChange, OfferingSyncStatus } from "@/api/types";
+import type {
+  OfferingProposal,
+  OfferingProposalChange,
+  OfferingSyncStatus,
+} from "@/api/types";
 import { formatNumber, plural, timeAgo } from "@/lib/format";
 
 export const CHANGE_LABEL: Record<OfferingProposalChange, string> = {
@@ -25,7 +29,10 @@ export function progressLabel(status: OfferingSyncStatus): string {
 }
 
 // "Checked 3 days ago · 2 new, 1 changed" / "Checked 3 days ago · nothing new".
-export function lastCheckedLabel(status: OfferingSyncStatus, now?: number): string {
+export function lastCheckedLabel(
+  status: OfferingSyncStatus,
+  now?: number,
+): string {
   if (!status.last_checked_at) return "Not checked yet";
   const result = status.last_result;
   const parts: string[] = [];
@@ -52,9 +59,13 @@ export function groupProposals(proposals: OfferingProposal[]): {
   suggestions: OfferingProposal[];
 } {
   return {
-    main: proposals.filter((p) => p.origin !== "post" && p.change !== "removed"),
+    main: proposals.filter(
+      (p) => p.origin !== "post" && p.change !== "removed",
+    ),
     removals: proposals.filter((p) => p.change === "removed"),
-    suggestions: proposals.filter((p) => p.origin === "post" && p.change !== "removed"),
+    suggestions: proposals.filter(
+      (p) => p.origin === "post" && p.change !== "removed",
+    ),
   };
 }
 

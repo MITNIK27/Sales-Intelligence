@@ -33,6 +33,12 @@ from app.modules.enrichment.providers.search_contacts import (
 from app.modules.enrichment.providers.search_serper import SerperSearchProvider
 from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvider
 from app.modules.enrichment.service import _enrich_company
+from app.modules.ingestion.membership import (
+    RELATION_CREATED,
+    RELATION_MATCHED,
+    RELATION_REUSED,
+    link_company_to_run,
+)
 from app.modules.ingestion.models import (
     SOURCE_TYPE_MARKET_DISCOVERY,
     STATUS_AWAITING_CONFIRMATION,
@@ -167,6 +173,8 @@ async def _run_market_discovery(
         session, job.organization_id, industry_keywords, limit=CANDIDATE_LIMIT
     )
     reused_domains = {c.domain for c in reused_companies if c.domain}
+    for reused in reused_companies:
+        await link_company_to_run(session, job.organization_id, run.id, reused.id, RELATION_REUSED)
     remaining_limit = CANDIDATE_LIMIT - len(reused_companies)
 
     candidates: list[Any] = []
@@ -203,6 +211,7 @@ async def _run_market_discovery(
 
     companies_created = 0
     created_ids: list[str] = []
+    matched_ids: list[str] = []  # found live, but the company already existed
     enrichment: dict[str, Any] = {"enriched": 0, "failed": 0, "industry_filled": 0, "by_source": {}}
     total = len(candidates) or 1
 
@@ -242,6 +251,15 @@ async def _run_market_discovery(
                 companies_created += 1
                 created_ids.append(str(company.id))
                 await session.flush()
+            else:
+                matched_ids.append(str(company.id))
+            await link_company_to_run(
+                session,
+                job.organization_id,
+                run.id,
+                company.id,
+                RELATION_CREATED if created else RELATION_MATCHED,
+            )
         if created:
             # Enrichment gets its own savepoint, so one company's unexpected failure (a database
             # error, a provider bug) is recorded on that company and the run carries on with the
@@ -286,7 +304,7 @@ async def _run_market_discovery(
         "reused_from_index": len(reused_companies),
         # Every company this run is about — newly found AND reused from the index — so ranking
         # and the results list cover both, not just the new ones.
-        "company_ids": [*created_ids, *(str(c.id) for c in reused_companies)],
+        "company_ids": [*created_ids, *matched_ids, *(str(c.id) for c in reused_companies)],
         "company_data_source": get_settings().company_data_source,
         "enrichment": enrichment,
         # Paid-provider spend and how often the free scraper was enough (None when the run used

@@ -64,7 +64,7 @@ export function KpiStrip({
         label="Drafts to review"
         value={formatNumber(kpis.drafts_to_review)}
         note={`${formatNumber(kpis.drafts_sent)} sent`}
-        to="/drafts"
+        to="/outreach?view=drafts"
         hint={`Drafts written for these companies' contacts. ${countedOnce}`}
       />
     </div>

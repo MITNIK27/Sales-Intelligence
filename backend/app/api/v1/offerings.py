@@ -78,7 +78,9 @@ async def check_page_endpoint(
     """Treat this page as an offering: remember the request and queue a sync to read it."""
     url = body.url.strip()
     if not url.lower().startswith(("http://", "https://")):
-        raise HTTPException(status_code=422, detail="enter a full web address starting with https://")
+        raise HTTPException(
+            status_code=422, detail="enter a full web address starting with https://"
+        )
     await request_extraction(session, DEFAULT_ORGANIZATION_ID, url)
     job = await start_sync(session, DEFAULT_ORGANIZATION_ID)
     await session.commit()

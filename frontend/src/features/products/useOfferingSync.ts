@@ -22,7 +22,9 @@ export function useOfferingSync(onFinished: () => void) {
       if (wasRunning.current && !next.running) finished.current();
       wasRunning.current = next.running;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "could not load the check status");
+      setError(
+        err instanceof Error ? err.message : "could not load the check status",
+      );
     }
   }, []);
 
@@ -43,7 +45,9 @@ export function useOfferingSync(onFinished: () => void) {
       await apiPost("/products/sync");
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "could not start the check");
+      setError(
+        err instanceof Error ? err.message : "could not start the check",
+      );
     }
   }, [refresh]);
 

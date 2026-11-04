@@ -231,23 +231,29 @@ async def run_sync(
     ]
 
     products = (
-        await session.execute(
-            select(Product).where(
-                Product.organization_id == organization_id, Product.source == SOURCE_WEBSITE
+        (
+            await session.execute(
+                select(Product).where(
+                    Product.organization_id == organization_id, Product.source == SOURCE_WEBSITE
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_url = {canonical_url(p.source_url): p for p in products if p.source_url}
 
     proposals = (
-        await session.execute(
-            select(OfferingProposal).where(OfferingProposal.organization_id == organization_id)
+        (
+            await session.execute(
+                select(OfferingProposal).where(OfferingProposal.organization_id == organization_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     pending = [p for p in proposals if p.status == PROPOSAL_PENDING]
-    pending_by_url = {
-        canonical_url(p.source_url): p for p in pending if p.change != CHANGE_REMOVED
-    }
+    pending_by_url = {canonical_url(p.source_url): p for p in pending if p.change != CHANGE_REMOVED}
     rejected = {
         (canonical_url(p.source_url), p.content_hash)
         for p in proposals
@@ -255,15 +261,27 @@ async def run_sync(
     }
 
     ledger_rows = (
-        await session.execute(
-            select(OfferingPage).where(OfferingPage.organization_id == organization_id)
+        (
+            await session.execute(
+                select(OfferingPage).where(OfferingPage.organization_id == organization_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     ledger = await _heal_ledger(session, list(ledger_rows))
 
     counts = {
-        "pages_checked": 0, "skipped": 0, "screened_out": 0, "deferred": 0, "new": 0,
-        "changed": 0, "removed": 0, "unchanged": 0, "not_offering": 0, "failed": 0,
+        "pages_checked": 0,
+        "skipped": 0,
+        "screened_out": 0,
+        "deferred": 0,
+        "new": 0,
+        "changed": 0,
+        "removed": 0,
+        "unchanged": 0,
+        "not_offering": 0,
+        "failed": 0,
     }
     recheck = settings.offerings_full_recheck_days
     unknown_days = settings.offerings_unknown_lastmod_days
@@ -285,8 +303,15 @@ async def run_sync(
     if post_refs and triage_llm is not None:
         to_read.extend(
             await _screen_posts(
-                session, source, triage_llm, settings, post_refs, ledger, organization_id,
-                now, counts,
+                session,
+                source,
+                triage_llm,
+                settings,
+                post_refs,
+                ledger,
+                organization_id,
+                now,
+                counts,
             )
         )
 
@@ -312,19 +337,43 @@ async def run_sync(
             if row and row.content_hash == digest and row.verdict != VERDICT_FAILED and not forced:
                 # The page reads exactly as before: only its last-modified time moved.
                 _remember(
-                    session, ledger, organization_id, ref, row.verdict, row.reason or "",
-                    now, digest, fetched=True,
+                    session,
+                    ledger,
+                    organization_id,
+                    ref,
+                    row.verdict,
+                    row.reason or "",
+                    now,
+                    digest,
+                    fetched=True,
                 )
                 counts["unchanged"] += 1
             else:
                 outcome, name = await _process_page(
-                    session, organization_id, llm, ref, text, digest, by_url.get(ref.url),
-                    pending_by_url, rejected, now, forced,
+                    session,
+                    organization_id,
+                    llm,
+                    ref,
+                    text,
+                    digest,
+                    by_url.get(ref.url),
+                    pending_by_url,
+                    rejected,
+                    now,
+                    forced,
                 )
                 verdict, reason = _verdict_for(outcome)
                 _remember(
-                    session, ledger, organization_id, ref, verdict, reason, now, digest,
-                    title=name, fetched=True,
+                    session,
+                    ledger,
+                    organization_id,
+                    ref,
+                    verdict,
+                    reason,
+                    now,
+                    digest,
+                    title=name,
+                    fetched=True,
                 )
                 if forced and ledger[ref.url].force_extract:
                     ledger[ref.url].force_extract = False
@@ -345,8 +394,17 @@ async def run_sync(
         )
 
     counts["removed"] = await _propose_removals(
-        session, organization_id, source, by_url, ledger, proposals, pending, refs, post_refs,
-        posts_readable, now,
+        session,
+        organization_id,
+        source,
+        by_url,
+        ledger,
+        proposals,
+        pending,
+        refs,
+        post_refs,
+        posts_readable,
+        now,
     )
     await session.commit()
     return counts
@@ -401,8 +459,13 @@ async def _screen_posts(
     by_ref = {r.url: r for r in fresh}
     for page in screened_out:
         _remember(
-            session, ledger, organization_id, by_ref[page.url], VERDICT_NOT_OFFERING,
-            REASON_SCREENED_OUT, now,
+            session,
+            ledger,
+            organization_id,
+            by_ref[page.url],
+            VERDICT_NOT_OFFERING,
+            REASON_SCREENED_OUT,
+            now,
         )
         counts["screened_out"] += 1
 
@@ -592,8 +655,14 @@ async def process_sync_offerings_job(
 
     try:
         counts = await run_sync(
-            session, job.organization_id, source, llm, settings, progress_callback,
-            triage_llm, menu,
+            session,
+            job.organization_id,
+            source,
+            llm,
+            settings,
+            progress_callback,
+            triage_llm,
+            menu,
         )
     finally:
         await source.aclose()

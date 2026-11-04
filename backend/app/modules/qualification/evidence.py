@@ -95,7 +95,7 @@ def describe_source(ref: str | None, signals: list[EnrichmentRecord]) -> dict[st
         if signal_ref == ref:
             if record.source.startswith("contextdev"):
                 origin = "context.dev news"
-            elif record.source.startswith("serper"):
+            elif record.source.startswith(("serper", "opportunity:serper")):
                 origin = "web search"
             else:
                 origin = "website"

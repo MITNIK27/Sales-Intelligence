@@ -40,13 +40,7 @@ async def list_products(
     count_stmt = select(func.count()).select_from(Product).where(*filters)
     total = (await session.execute(count_stmt)).scalar_one()
 
-    stmt = (
-        select(Product)
-        .where(*filters)
-        .order_by(Product.name)
-        .limit(limit)
-        .offset(offset)
-    )
+    stmt = select(Product).where(*filters).order_by(Product.name).limit(limit).offset(offset)
     products = (await session.execute(stmt)).scalars().all()
     return list(products), total
 
@@ -78,12 +72,53 @@ async def update_product(
     return product
 
 
+class ProductInUseError(Exception):
+    """The offering has been analysed, recommended or drafted for, so deleting it would erase that
+    work. The router tells the person to archive it instead."""
+
+    def __init__(self, count: int) -> None:
+        super().__init__(
+            f"This offering is used by {count} analyses, recommendations or drafts. "
+            "Archive it instead of deleting it."
+        )
+        self.count = count
+
+
+async def _references(session: AsyncSession, product_id: uuid.UUID) -> int:
+    # Late imports: these modules import products.models, not the other way round.
+    from app.modules.ai_recommendation.models import Recommendation
+    from app.modules.draft.models import Draft
+    from app.modules.offerings.models import OfferingProposal
+    from app.modules.opportunity.models import (
+        ContactOpportunityRelevance,
+        OpportunityOfferingMatch,
+    )
+
+    total = 0
+    for model in (
+        Recommendation,
+        Draft,
+        OpportunityOfferingMatch,
+        ContactOpportunityRelevance,
+        OfferingProposal,
+    ):
+        total += (
+            await session.execute(
+                select(func.count()).select_from(model).where(model.product_id == product_id)
+            )
+        ).scalar_one()
+    return total
+
+
 async def delete_product(
     session: AsyncSession, organization_id: uuid.UUID, product_id: uuid.UUID
 ) -> bool:
     product = await get_product(session, organization_id, product_id)
     if product is None:
         return False
+    in_use = await _references(session, product_id)
+    if in_use:
+        raise ProductInUseError(in_use)
     await session.delete(product)
     await session.flush()
     return True

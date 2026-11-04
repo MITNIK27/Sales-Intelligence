@@ -73,7 +73,6 @@ class Health(BaseModel):
 
 class Setup(BaseModel):
     products: int
-    active_criteria: int
     active_role_categories: int
 
 

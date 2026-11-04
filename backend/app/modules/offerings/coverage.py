@@ -75,12 +75,16 @@ async def latest_menu(session: AsyncSession, organization_id: uuid.UUID) -> dict
 
 async def get_coverage(session: AsyncSession, organization_id: uuid.UUID) -> dict[str, Any]:
     rows = (
-        await session.execute(
-            select(OfferingPage)
-            .where(OfferingPage.organization_id == organization_id)
-            .order_by(OfferingPage.verdict, OfferingPage.url)
+        (
+            await session.execute(
+                select(OfferingPage)
+                .where(OfferingPage.organization_id == organization_id)
+                .order_by(OfferingPage.verdict, OfferingPage.url)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     pages = {canonical_url(row.url): row for row in rows}
 
     names = [

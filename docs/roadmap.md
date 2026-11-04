@@ -374,6 +374,74 @@ request resolved — fixed with one `busy` flag (`parsing || confirming || runIn
 every action button and the input textarea consistently, instead of each one checking a different,
 incomplete subset of the in-flight states.
 
+## Our Offerings — Website Import with Review — **Done**
+
+The catalog of what InfoBeans sells (formerly Products) now keeps itself in step with the company
+website, as proposals a person approves. Design in [`architecture.md`](architecture.md) ("The
+Offerings Importer"); entities in [`data-model.md`](data-model.md).
+
+- Services and Products tabs; a "Check for updates" button plus an automatic weekly check run by
+  the worker; hand-added entries are kept and marked Manual.
+- Page ledger with a sitemap `lastmod` gate, so unchanged pages cost no scrape and no model call;
+  a blog-post lane screened by a light model; discovery driven by the website menu, with nothing
+  hard-wired to named products.
+- Trust layer: a "What was checked" coverage view, website-menu reconciliation, a grounding check
+  with a source excerpt on every proposal, and a read-only audit script.
+- Removals only when a page really answers 404 or 410; a run that read nothing fails instead of
+  proposing removals.
+- Groq-first structured LLM seam (Gemini fallback); context.dev as the primary page reader with the
+  in-house scraper as fallback.
+
+## Quick Check, Role Targets, Verify Contacts — **Done**
+
+- **Quick Check** takes one field (company name or website) and an optional focus area, keeps its
+  inputs, and shows a progress card with steps and a timer. The focus steers the fit judgment and
+  adds a focused web search as evidence; it is stored on the result.
+- **Role categories** no longer ask for a primary target. Target roles are chosen, optionally, per
+  Market Discovery run; with none chosen every matched contact counts and the rep confirms the ones
+  they want.
+- **Verify Contacts**: the offerings picker is a compact popover instead of an always-open list.
+
+## Drafting by Email Type and Offering Kind — **Done**
+
+- First touch, Follow-up 1, 2 and 3. Handing the email on to someone else is allowed only from
+  follow-up 2; the picker starts on the next email in the sequence, based on emails already logged
+  as sent.
+- Each offering is described to the model as a product (offer a walkthrough or demo) or a service
+  (offer a short conversation), written from the buyer's point of view.
+- Follow-ups are given the earlier emails to the same person so they add something new.
+
+## Opportunity Research — **In progress**
+
+- **Done:** opportunities per company and area, stable evidence references with verbatim-quote
+  checking, a code-decided verdict, versioned cached assessments, area suggestions from evidence,
+  and Quick Check driving all of it (phase 1); research collectors for news, job boards and web
+  announcements with freshness windows, stated gaps and hiring counts over time (phase 2).
+- **Phase 3 built:** offering fit (a free shortlist, one grounded model call, band and score
+  computed in code), contacts matched to the opportunity from title and offering profile only (no
+  names sent) with human overrides kept beside the model's view, an area-aware contact search when
+  too few relevant people are known, recommendations made once per assessment version, and drafts
+  that can be written for an opportunity. Quick Check shows the fit, the people and the
+  recommendation under each area.
+- **Phase 4 (built, not yet run against real data):** the Company Brief on the company page and in Quick Check: separate industry, area and offering selectors (area and offering live in the address), a hand-built SVG map from evidence to engagement (verified, inferred and unsupported links drawn differently, gaps shown as placeholders), a text view of the same facts, an evidence panel, compare views for two offerings or two areas, and a copyable one-page brief. `POST /companies/{id}/opportunities` starts an area.
+- **Phase 5 (built, not yet run against real data):** after ranking, a run queues one light fit job per ranked company (up to `auto_pipeline_max_companies_to_draft`) for the run's chosen offerings, without contact search and outside the pipeline's stages, so it can never fail or slow a run. Worklist links carry `?run=<id>`; the company page reads the run's offerings (`GET /market-discovery/{run}/offerings`), starts with them selected and labels fits "Chosen for this run" or "Also fits". "Suggest other areas" (`POST /companies/{id}/opportunities/suggest`) saves areas the evidence points to, once per company.
+- **Phase 6 (done, apart from the real-data review):** (1) the dashboard's Cost and health panel shows 30-day estimated spend by provider (`GET /usage/summary`); (2) `python scripts/usage_report.py --review` prints average cost per researched company, the most expensive companies, the failed-call rate and the top cost lines beside the plan's estimates, so the cost review is one command once real runs exist; (3) the structured-output seam has a per-vendor personal-data flag: `build_structured_llm(..., personal_data=True)` drops vendors not cleared to receive names or emails, Groq stays excluded until `GROQ_MAY_RECEIVE_PERSONAL_DATA=true` is set after a privacy review, and a chain left with no cleared vendor fails instead of leaking; (4) the new screens use the app's own select component rather than the browser's.
+- **Cost review, to do after the real test runs:** run `python scripts/usage_report.py --days 7 --review` and compare with the plan's estimates (about $0.02 to $0.04 per researched area, about $0.005 per fit judgment, about $0.03 to $0.05 per Quick Check brief). Then decide the open items: a paid Gemini key for prompts that carry personal data, and whether Groq may receive any.
+- **Deliberately not done:** moving the six older direct Gemini call sites (market parser, qualification, role relevance, recommendation, draft, discovery extraction) behind the seam. They are already metered. Moving them changes the model settings (the seam uses temperature 0) and can change wording, and four of them handle personal data, so it needs a side-by-side check on real output first. It is a separate change, not polish.
+  (phase 5).
+
+## Planned Next
+
+- **Fit for sales and customer-success reps**: plan the daily routine of each role and cut the steps
+  between "I have a company or a list" and "I sent a good email". To be scoped from how each role
+  actually works.
+- Move the other Gemini call sites behind the structured LLM seam, Groq first, one task at a time
+  after a side-by-side comparison on real data.
+- A knowledge layer (graph and vector index) derived from approved offerings, with Postgres staying
+  the system of record. Discussed, not designed.
+- Deployment (hosted API, worker and database) together with sign-in, access control, spend caps
+  and separate keys.
+
 ## Known mismatches vs. the meeting notes
 
 Called out explicitly here so they don't get silently carried forward:
@@ -386,6 +454,8 @@ Called out explicitly here so they don't get silently carried forward:
 
 ## Known documentation gaps
 
+- No ADR yet for the offerings importer (page ledger and verification layers) or for qualification
+  states; the design is described in `architecture.md` for now.
 - Two code comments reference ADRs that were never actually written: `context_dev.py` cites
   "docs/decisions/0012-context-dev-evaluation.md" and `qualification/ranking.py` cites "ADR 0005/
   0013" for the Priority Score — only `0011` exists in `docs/decisions/` today. Both decisions were
@@ -395,3 +465,64 @@ Called out explicitly here so they don't get silently carried forward:
 ## Source
 
 See `Meeting notes/` for the full transcript this roadmap derives from.
+
+## Company Brief v2 (after the first browser test)
+
+Built from the user's review of the first version (see the plan file). Not yet seen in a browser.
+
+- **People search uses the role categories.** The titles searched for are the examples after "e.g." in each active role category's description (`role_relevance/titles.py`), first-reach categories first, plus the roles an offering is sold to from its buyer profile. Nothing is built in except a short list of seniority words used to recognise a senior role in a result. Up to three Serper queries per company; the share of results lost at each step is recorded and shown ("People search: 10 results, 3 profiles, 0 kept"). `scripts/contact_search_probe.py` shows this for one company (real calls, run by a person).
+- **Offering filter.** Quick Check takes the offerings to check fit for (`product_ids`); the company page's Brief uses the same filter, kept in the address and remembered in the browser; a company opened from a Market Discovery run starts with that run's offerings. With nothing chosen only the single best match is judged. Runs made before run context was stored have no offerings, so their filter starts empty (stored data is never edited).
+- **One Brief** (`frontend/src/features/brief/`) for Quick Check and the company page: sticky filter bar (offering, area), a three-fact verdict strip, the hierarchy map always open (evidence, area, offering, buying committee in tiers, outreach), then Why now, Buying committee (decides, influences, evaluates and uses, most senior first, "start here" marked), Recommended approach, What we could not find, and "Recommend on a different basis?".
+- **Controls:** `FilterButton` and `Segmented` look and behave as controls; `StatusTag` (dot and word, no border) is used for read-only statuses so they are never mistaken for buttons.
+
+## Repair pass: silent failures, readable values, one source of truth, workflow graph
+
+- **Failures are visible.** An analysis that judges nothing now says why (no active offerings, or none
+  stood out), the Quick Check shows the lookup, fit and opportunity problems under the results, a
+  repeat check judges newly chosen offerings, and the people search says when it found nobody.
+- **Deletes cannot 500.** Deleting a person also removes their buying-role judgments; deleting a
+  role category clears the link on earlier classifications; an offering that has been analysed,
+  drafted for or recommended is refused with "archive it instead". A foreign-key failure is no
+  longer reported as "already exists".
+- **Readable values.** Dates, times and job states go through `lib/format.ts` (text that is not a
+  date is shown as it came, never guessed into one); failed loads say so with a Retry; unknown
+  keys are made readable.
+- **One source of truth.** A role set in the Brief shows on the People tab and in the stepper; the
+  Brief refreshes the company page after changes; with no older classification a draft's tone
+  follows the person's role in the opportunity.
+- **Opportunity flow.** The SVG map is replaced by four numbered steps (what they are doing, what we
+  would sell, who to talk to, what to say) with labelled arrows, status words, visible gaps and a
+  detail panel, built from HTML so text wraps. Pure model: `features/brief/flow/flowStages.ts`.
+- Not done here: drafts still do not read the opportunity's evidence (only its role), and the draft
+  form does not send `opportunity_id`; the paid people-data provider question is still open.
+
+## Quick Check v2: a short answer from a company name
+Quick Check is now a look-up: type a name, get what the company does, how it relates to our offerings and a clear Yes / Maybe / No call, in about 10 to 20 seconds. Nothing is added to the companies list until the person clicks "Save to my companies" or "Go deeper" (which also starts research on the company page). Under "Advanced" the person can add an area to research and their own criteria (ticked from saved ones or typed for this search). They are optional, informational and never change the call. The old criteria-gated full check is no longer part of Quick Check.
+- Backend: `modules/quicklook/` (resolve, snapshot, service), `POST /quick-look`, `POST /quick-look/save`, `GET /quick-look/{id}`; new table `company_snapshots` (migration `e2f7a9c14b68`, run `alembic upgrade head`).
+- Which company: scored by name match against the website, plus a small bonus for results about what we sell. A clear winner is picked; otherwise the person chooses. "Not this one?" lists the other matches or takes a pasted website.
+- The call is computed in code, not by the model: Yes needs a strong fit proven by a quote on the company's own site; a strong fit from search results alone is a Maybe; thin evidence is "not enough information".
+- Answers are cached per website for 7 days, and go stale when the offerings change.
+
+## Criteria are optional per search and informational on a company
+Saved qualification criteria are no longer applied automatically anywhere.
+- **Market Discovery:** the confirm card lists saved criteria unticked. Only ticked ones (plus ones typed for that search) are judged, and each can be marked "Must have" for that search; only must-haves can drop a company. The choice is stored on the run (`context.criteria`, with the saved name and description copied at confirm). With none chosen, the run still completes: companies get the new verdict `not_checked`, are ranked by offering fit, and none is excluded.
+- **Company page:** "Check against criteria" lets the person pick criteria (saved ones by id, or typed) and shows Met / Not met / Could not determine for each. The stored verdict is `not_checked`, so it never reads Qualified or Not qualified.
+- **"Hard requirement" is now "Must have"** on a saved criterion: only the default for a search's must-have switch. No database change (`is_disqualifying` is the same column).
+- Backend: `run_qualification_check` takes the criteria explicitly; `resolve_run_criteria` / `build_run_criteria` build them; the confirm payload field `market_fit_criteria` became `criteria`.
+
+## After the FedEx test: evidence, honest calls, offer ideas
+- **Blocked sites:** `looks_blocked` (in `enrichment/signals.py`) recognises access-denied / bot-check pages. They are never kept as a company description (a re-scrape replaces one that was), never trigger "enough data" (so the context.dev fallback runs), and are never used as Quick Check evidence.
+- **Page refresh:** a company page that arrives with enrichment "pending" (for example after Go deeper) now watches it every 2 seconds and updates by itself when the scrape finishes.
+- **Quick Check:** besides the homepage and search snippets it reads recent news, open jobs and a related-work search (company name plus our offering areas). The card shows "What they are working on" and "What we could offer", each backed by a verified quote with its source and date. The call is "Yes", "Maybe", "No clear opening yet" or "Not enough information"; a Yes needs a real quote from their site, a news item or a job posting.
+- **Brief:** the filter is "Our offerings". Picking an offering with no brief open offers "Create a brief around <offering>?". The overall view has "Research what we could offer" (new job `company_offers`, `POST /companies/{id}/opportunities/offers`): it researches the company in the areas we sell in and judges every active offering, not a word-match shortlist.
+
+## Brief redesign: only what exists, a real map, clearer names
+- A new area shows one "Research <area>" card (named steps while it runs). After research the Brief is a stack of collapsible sections, each hidden when it has nothing to say: What <company> is doing, Connection map, Best offering to lead with (holds the "Work out the best offering" button), Who to start with, What to say, Gaps in the research, Try another angle. The Opportunity / Lead offering / People strip is gone.
+- **Connection map** (`brief/graph/`, React Flow `@xyflow/react`, loaded only when opened): company, their findings (news, hiring, initiative, partnership, technology), our offerings, people by tier, and the message. A finding is joined to an offering only where the fit cites the same evidence; dashed lines are inference or "not found yet". Drag, pan, zoom, hover to light up a path, click a box for its quote or reasoning; "Show as a list" for keyboards and small screens.
+- **Buying committee** moved to the People tab (`PeopleCommittee`) and no longer lists people twice: it ranks them for the first researched area (or `?area=`) and the one list of people below shows each person's part as a chip in front of the name (Decides, Influences, Would use it, Not involved, Not judged yet), with "Start here", the reasoning and a role selector on their own card, in committee order. The Brief keeps a one-line "Start with <name>" that links there.
+
+## Personal criteria, researched-only drafts, one Outreach tab
+- **Criteria are personal now.** The Qualification Criteria page, the saved list and its endpoints are gone. Criteria are typed where they are used and kept on the company (`companies.criteria`, migration `a7c3e9d15b24`): on the company's Overview ("Criteria for this company", `PUT /companies/{id}/criteria`, then "Check this company"), in a Market Discovery search (the criteria are also written onto every company the run finds), or in Quick Check's Advanced box (copied onto the company when saved). The `qualification_criteria` table is kept for now; the checks build temporary criteria from the typed ones.
+- **Why "Not worked out yet" did nothing:** the offering shortlist was a pure word match, so a company sharing no word with any offering got no judgement at all. When nothing is chosen and nothing matches, the model now names the offerings worth judging (`opportunity/pick.py`, ids checked against the catalogue; if it cannot answer, the first few offerings are judged), and each is still judged against evidence.
+- **Drafts follow the Brief.** A contact's "Write a draft" lists only the offerings already researched for the company, best fit first and preselected as the recommendation. With nothing researched it lists everything, seven at a time. The shared `OfferingPicker` (researched group, seven at a time on scroll) is also used on the Recommendations tab.
+- **Outreach** replaces the Drafts and Follow-ups sidebar items: one page with Drafts and Follow-ups tabs (`/outreach?view=`), ready for sent mail and replies once Gmail is linked. `/drafts` and `/follow-ups` redirect there.
