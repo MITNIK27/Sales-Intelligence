@@ -807,6 +807,7 @@ export type Draft = {
   body: string;
   status: DraftStatus;
   model_used: string;
+  grounding_flags?: string[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -989,6 +990,7 @@ export type DashboardDraftItem = {
   body: string;
   status: DraftStatus;
   model_used: string;
+  grounding_flags?: string[] | null;
   created_at: string;
   updated_at: string;
 };

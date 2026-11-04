@@ -7,6 +7,7 @@ from app.modules.ai_recommendation.models import Recommendation
 from app.modules.companies.models import Company
 from app.modules.companies.service import get_company_detail
 from app.modules.contacts.models import Contact
+from app.modules.draft.claims import find_unsupported_claims
 from app.modules.draft.draft_generator import DraftGenerator
 from app.modules.draft.evidence import build_draft_evidence
 from app.modules.draft.models import (
@@ -206,6 +207,29 @@ async def generate_draft(
     chosen_product = products[chosen_index]
     chosen_recommendation = recommendations[chosen_index]
 
+    # What the draft was allowed to draw on; a figure or past-work claim outside it is flagged.
+    allowed = [
+        company.description,
+        company.industry,
+        company.employee_count_range,
+        chosen_product.name,
+        chosen_product.description,
+        *(
+            [
+                chosen_recommendation.pitch_summary,
+                chosen_recommendation.why_this_company,
+                *chosen_recommendation.talking_points,
+            ]
+            if chosen_recommendation
+            else []
+        ),
+        *(str(signal.get("text") or "") for signal in evidence.signals),
+        *evidence.qualification_points,
+        evidence.employee_count_range,
+        *(earlier_body for _, earlier_body in previous),
+    ]
+    flags = find_unsupported_claims(f"{result.subject or ''}\n{result.body}", allowed)
+
     draft = Draft(
         organization_id=organization_id,
         company_id=company_id,
@@ -219,6 +243,7 @@ async def generate_draft(
         body=result.body,
         model_used=generator.model_name,
         prompt_version=PROMPT_VERSION,
+        grounding_flags=flags or None,
     )
     session.add(draft)
     await session.flush()
@@ -329,6 +354,7 @@ async def list_all_drafts(
             body=d.body,
             status=d.status,
             model_used=d.model_used,
+            grounding_flags=d.grounding_flags,
             created_at=d.created_at,
             updated_at=d.updated_at,
         )

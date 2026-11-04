@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { DraftFlags } from "@/features/drafts/DraftFlags";
 
 export function DraftSection({
   contact,
@@ -248,6 +249,7 @@ export function DraftSection({
             {DRAFT_TYPE_LABELS[draft.draft_type]} draft — {draft.model_used} ·
             review and edit before sending.
           </p>
+          <DraftFlags flags={draft.grounding_flags} />
           <input
             type="text"
             value={subject}

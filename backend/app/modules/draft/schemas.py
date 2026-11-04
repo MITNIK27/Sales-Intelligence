@@ -40,6 +40,7 @@ class DraftOut(BaseModel):
     body: str
     status: str
     model_used: str
+    grounding_flags: list[str] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -59,6 +60,7 @@ class DraftListItem(BaseModel):
     body: str
     status: str
     model_used: str
+    grounding_flags: list[str] | None = None
     created_at: datetime
     updated_at: datetime
 

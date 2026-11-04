@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
+import { DraftFlags } from "@/features/drafts/DraftFlags";
 import { cn } from "@/lib/utils";
 
 type Tab = "draft" | "sent" | "discarded" | "all";
@@ -287,6 +288,11 @@ function DraftCard({
               <span className={cn("px-2 py-0.5 font-medium", chip.cls)}>
                 {chip.label}
               </span>
+              {(draft.grounding_flags?.length ?? 0) > 0 && (
+                <span className="bg-chip-warning-bg px-2 py-0.5 font-medium text-chip-warning-fg">
+                  {draft.grounding_flags?.length} to check
+                </span>
+              )}
               <span>{when(draft.created_at)}</span>
             </div>
           </div>
@@ -299,6 +305,7 @@ function DraftCard({
 
           {open && (
             <div className="mt-3 flex flex-col gap-2">
+              <DraftFlags flags={draft.grounding_flags} />
               <input
                 type="text"
                 value={subject}

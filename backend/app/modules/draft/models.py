@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
@@ -54,6 +54,9 @@ class Draft(Base, TimestampMixin, UpdatedAtMixin):
     status: Mapped[str] = mapped_column(String(20), default=DRAFT_STATUS_DRAFT)
     model_used: Mapped[str] = mapped_column(String(50))
     prompt_version: Mapped[str | None] = mapped_column(String(20))
+    # Figures or past-work claims the finished text makes that the research did not contain
+    # (draft/claims.py). Empty when none, and on drafts written before this check existed.
+    grounding_flags: Mapped[list[str] | None] = mapped_column(JSON)
     # The opportunity (business area) this was written for; null for drafts made without one.
     company_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("company_opportunities.id"), index=True
