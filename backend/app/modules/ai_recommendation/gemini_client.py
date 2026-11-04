@@ -92,16 +92,17 @@ async def _generate_metered(client: genai.Client, **kwargs: Any) -> types.Genera
         )
         raise
     usage = getattr(response, "usage_metadata", None)
-    # Thinking tokens are billed as output, so they are counted with it.
-    out = (getattr(usage, "candidates_token_count", None) or 0) + (
-        getattr(usage, "thoughts_token_count", None) or 0
-    )
+    # Thinking tokens are billed as output, so they are counted with it (and shown separately).
+    thinking = getattr(usage, "thoughts_token_count", None)
+    out = (getattr(usage, "candidates_token_count", None) or 0) + (thinking or 0)
     await record_usage(
         provider="gemini",
         kind="llm",
         model=model,
         tokens_in=getattr(usage, "prompt_token_count", None),
         tokens_out=out if usage is not None else None,
+        cached_tokens=getattr(usage, "cached_content_token_count", None),
+        thinking_tokens=thinking,
         latency_ms=elapsed_ms(begin),
     )
     return response

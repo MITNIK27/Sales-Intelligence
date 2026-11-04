@@ -31,5 +31,9 @@ class ApiUsage(Base, TimestampMixin):
     tokens_in: Mapped[int | None] = mapped_column(Integer)
     tokens_out: Mapped[int | None] = mapped_column(Integer)
     units: Mapped[int | None] = mapped_column(Integer)  # search queries or context.dev credits
+    # Part of tokens_in that the provider served from its cache. Thinking tokens are already
+    # inside tokens_out and are shown separately here. Empty when the provider did not say.
+    cached_tokens: Mapped[int | None] = mapped_column(Integer)
+    thinking_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     est_cost_usd: Mapped[float | None] = mapped_column(Float)

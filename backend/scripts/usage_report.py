@@ -38,10 +38,11 @@ async def main(days: int, review: bool) -> None:
         return
     print(f"Usage in the last {days} days (estimated cost, not a bill)\n")
     print(f"{'provider':<11}{'task':<22}{'calls':>6}{'errors':>7}{'tok in':>10}{'tok out':>9}"
-          f"{'units':>7}{'est $':>9}")
+          f"{'cached':>8}{'think':>8}{'units':>7}{'est $':>9}")
     for line in lines:
         print(f"{line.provider:<11}{line.task:<22}{line.calls:>6}{line.errors:>7}"
-              f"{line.tokens_in:>10}{line.tokens_out:>9}{line.units:>7}{line.est_cost_usd:>9.4f}")
+              f"{line.tokens_in:>10}{line.tokens_out:>9}{line.cached_tokens:>8}"
+              f"{line.thinking_tokens:>8}{line.units:>7}{line.est_cost_usd:>9.4f}")
     print(f"\nTotal estimated: ${sum(line.est_cost_usd for line in lines):.4f}")
     if per_company is not None:
         _print_review(lines, per_company)

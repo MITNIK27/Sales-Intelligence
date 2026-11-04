@@ -52,6 +52,8 @@ async def record_usage(
     tokens_out: int | None = None,
     units: int | None = None,
     latency_ms: int | None = None,
+    cached_tokens: int | None = None,
+    thinking_tokens: int | None = None,
 ) -> None:
     try:
         if not get_settings().usage_logging_enabled:
@@ -71,6 +73,8 @@ async def record_usage(
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             units=units,
+            cached_tokens=cached_tokens,
+            thinking_tokens=thinking_tokens,
             latency_ms=latency_ms,
             est_cost_usd=estimate_cost_usd(provider, kind, tokens_in, tokens_out, units),
         )

@@ -18,6 +18,8 @@ class UsageLine:
     tokens_out: int
     units: int
     est_cost_usd: float
+    cached_tokens: int = 0
+    thinking_tokens: int = 0
 
 
 async def summarize_usage(
@@ -48,6 +50,8 @@ async def summarize_usage(
             tokens_out=sum(r.tokens_out or 0 for r in items),
             units=sum(r.units or 0 for r in items),
             est_cost_usd=sum(r.est_cost_usd or 0.0 for r in items),
+            cached_tokens=sum(r.cached_tokens or 0 for r in items),
+            thinking_tokens=sum(r.thinking_tokens or 0 for r in items),
         )
         for (provider, task), items in sorted(grouped.items())
     ]
