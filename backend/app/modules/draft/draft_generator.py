@@ -6,16 +6,13 @@ about never inventing a proof point/case study it wasn't given."""
 
 from abc import ABC, abstractmethod
 
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types
 from pydantic import BaseModel
 
 from app.core.config import Settings
 from app.modules.ai_recommendation.gemini_client import (
+    MAX_OUTPUT_TOKENS,
     GeminiClientError,
-    format_gemini_error,
-    generate_content_with_retry,
+    generate_structured,
 )
 from app.modules.ai_recommendation.models import Recommendation
 from app.modules.companies.models import Company
@@ -151,25 +148,14 @@ class GeminiDraftGenerator(DraftGenerator):
             style_reference=STYLE_REFERENCE_EXAMPLES,
         )
 
-        client = genai.Client(api_key=self._settings.gemini_api_key)
-        try:
-            response = await generate_content_with_retry(
-                client,
-                model=self._settings.gemini_model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=DraftResult,
-                ),
-            )
-        except genai_errors.APIError as exc:
-            raise GeminiClientError(format_gemini_error(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a clear failure
-            raise GeminiClientError(f"Gemini request failed: {exc}") from exc
-
-        parsed = response.parsed
-        if not isinstance(parsed, DraftResult):
-            raise GeminiClientError("Gemini did not return a valid structured response")
+        parsed = await generate_structured(
+            api_key=self._settings.gemini_api_key,
+            model=self._settings.gemini_model,
+            prompt=prompt,
+            schema=DraftResult,
+            temperature=None,
+            max_output_tokens=MAX_OUTPUT_TOKENS,
+        )
         if not 1 <= parsed.chosen_option <= len(products):
             raise GeminiClientError(
                 f"Gemini returned chosen_option={parsed.chosen_option}, outside the given "

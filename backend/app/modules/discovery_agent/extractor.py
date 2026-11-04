@@ -9,13 +9,15 @@ Imported at module scope (not lazily inside methods) so tests can monkeypatch
 
 from abc import ABC, abstractmethod
 
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types
 from pydantic import BaseModel
 
 from app.core.config import Settings
-from app.modules.ai_recommendation.gemini_client import generate_content_with_retry
+from app.modules.ai_recommendation.gemini_client import (
+    MAX_OUTPUT_TOKENS,
+    GeminiClientError,
+    GeminiInvalidResponseError,
+    generate_structured,
+)
 from app.modules.discovery_agent.prompts import build_extraction_prompt
 from app.modules.discovery_agent.schemas import ExtractedCompany, MarketCriteria, RawSearchResult
 
@@ -74,23 +76,17 @@ class GeminiCompanyExtractionModel(CompanyExtractionModel):
             raise ExtractionModelError("GEMINI_API_KEY is not configured")
 
         prompt = build_extraction_prompt(criteria, search_results)
-        client = genai.Client(api_key=self._settings.gemini_api_key)
         try:
-            response = await generate_content_with_retry(
-                client,
+            parsed = await generate_structured(
+                api_key=self._settings.gemini_api_key,
                 model=self._model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=_ExtractionResponse,
-                ),
+                prompt=prompt,
+                schema=_ExtractionResponse,
+                temperature=None,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
             )
-        except genai_errors.APIError as exc:
+        except GeminiInvalidResponseError as exc:
+            raise ExtractionModelError(str(exc)) from exc
+        except GeminiClientError as exc:
             raise ExtractionModelError(f"Gemini extraction failed: {exc}") from exc
-        except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a clear failure
-            raise ExtractionModelError(f"Gemini extraction failed: {exc}") from exc
-
-        parsed = response.parsed
-        if not isinstance(parsed, _ExtractionResponse):
-            raise ExtractionModelError("Gemini did not return a valid structured response")
         return _to_extracted(parsed.companies)

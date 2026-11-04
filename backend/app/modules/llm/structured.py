@@ -12,15 +12,13 @@ from abc import ABC, abstractmethod
 from typing import TypeVar
 
 import httpx
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types
 from pydantic import BaseModel, ValidationError
 
 from app.core.config import Settings
 from app.modules.ai_recommendation.gemini_client import (
-    format_gemini_error,
-    generate_content_with_retry,
+    MAX_OUTPUT_TOKENS,
+    GeminiClientError,
+    generate_structured,
 )
 from app.modules.usage.recorder import elapsed_ms, record_usage, started
 
@@ -138,26 +136,17 @@ class GeminiStructuredLLM(StructuredLLM):
     async def generate(self, prompt: str, schema: type[T]) -> T:
         if not self._api_key:
             raise LLMError("GEMINI_API_KEY is not configured")
-        client = genai.Client(api_key=self._api_key)
         try:
-            response = await generate_content_with_retry(
-                client,
+            return await generate_structured(
+                api_key=self._api_key,
                 model=self._model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=schema,
-                    temperature=0,
-                ),
+                prompt=prompt,
+                schema=schema,
+                temperature=0,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
             )
-        except genai_errors.APIError as exc:
-            raise LLMError(format_gemini_error(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 - reported as "this vendor failed", chain moves on
-            raise LLMError(f"Gemini request failed: {exc}") from exc
-        parsed = response.parsed
-        if not isinstance(parsed, schema):
-            raise LLMError("Gemini did not return a valid structured response")
-        return parsed
+        except GeminiClientError as exc:  # "this vendor failed": the chain moves on
+            raise LLMError(str(exc)) from exc
 
 
 class FallbackStructuredLLM(StructuredLLM):

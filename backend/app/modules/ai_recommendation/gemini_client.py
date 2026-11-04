@@ -155,6 +155,86 @@ class GeminiClientError(RuntimeError):
     back to here — the caller must surface this, not silently continue."""
 
 
+class GeminiInvalidResponseError(GeminiClientError):
+    """Gemini answered, but the answer could not be read as the requested schema (even after the
+    one repair try), or was cut off at the output cap."""
+
+
+# The cap on a reply's length (thinking tokens count towards it). Far above any answer this app
+# asks for, so it never cuts a real answer short; it only stops a runaway reply from being billed
+# without limit. Passed explicitly at every call so the choice is visible where the call is made.
+MAX_OUTPUT_TOKENS = 8192
+
+_REPAIR_NOTE = (
+    "\n\nYour previous reply could not be read as the required JSON. Reply again with only the "
+    "JSON object that matches the schema."
+)
+
+
+def _hit_output_limit(response: types.GenerateContentResponse) -> bool:
+    candidates = getattr(response, "candidates", None) or []
+    reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+    return reason is not None and getattr(reason, "name", str(reason)) == "MAX_TOKENS"
+
+
+async def generate_structured[T: BaseModel](
+    *,
+    api_key: str,
+    model: str,
+    prompt: str,
+    schema: type[T],
+    temperature: float | None,
+    max_output_tokens: int,
+    thinking_budget: int | None = None,
+) -> T:
+    """The one place the app asks Gemini for a structured answer (docs/ai-governance.md, G6).
+
+    `temperature=None` leaves the provider default; it is a required argument so each caller
+    records its choice. `thinking_budget` is only sent when given: not every Gemini model accepts
+    every budget (some cannot switch thinking off), so it is not forced on all calls.
+
+    A reply that is not valid for the schema gets one more try with a short note appended (G7),
+    unless it was cut off at the output cap, where asking again would only cut it off again.
+    Every failure is raised as `GeminiClientError`; callers that report another error type
+    translate it."""
+    client = genai.Client(api_key=api_key)
+    config_args: dict[str, Any] = {
+        "response_mime_type": "application/json",
+        "response_schema": schema,
+        "max_output_tokens": max_output_tokens,
+    }
+    if temperature is not None:
+        config_args["temperature"] = temperature
+    if thinking_budget is not None:
+        config_args["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
+    config = types.GenerateContentConfig(**config_args)
+
+    for attempt in (1, 2):
+        try:
+            response = await generate_content_with_retry(
+                client,
+                model=model,
+                contents=prompt if attempt == 1 else prompt + _REPAIR_NOTE,
+                config=config,
+            )
+        except GeminiClientError:
+            raise
+        except genai_errors.APIError as exc:
+            raise GeminiClientError(format_gemini_error(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a clear failure
+            raise GeminiClientError(f"Gemini request failed: {exc}") from exc
+
+        parsed = response.parsed
+        if isinstance(parsed, schema):
+            return parsed
+        if _hit_output_limit(response):
+            raise GeminiInvalidResponseError(
+                f"Gemini did not return a valid structured response: the answer was cut off at "
+                f"{max_output_tokens} tokens"
+            )
+    raise GeminiInvalidResponseError("Gemini did not return a valid structured response")
+
+
 _PROMPT_TEMPLATE = """You are parsing a sales rep's free-text description of a target market \
 into structured search criteria. Extract exactly these three fields:
 
@@ -186,23 +266,11 @@ class GeminiMarketDescriptionParser(MarketDescriptionParser):
         if not self._settings.gemini_api_key:
             raise GeminiClientError("GEMINI_API_KEY is not configured")
 
-        client = genai.Client(api_key=self._settings.gemini_api_key)
-        try:
-            response = await generate_content_with_retry(
-                client,
-                model=self._settings.gemini_model,
-                contents=_PROMPT_TEMPLATE.format(raw_text=raw_text),
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=MarketCriteria,
-                ),
-            )
-        except genai_errors.APIError as exc:
-            raise GeminiClientError(format_gemini_error(exc)) from exc
-        except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a clear failure
-            raise GeminiClientError(f"Gemini request failed: {exc}") from exc
-
-        parsed = response.parsed
-        if not isinstance(parsed, MarketCriteria):
-            raise GeminiClientError("Gemini did not return a valid structured response")
-        return parsed
+        return await generate_structured(
+            api_key=self._settings.gemini_api_key,
+            model=self._settings.gemini_model,
+            prompt=_PROMPT_TEMPLATE.format(raw_text=raw_text),
+            schema=MarketCriteria,
+            temperature=None,
+            max_output_tokens=MAX_OUTPUT_TOKENS,
+        )
