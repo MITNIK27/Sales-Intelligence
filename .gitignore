@@ -36,3 +36,7 @@ backend/logs/
 backend/tests/
 frontend/src/**/*.test.ts
 frontend/src/**/*.test.tsx
+
+# Local outputs and build artifacts
+Claude outputs/
+frontend/tsconfig.tsbuildinfo
