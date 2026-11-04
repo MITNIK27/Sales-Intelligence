@@ -67,3 +67,4 @@ class RoleRelevanceResult(Base, TimestampMixin):
     priority: Mapped[str] = mapped_column(String(20))  # "primary" | "secondary" | "not_relevant"
     reasoning: Mapped[str] = mapped_column(String)
     model_used: Mapped[str] = mapped_column(String(50))
+    prompt_version: Mapped[str | None] = mapped_column(String(20))

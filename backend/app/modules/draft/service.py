@@ -17,6 +17,7 @@ from app.modules.draft.models import (
     DRAFT_TYPE_FIRST_TOUCH,
     Draft,
 )
+from app.modules.draft.prompts import PROMPT_VERSION
 from app.modules.draft.schemas import DraftListItem, DraftListOut
 from app.modules.products.service import get_product
 from app.modules.role_relevance.models import FRAMING_STYLE_BUSINESS, FRAMING_STYLE_TECHNICAL
@@ -217,6 +218,7 @@ async def generate_draft(
         subject=result.subject,
         body=result.body,
         model_used=generator.model_name,
+        prompt_version=PROMPT_VERSION,
     )
     session.add(draft)
     await session.flush()

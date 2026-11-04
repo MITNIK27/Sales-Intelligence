@@ -12,6 +12,7 @@ from app.modules.role_relevance.models import (
     RoleCategory,
     RoleRelevanceResult,
 )
+from app.modules.role_relevance.prompts import PROMPT_VERSION
 from app.modules.role_relevance.role_relevance_generator import RoleRelevanceGenerator
 
 
@@ -233,6 +234,7 @@ async def run_role_relevance_check(
             priority=entry["priority"],
             reasoning=entry["reasoning"],
             model_used=generator.model_name,
+            prompt_version=PROMPT_VERSION,
         )
         for entry in judged
     ]

@@ -6,6 +6,9 @@ from pydantic import BaseModel
 
 from app.modules.llm.structured import StructuredLLM
 
+# Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
+PROMPT_VERSION = "v1"
+
 # Only this much of a page is shown to the model: the top of a marketing page carries what the
 # offering is; the rest is boilerplate, and a smaller prompt keeps a free-tier call cheap.
 _PROMPT_CHARS = 8_000

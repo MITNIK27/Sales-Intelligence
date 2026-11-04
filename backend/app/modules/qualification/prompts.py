@@ -13,6 +13,9 @@ from app.modules.enrichment.models import EnrichmentRecord
 from app.modules.qualification.evidence import MAX_SIGNALS_IN_PROMPT, numbered_signals
 from app.modules.qualification.models import QualificationCriterion
 
+# Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
+PROMPT_VERSION = "v1"
+
 # Recent signals are informative but unbounded history isn't useful in a prompt — same cap and
 # reasoning as ai_recommendation/recommendation_generator.py's MAX_SIGNALS_IN_PROMPT. Re-exported
 # here because the cap now lives with the evidence numbering that must agree with it.

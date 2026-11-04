@@ -12,6 +12,9 @@ from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
 from app.modules.role_relevance.models import RoleCategory
 
+# Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
+PROMPT_VERSION = "v1"
+
 _PROMPT = """You are matching a company's contacts to a sales organization's own role categories, \
 one contact at a time. This decides who a rep spends limited outreach effort on — a wrong match \
 wastes that effort on the wrong person, and a wrong "no match" means a real decision-maker gets \

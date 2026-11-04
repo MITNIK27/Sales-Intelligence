@@ -30,6 +30,7 @@ from app.modules.opportunity.research.types import ResearchSources
 from app.modules.products.models import STATUS_ACTIVE, Product
 from app.modules.qualification.service import add_company_criteria
 from app.modules.quicklook.models import CompanySnapshot
+from app.modules.quicklook.prompts import PROMPT_VERSION
 from app.modules.quicklook.research import gather_research
 from app.modules.quicklook.resolve import Candidate, build_candidates, name_tokens, pick
 from app.modules.quicklook.snapshot import (
@@ -289,6 +290,8 @@ async def look_up(
     snapshot.summary = summary
     snapshot.sources = sources
     snapshot.offerings_hash = fingerprint
+    snapshot.model_used = getattr(llm, "last_model", None)
+    snapshot.prompt_version = PROMPT_VERSION
     snapshot.updated_at = datetime.now(UTC)
     session.add(snapshot)
     await session.flush()

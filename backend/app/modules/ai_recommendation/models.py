@@ -33,6 +33,7 @@ class Recommendation(Base, TimestampMixin):
     why_this_company: Mapped[str] = mapped_column(String)
     talking_points: Mapped[list[str]] = mapped_column(JSON)
     model_used: Mapped[str] = mapped_column(String(50))
+    prompt_version: Mapped[str | None] = mapped_column(String(20))
     # The opportunity (business area) this was written for and the assessment version it was
     # grounded in; both null for recommendations made before opportunities existed.
     company_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(

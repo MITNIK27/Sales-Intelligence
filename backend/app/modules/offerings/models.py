@@ -55,6 +55,10 @@ class OfferingProposal(Base, TimestampMixin):
     # spot, and any wording the grounding check could not find on the page.
     source_excerpt: Mapped[str | None] = mapped_column(String)
     grounding_flags: Mapped[list[str] | None] = mapped_column(JSON)
+    # Which model and prompt read the page; empty for removals (they come from a 404 check) and
+    # for proposals made before this was kept.
+    model_used: Mapped[str | None] = mapped_column(String(50))
+    prompt_version: Mapped[str | None] = mapped_column(String(20))
 
 
 class OfferingPage(Base, TimestampMixin):

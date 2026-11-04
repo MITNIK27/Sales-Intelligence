@@ -33,6 +33,7 @@ from app.modules.opportunity.research.types import ResearchSources
 from app.modules.opportunity.service import get_or_create_opportunity, save_focus_evidence
 from app.modules.qualification.evidence import describe_source, status_for_verdict
 from app.modules.qualification.models import QualificationCriterion, QualificationResult
+from app.modules.qualification.prompts import PROMPT_VERSION
 from app.modules.qualification.qualification_generator import (
     GeminiQualificationGenerator,
     QualificationGenerator,
@@ -210,6 +211,7 @@ async def run_qualification_check(
         overall_verdict=overall_verdict,
         criteria_results=criteria_results,
         model_used=generator.model_name,
+        prompt_version=PROMPT_VERSION,
         focus=focus,
     )
     session.add(result)

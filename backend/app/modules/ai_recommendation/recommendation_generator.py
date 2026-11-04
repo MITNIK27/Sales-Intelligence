@@ -50,6 +50,9 @@ def _format_signals(signals: list[EnrichmentRecord]) -> str:
     return "\n".join(lines)
 
 
+# Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
+PROMPT_VERSION = "v1"
+
 _PROMPT_TEMPLATE = """You are helping a salesperson prepare to pitch a product to a company. \
 Based on the company's firmographics, its known contacts, its recent buying signals, and the \
 product being sold, write sales-prep intelligence for the rep to read before reaching out. \

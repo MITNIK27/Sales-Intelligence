@@ -44,6 +44,8 @@ class StructuredLLM(ABC):
     allows_personal_data = False
 
     name: str
+    # The model this vendor calls, so the chain can say which one answered.
+    model: str = ""
 
     @abstractmethod
     async def generate(self, prompt: str, schema: type[T]) -> T: ...
@@ -56,6 +58,7 @@ class GroqStructuredLLM(StructuredLLM):
         self.allows_personal_data = settings.groq_may_receive_personal_data
         self._api_key = settings.groq_api_key
         self._model = model or settings.groq_model
+        self.model = self._model
         self._timeout = settings.groq_timeout_seconds
 
     async def generate(self, prompt: str, schema: type[T]) -> T:
@@ -132,6 +135,7 @@ class GeminiStructuredLLM(StructuredLLM):
     def __init__(self, settings: Settings) -> None:
         self._api_key = settings.gemini_api_key
         self._model = settings.gemini_model
+        self.model = self._model
 
     async def generate(self, prompt: str, schema: type[T]) -> T:
         if not self._api_key:
@@ -158,6 +162,8 @@ class FallbackStructuredLLM(StructuredLLM):
     def __init__(self, vendors: list[StructuredLLM]) -> None:
         self._vendors = vendors
         self.used: set[str] = set()
+        # The model behind the most recent answer; read it right after the call it belongs to.
+        self.last_model: str | None = None
 
     async def generate(self, prompt: str, schema: type[T]) -> T:
         errors: list[str] = []
@@ -169,6 +175,7 @@ class FallbackStructuredLLM(StructuredLLM):
                 errors.append(f"{vendor.name}: {exc}")
                 continue
             self.used.add(vendor.name)
+            self.last_model = vendor.model or None
             return result
         raise LLMError("; ".join(errors) or "no language model is configured")
 

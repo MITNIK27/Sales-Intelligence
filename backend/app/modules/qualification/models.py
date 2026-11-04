@@ -45,6 +45,7 @@ class QualificationResult(Base, TimestampMixin):
     # never rewrites past judgment history.
     criteria_results: Mapped[list[dict[str, object]]] = mapped_column(JSON)
     model_used: Mapped[str] = mapped_column(String(50))
+    prompt_version: Mapped[str | None] = mapped_column(String(20))
     # The area a Quick Check was asked to judge fit around (e.g. a technology area). Null means a
     # general judgment, so a focused result is never mistaken for one.
     focus: Mapped[str | None] = mapped_column(String(200), nullable=True)

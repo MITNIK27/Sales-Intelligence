@@ -4,7 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.ai_recommendation.models import Recommendation
-from app.modules.ai_recommendation.recommendation_generator import RecommendationGenerator
+from app.modules.ai_recommendation.recommendation_generator import (
+    PROMPT_VERSION,
+    RecommendationGenerator,
+)
 from app.modules.companies.service import get_company_detail
 from app.modules.enrichment.service import list_company_signals
 from app.modules.products.service import get_product
@@ -62,6 +65,7 @@ async def generate_recommendation(
         why_this_company=result.why_this_company,
         talking_points=result.talking_points,
         model_used=generator.model_name,
+        prompt_version=PROMPT_VERSION,
         company_opportunity_id=opportunity_id,
         opportunity_assessment_id=assessment_id,
     )

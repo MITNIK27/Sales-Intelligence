@@ -22,3 +22,6 @@ class CompanySnapshot(Base, TimestampMixin, UpdatedAtMixin):
     summary: Mapped[dict] = mapped_column(JSON)
     sources: Mapped[list] = mapped_column(JSON)
     offerings_hash: Mapped[str] = mapped_column(String(64))
+    # Which model and prompt wrote the summary; empty on snapshots made before this was kept.
+    model_used: Mapped[str | None] = mapped_column(String(50))
+    prompt_version: Mapped[str | None] = mapped_column(String(20))

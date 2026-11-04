@@ -31,15 +31,9 @@ AI_TABLES: list[type[DeclarativeBase]] = [
     RoleRelevanceResult,
 ]
 
-# What each table is still missing. Phase 1 fills these in and empties the dict.
-KNOWN_GAPS: dict[str, set[str]] = {
-    "CompanySnapshot": {"model_used", "prompt_version"},
-    "Draft": {"prompt_version"},
-    "OfferingProposal": {"model_used", "prompt_version"},
-    "QualificationResult": {"prompt_version"},
-    "Recommendation": {"prompt_version"},
-    "RoleRelevanceResult": {"prompt_version"},
-}
+# What each table is still missing. Empty: every AI table has both columns. A table that cannot
+# have them yet goes here with a reason, and leaves again when it is fixed.
+KNOWN_GAPS: dict[str, set[str]] = {}
 
 
 def _missing(model: type[DeclarativeBase]) -> set[str]:

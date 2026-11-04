@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings, get_settings
 from app.modules.jobs.models import Job
 from app.modules.llm.structured import LLMError, StructuredLLM, build_structured_llm
-from app.modules.offerings.extractor import extract_offering
+from app.modules.offerings.extractor import PROMPT_VERSION, extract_offering
 from app.modules.offerings.grounding import check_grounding, source_excerpt
 from app.modules.offerings.menu import read_menu
 from app.modules.offerings.models import (
@@ -580,6 +580,7 @@ async def _process_page(
     if extraction is None:
         return "not_offering", None
     assert extraction.kind is not None and extraction.name is not None  # extract_offering checked
+    model_used = getattr(llm, "last_model", None)  # read right after the call it belongs to
 
     name = extraction.name.strip()[:255]
     if (
@@ -607,6 +608,8 @@ async def _process_page(
         pending.origin = ref.lane
         pending.source_excerpt = excerpt
         pending.grounding_flags = flags
+        pending.model_used = model_used
+        pending.prompt_version = PROMPT_VERSION
     else:
         proposal = OfferingProposal(
             organization_id=organization_id,
@@ -621,6 +624,8 @@ async def _process_page(
             origin=ref.lane,
             source_excerpt=excerpt,
             grounding_flags=flags,
+            model_used=model_used,
+            prompt_version=PROMPT_VERSION,
         )
         session.add(proposal)
         pending_by_url[url] = proposal

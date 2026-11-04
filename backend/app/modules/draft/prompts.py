@@ -10,6 +10,9 @@ from app.modules.draft.models import (
 )
 from app.modules.products.models import KIND_SERVICE
 
+# Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
+PROMPT_VERSION = "v1"
+
 _FRAMING_INSTRUCTIONS = {
     "business": (
         "Write in outcome/cost-savings language — frame value in terms of business results, "
