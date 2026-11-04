@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.companies.models import Company
 from app.modules.enrichment.models import EnrichmentRecord
 from app.modules.llm.structured import StructuredLLM
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 from app.modules.opportunity.assessment import model_names
 from app.modules.opportunity.evidence import (
     EvidenceItem,
@@ -41,7 +42,7 @@ from app.modules.products.models import Product
 
 logger = logging.getLogger(__name__)
 
-FIT_PROMPT_VERSION = "v1"
+FIT_PROMPT_VERSION = "v2"
 NO_EVIDENCE_REASON = "There is no evidence on file to judge this fit."
 # For an offering the model gave no answer about: nothing in the evidence points to a need for it.
 NOT_ANSWERED_REASON = "The research shows no need for this offering."
@@ -147,6 +148,7 @@ def _profile_block(label: str, product: Product) -> str:
     return "\n".join(lines)
 
 
+@untrusted_aware
 def build_fit_prompt(
     company: Company,
     opportunity: CompanyOpportunity,
@@ -177,7 +179,7 @@ Already established about this area (checked earlier):
 {established}
 
 Evidence:
-{evidence_text}
+{wrap_untrusted(evidence_text, "evidence")}
 
 Offerings to judge:
 {chr(10).join(_profile_block(label, product) for label, product in offerings)}

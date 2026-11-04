@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.modules.companies.models import Company
 from app.modules.llm.structured import StructuredLLM
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 from app.modules.opportunity.models import CompanyOpportunity
 from app.modules.opportunity.shortlist import SHORTLIST_SIZE
 from app.modules.products.models import Product
@@ -36,6 +37,7 @@ def _line(label: str, product: Product) -> str:
     return " - ".join(parts)
 
 
+@untrusted_aware
 def build_pick_prompt(
     company: Company,
     opportunity: CompanyOpportunity,
@@ -48,7 +50,7 @@ def build_pick_prompt(
     ).strip()
     return (
         "You choose which of our offerings are worth considering for a company.\n"
-        f"Company: {company.name}. {about[:600]}\n"
+        f"Company: {company.name}. {wrap_untrusted(about[:600], 'company description')}\n"
         f"Area being researched: {opportunity.area_label}\n"
         + (
             "What the research found:\n" + "\n".join(f"- {f}" for f in findings[:8]) + "\n"

@@ -10,11 +10,12 @@ design decision for this phase: auditable Python logic, not a model inferring in
 
 from app.modules.companies.models import Company
 from app.modules.enrichment.models import EnrichmentRecord
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 from app.modules.qualification.evidence import MAX_SIGNALS_IN_PROMPT, numbered_signals
 from app.modules.qualification.models import QualificationCriterion
 
 # Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 # Recent signals are informative but unbounded history isn't useful in a prompt — same cap and
 # reasoning as ai_recommendation/recommendation_generator.py's MAX_SIGNALS_IN_PROMPT. Re-exported
@@ -128,6 +129,7 @@ could_not_determine, not a guess.
 """
 
 
+@untrusted_aware
 def build_qualification_prompt(
     company: Company,
     signals: list[EnrichmentRecord],
@@ -139,8 +141,10 @@ def build_qualification_prompt(
         company_domain=company.domain or "unknown",
         company_industry=company.industry or "unknown",
         company_employee_count_range=company.employee_count_range or "unknown",
-        company_description=company.description or "No description available.",
-        signals=_format_signals(signals),
+        company_description=wrap_untrusted(
+            company.description or "No description available.", "company description"
+        ),
+        signals=wrap_untrusted(_format_signals(signals), "signals"),
         criteria=_format_criteria(criteria),
     )
     if focus:

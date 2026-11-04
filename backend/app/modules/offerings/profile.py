@@ -14,6 +14,7 @@ from typing import Any
 from pydantic import BaseModel, field_validator
 
 from app.modules.llm.structured import StructuredLLM
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 from app.modules.products.models import Product
 
 PROFILE_GENERATED = "generated"
@@ -56,13 +57,17 @@ def content_hash(profile: dict[str, Any]) -> str:
     return hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest()
 
 
+@untrusted_aware
 def build_profile_prompt(product: Product) -> str:
+    description = wrap_untrusted(
+        product.description or "No description available.", "offering description"
+    )
     return f"""You are describing who inside a company buys and influences one of InfoBeans' \
 offerings, so a salesperson can tell which people at a prospect matter for it. Use only the \
 information below; do not invent customers, numbers or claims.
 
 Offering: {product.name} ({product.kind})
-Description: {product.description or "No description available."}
+Description: {description}
 
 Return:
 - buyer_functions: the business functions that typically decide to buy this (for example "IT \

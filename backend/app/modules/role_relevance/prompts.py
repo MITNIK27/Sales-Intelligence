@@ -10,10 +10,11 @@ verdict: auditable Python logic, not a model inferring intent from wording.
 
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 from app.modules.role_relevance.models import RoleCategory
 
 # Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 _PROMPT = """You are matching a company's contacts to a sales organization's own role categories, \
 one contact at a time. This decides who a rep spends limited outreach effort on — a wrong match \
@@ -88,13 +89,16 @@ def _format_categories(categories: list[RoleCategory]) -> str:
     return "\n".join(lines)
 
 
+@untrusted_aware
 def build_role_relevance_prompt(
     company: Company, contacts: list[Contact], categories: list[RoleCategory]
 ) -> str:
     return _PROMPT.format(
         company_name=company.name,
         company_industry=company.industry or "unknown",
-        company_description=company.description or "No description available.",
-        contacts=_format_contacts(contacts),
+        company_description=wrap_untrusted(
+            company.description or "No description available.", "company description"
+        ),
+        contacts=wrap_untrusted(_format_contacts(contacts), "contact titles"),
         categories=_format_categories(categories),
     )

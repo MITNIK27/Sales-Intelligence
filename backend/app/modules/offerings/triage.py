@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel
 
 from app.modules.llm.structured import LLMError, StructuredLLM
+from app.modules.llm.untrusted import with_untrusted_notice, wrap_untrusted
 
 BATCH_SIZE = 20
 _BLURB_CHARS = 160
@@ -65,7 +66,10 @@ async def triage_posts(
     for start in range(0, len(pages), BATCH_SIZE):
         batch = pages[start : start + BATCH_SIZE]
         try:
-            result = await llm.generate(_PROMPT.format(pages=_render(batch)), TriageResult)
+            prompt = with_untrusted_notice(
+                _PROMPT.format(pages=wrap_untrusted(_render(batch), "blog pages"))
+            )
+            result = await llm.generate(prompt, TriageResult)
         except LLMError:
             undecided.extend(batch)
             continue

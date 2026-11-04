@@ -2,11 +2,12 @@
 the code does not depend on the model following them: every citation is verified afterwards."""
 
 from app.modules.companies.models import Company
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 from app.modules.opportunity.sufficiency import FINDING_KINDS
 
 # Bump when a prompt changes in a way that should invalidate earlier assessments (it is part of
 # the cache key, so a new version judges the same evidence again).
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 _GROUND_RULES = """Ground rules:
 - Use ONLY the numbered evidence below. Do not use anything you know about this company from \
@@ -26,6 +27,7 @@ def _company_block(company: Company, industry: str | None) -> str:
     )
 
 
+@untrusted_aware
 def build_assessment_prompt(
     company: Company, area_label: str, industry: str | None, evidence_text: str
 ) -> str:
@@ -40,7 +42,7 @@ Business area to assess: {area_label}
 - Each finding has a kind, one of: {kinds}. Use "hiring" only for evidence that is a job posting.
 
 Evidence:
-{evidence_text}
+{wrap_untrusted(evidence_text, "evidence")}
 
 Return:
 - summary: two plain sentences on what the evidence shows about this company in this area. If it \
@@ -50,6 +52,7 @@ shows little, say so plainly.
 "no job postings", "no announcement of a programme")."""
 
 
+@untrusted_aware
 def build_area_prompt(
     company: Company, industry: str | None, evidence_text: str, offering_areas: list[str]
 ) -> str:
@@ -67,7 +70,7 @@ sell, with no supporting evidence, must not be suggested.
 - Prefer a few well-supported areas over many weak ones. At most 5.
 
 Evidence:
-{evidence_text}
+{wrap_untrusted(evidence_text, "evidence")}
 
 Return areas, each with a short label (for example "cloud migration"), one sentence on why the \
 evidence points to it, the evidence label and a verbatim quote. Return an empty list if the \

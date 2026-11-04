@@ -18,6 +18,7 @@ from app.modules.ai_recommendation.gemini_client import (
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
 from app.modules.enrichment.models import EnrichmentRecord
+from app.modules.llm.untrusted import with_untrusted_notice, wrap_untrusted
 from app.modules.products.models import Product
 
 # Recent signals are informative but unbounded EnrichmentRecord history isn't useful in a
@@ -51,7 +52,7 @@ def _format_signals(signals: list[EnrichmentRecord]) -> str:
 
 
 # Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 _PROMPT_TEMPLATE = """You are helping a salesperson prepare to pitch a product to a company. \
 Based on the company's firmographics, its known contacts, its recent buying signals, and the \
@@ -130,13 +131,16 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
             company_domain=company.domain or "unknown",
             company_industry=company.industry or "unknown",
             company_employee_count_range=company.employee_count_range or "unknown",
-            company_description=company.description or "No description available.",
-            contacts=_format_contacts(contacts),
-            signals=_format_signals(signals),
+            company_description=wrap_untrusted(
+                company.description or "No description available.", "company description"
+            ),
+            contacts=wrap_untrusted(_format_contacts(contacts), "contact titles"),
+            signals=wrap_untrusted(_format_signals(signals), "signals"),
             product_name=product.name,
             product_description=product.description or "No description available.",
             opportunity_section=(f"\n{opportunity_context}\n" if opportunity_context else ""),
         )
+        prompt = with_untrusted_notice(prompt)
 
         return await generate_structured(
             api_key=self._settings.gemini_api_key,

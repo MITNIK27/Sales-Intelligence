@@ -5,9 +5,10 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.modules.llm.structured import StructuredLLM
+from app.modules.llm.untrusted import with_untrusted_notice, wrap_untrusted
 
 # Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 # Only this much of a page is shown to the model: the top of a marketing page carries what the
 # offering is; the rest is boilerplate, and a smaller prompt keeps a free-tier call cheap.
@@ -57,7 +58,9 @@ async def extract_offering(
     """The extraction, or `None` when the page is not a usable offering (not one, or the model
     left out its kind or name). `forced` is for a page a person has said is an offering: the model
     is told so, and only a missing kind or name can make it unusable."""
-    prompt = _PROMPT.format(url=url, text=text[:_PROMPT_CHARS])
+    prompt = with_untrusted_notice(
+        _PROMPT.format(url=url, text=wrap_untrusted(text[:_PROMPT_CHARS], "page text"))
+    )
     result = await llm.generate((_FORCED_NOTE + prompt) if forced else prompt, OfferingExtraction)
     if not forced and not result.is_offering:
         return None

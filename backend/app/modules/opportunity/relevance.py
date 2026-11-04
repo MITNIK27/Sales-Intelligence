@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
 from app.modules.llm.structured import StructuredLLM
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 from app.modules.opportunity.assessment import model_names
 from app.modules.opportunity.models import (
     ROLE_DECISION_MAKER,
@@ -31,7 +32,7 @@ from app.modules.opportunity.models import (
 from app.modules.opportunity.service import latest_assessment
 from app.modules.products.models import Product
 
-RELEVANCE_PROMPT_VERSION = "v1"
+RELEVANCE_PROMPT_VERSION = "v2"
 MAX_CONTACTS_JUDGED = 25
 NO_TITLE_REASON = "No job title is known, so this person's part in the decision cannot be judged."
 _CONFIDENCES = ("low", "medium", "high")
@@ -74,6 +75,7 @@ def contact_hash(contact: Contact) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+@untrusted_aware
 def build_relevance_prompt(
     company: Company,
     opportunity: CompanyOpportunity,
@@ -115,7 +117,7 @@ implies, not from exact wording.
 - Give a confidence (low, medium or high). Use low when the title is vague.
 
 People:
-{people}
+{wrap_untrusted(people, "contact titles")}
 
 For each person return the label, a role, the function the title implies, one sentence of \
 reasoning and a confidence."""

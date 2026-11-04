@@ -3,8 +3,10 @@ not rely on the model following them."""
 
 from pydantic import BaseModel
 
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
+
 # Bump when the prompt changes in a way that should make old snapshots stale.
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 
 BANDS = ("strong", "potential", "weak")
 VERDICTS = ("met", "not_met", "unknown")
@@ -47,6 +49,7 @@ class QuickLookOut(BaseModel):
     criteria: list[CriterionAnswerOut] = []
 
 
+@untrusted_aware
 def build_quicklook_prompt(
     name: str,
     domain: str,
@@ -104,4 +107,4 @@ Our offerings:
 {offerings_text}
 {criteria_block}
 Evidence:
-{evidence_text}"""
+{wrap_untrusted(evidence_text, "evidence")}"""

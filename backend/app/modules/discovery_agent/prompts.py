@@ -6,6 +6,7 @@ run is a fair comparison of the model, not of two different prompts. Written to 
 "basic" model, not relying on any model-specific tricks."""
 
 from app.modules.discovery_agent.schemas import MarketCriteria, RawSearchResult
+from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 
 _PROMPT = """You are extracting a list of real, currently-operating companies from web search \
 results, for a B2B sales research tool. Your output decides which companies a sales rep spends \
@@ -60,10 +61,11 @@ def _format_search_results(results: list[RawSearchResult]) -> str:
     )
 
 
+@untrusted_aware
 def build_extraction_prompt(criteria: MarketCriteria, search_results: list[RawSearchResult]) -> str:
     return _PROMPT.format(
         industry_keywords=", ".join(criteria.industry_keywords) or "not specified",
         location=criteria.location or "not specified",
         employee_size_range=criteria.employee_size_range or "not specified",
-        search_results=_format_search_results(search_results),
+        search_results=wrap_untrusted(_format_search_results(search_results), "search results"),
     )

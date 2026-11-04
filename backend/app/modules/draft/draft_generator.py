@@ -29,6 +29,7 @@ from app.modules.draft.prompts import (
     framing_instruction,
     offering_guidance,
 )
+from app.modules.llm.untrusted import with_untrusted_notice, wrap_untrusted
 from app.modules.products.models import Product
 
 
@@ -138,15 +139,18 @@ class GeminiDraftGenerator(DraftGenerator):
             contact_role=contact.role_title or "unknown role",
             company_name=company.name,
             company_industry=company.industry or "unknown",
-            company_description=company.description or "No description available.",
+            company_description=wrap_untrusted(
+                company.description or "No description available.", "company description"
+            ),
             product_options_section=_format_product_options(products, recommendations),
-            evidence_section=format_evidence(evidence),
+            evidence_section=wrap_untrusted(format_evidence(evidence), "evidence"),
             framing_instruction=framing_instruction(framing_style),
             sales_lens=SALES_LENS_INSTRUCTION,
             cta_instruction=cta_instruction(draft_type),
             previous_email_section=format_previous_emails(previous_emails),
             style_reference=STYLE_REFERENCE_EXAMPLES,
         )
+        prompt = with_untrusted_notice(prompt)
 
         parsed = await generate_structured(
             api_key=self._settings.gemini_api_key,
