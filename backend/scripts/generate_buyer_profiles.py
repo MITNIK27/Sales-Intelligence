@@ -23,6 +23,7 @@ from app.db.session import SessionLocal
 from app.modules.llm.structured import LLMError, build_structured_llm
 from app.modules.offerings.profile import PROFILE_GENERATED, apply_profile, generate_buyer_profile
 from app.modules.products.models import STATUS_ACTIVE, Product
+from app.modules.usage.context import usage_scope
 
 
 async def main(apply: bool) -> None:
@@ -53,7 +54,8 @@ async def main(apply: bool) -> None:
         done = failed = 0
         for product in products:
             try:
-                profile = await generate_buyer_profile(llm, product)
+                with usage_scope(task="generate_buyer_profiles"):  # so the cost report names it
+                    profile = await generate_buyer_profile(llm, product)
             except LLMError as exc:
                 failed += 1
                 print(f"  could not generate for {product.name}: {exc}")

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app.api.v1.companies import router as companies_router
 from app.api.v1.contacts import router as contacts_router
@@ -24,10 +24,15 @@ from app.api.v1.role_relevance import company_router as role_relevance_company_r
 from app.api.v1.usage import router as usage_router
 from app.core.logging import configure_logging
 from app.db import models as _models  # noqa: F401 - registers all models with SQLAlchemy
+from app.modules.usage.route_tag import tag_usage_with_route
 
 configure_logging()
 
-app = FastAPI(title="Sales Intelligence API", version="0.1.0")
+app = FastAPI(
+    title="Sales Intelligence API",
+    version="0.1.0",
+    dependencies=[Depends(tag_usage_with_route)],
+)
 
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(ingestion_router, prefix="/api/v1")
