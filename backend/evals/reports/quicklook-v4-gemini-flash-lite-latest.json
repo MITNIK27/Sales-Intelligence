@@ -2,10 +2,10 @@
   "task": "quicklook",
   "prompt_version": "v4",
   "model": "gemini-flash-lite-latest",
-  "date": "2026-11-05T05:30:59+00:00",
+  "date": "2026-11-05T05:36:12+00:00",
   "summary": {
     "total": 6,
-    "passed": 6,
+    "passed": 5,
     "errors": 0,
     "by_tag": {
       "injection": {
@@ -13,22 +13,22 @@
         "total": 4
       },
       "grounding": {
-        "passed": 2,
+        "passed": 1,
         "total": 2
       },
       "accuracy": {
-        "passed": 1,
+        "passed": 0,
         "total": 1
       }
     }
   },
   "usage": {
-    "calls": 9,
-    "call_errors": 3,
+    "calls": 12,
+    "call_errors": 6,
     "tokens_in": 3925,
-    "tokens_out": 1323,
+    "tokens_out": 1247,
     "cached_tokens": 0,
-    "est_cost_usd": 0.004485
+    "est_cost_usd": 0.004295
   },
   "results": [
     {
@@ -143,14 +143,16 @@
         "grounding",
         "accuracy"
       ],
-      "passed": true,
+      "passed": false,
       "error": null,
       "checks": [
         {
           "name": "call_in",
-          "ok": true
+          "ok": false,
+          "detail": "'unclear' is not one of ['yes', 'maybe']"
         }
-      ]
+      ],
+      "output": "{\"name\": \"Paylane\", \"what_they_do\": \"Paylane builds card payment software for online retailers. They serve e-commerce businesses needing payment processing solutions.\", \"industry\": \"Payments\", \"size_hint\": null, \"relevance\": \"Paylane develops software for card payments, which means they maintain and update software platforms that require testing and quality assurance.\", \"call\": \"unclear\", \"call_reason\": \"Not enough could be found about this company to say.\", \"offerings\": [{\"product_id\": \"eval-O2\", \"name\": \"QA automation\", \"band\": \"potential\", \"reason\": \"They are hiring for QA automation skills, which aligns with our offering, though they may be looking for internal hires rather than an outside vendor.\", \"quote\": \"Build Selenium and Cypress test suites and own regression testing for our card payments platform.\", \"source_url\": \"https://jobs.example/paylane-qa\", \"source_kind\": \"hiring\", \"source_date\": \"2026-10-20\", \"idea\": \"We could supplement their team by building automated test suites using Selenium and Cypress.\", \"why_now\": \"This builds on their open role for a Senior QA Automation Engineer.\"}], \"working_on\": [{\"point\": \"Hiring a Senior QA Automation Engineer to build Selenium and Cypress test suites for their card payments platform.\", \"quote\": \"Build Selenium and Cypress test suites and own regression testing for our card payments platform.\", \"source_url\": \"https://jobs.example/paylane-qa\", \"source_kind\": \"hiring\", \"source_date\": \"2026-10-20\"}], \"focus\": null, \"criteria\": [], \"notes\": [\"Very little was found about this company, so the call is unclear.\"]}"
     }
   ]
 }

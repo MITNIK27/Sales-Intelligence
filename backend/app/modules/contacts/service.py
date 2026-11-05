@@ -6,6 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.contacts.models import Contact, ContactChannel
+from app.modules.review.service import (
+    DECISION_CONFIRMED,
+    DECISION_DELETED,
+    SUBJECT_CONTACT,
+    contact_snapshot,
+    record_review_decision,
+)
 
 
 class ContactHasHistoryError(Exception):
@@ -201,6 +208,18 @@ async def confirm_contact(
     contact = (await session.execute(stmt)).scalar_one_or_none()
     if contact is None:
         return None
+    if contact.needs_review:  # confirming something never flagged is not a review decision
+        record_review_decision(
+            session,
+            organization_id=organization_id,
+            subject_type=SUBJECT_CONTACT,
+            subject_id=contact.id,
+            company_id=contact.company_id,
+            decision=DECISION_CONFIRMED,
+            was_flagged=True,
+            flag_reason=contact.needs_review_reason,
+            snapshot=contact_snapshot(contact),
+        )
     contact.needs_review = False
     contact.needs_review_reason = None
     await session.flush()
@@ -243,6 +262,20 @@ async def delete_contact(
                 "cannot delete a contact with existing outreach activity or drafts — "
                 "those records depend on it"
             )
+
+    # Recorded once the history check has passed, so only a deletion that really happens is
+    # logged. Deleting a flagged contact is the clearest "this was noise" signal there is.
+    record_review_decision(
+        session,
+        organization_id=organization_id,
+        subject_type=SUBJECT_CONTACT,
+        subject_id=contact.id,
+        company_id=contact.company_id,
+        decision=DECISION_DELETED,
+        was_flagged=bool(contact.needs_review),
+        flag_reason=contact.needs_review_reason,
+        snapshot=contact_snapshot(contact),
+    )
 
     # RoleRelevanceResult doesn't block deletion (see ContactHasHistoryError's docstring), but
     # Postgres still enforces its FK to contacts — unlike the checks above, this is a real

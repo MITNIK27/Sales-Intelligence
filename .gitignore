@@ -37,6 +37,11 @@ backend/tests/
 frontend/src/**/*.test.ts
 frontend/src/**/*.test.tsx
 
+# Eval runs are local (each run rewrites its report). The evals themselves (cases, graders,
+# runner) are tracked; the .gitkeep keeps the folder.
+backend/evals/reports/*
+!backend/evals/reports/.gitkeep
+
 # Local outputs and build artifacts
 Claude outputs/
 frontend/tsconfig.tsbuildinfo

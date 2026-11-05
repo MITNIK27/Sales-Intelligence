@@ -8,6 +8,12 @@ from sqlalchemy.orm import selectinload
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
 from app.modules.qualification.models import QualificationResult
+from app.modules.review.service import (
+    DECISION_CONFIRMED,
+    SUBJECT_COMPANY,
+    company_snapshot,
+    record_review_decision,
+)
 
 _PROTOCOL_RE = re.compile(r"^https?://")
 _WWW_RE = re.compile(r"^www\.")
@@ -261,6 +267,18 @@ async def confirm_company(
     company = await get_company_detail(session, organization_id, company_id)
     if company is None:
         return None
+    if company.needs_review:  # confirming something never flagged is not a review decision
+        record_review_decision(
+            session,
+            organization_id=organization_id,
+            subject_type=SUBJECT_COMPANY,
+            subject_id=company.id,
+            company_id=company.id,
+            decision=DECISION_CONFIRMED,
+            was_flagged=True,
+            flag_reason=company.needs_review_reason,
+            snapshot=company_snapshot(company),
+        )
     company.needs_review = False
     company.needs_review_reason = None
     await session.flush()
