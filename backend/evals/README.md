@@ -18,6 +18,7 @@ means the prompt or the model changed, not the web.
 **Layout**
 - `cases/*.jsonl`: one case per line.
 - `reports/`: one JSON report per task, prompt version and model, committed so changes show as diffs.
+- `run.py`: the command you run. `runner.py`: runs the cases and builds the report.
 - `tasks.py`: for each task, how to call the real code on a frozen input and how to grade it.
 - `cases.py`, `graders.py`, `report.py`: loading, checks and reports. Nothing here calls a model.
 - `export_offering_cases.py`: turns offering proposals a person approved into cases.
@@ -57,6 +58,28 @@ replace labels from real companies.
   `{"id": "qualification-accuracy-10", "task": "qualification", "tags": ["accuracy"],
   "input": {"company": {"name": "...", "description": "..."}, "criteria": [{"name": "..."}]},
   "expect": {"verdicts": {"<criterion name>": "met"}}, "note": "..."}`
+
+**Running** (from `backend/`, venv active, keys in `backend/.env`). Nothing is called until you add
+`--yes`; without it the command prints its plan and stops.
+```
+python -m evals.run --task quicklook                  # plan only
+python -m evals.run --task quicklook --yes            # run it, write a report
+python -m evals.run --all --yes                       # every task
+python -m evals.run --task draft --tag injection --yes
+python -m evals.run --task quicklook --case quicklook-injection-01 --yes
+python -m evals.run --task quicklook --gemini-model <other model> --yes   # try another model
+python -m evals.run --task offering_extraction --llm-order gemini --yes   # force a vendor
+```
+- Each task uses the model the app uses for it (Quick Look: Gemini first; offerings importer:
+  Groq first; qualification and drafts: Gemini) and only the first vendor, so every answer in a
+  report comes from one model. `--fallback` runs the whole chain like the app does.
+- Cases run one at a time with a 3 second pause (`--delay`), because the free tiers limit calls per
+  minute. A failed call is an error on that case, not a crash.
+- Output shows passes by tag, the calls and estimated cost, each failing case with the answer, and
+  what changed since the previous report. The report is written to `reports/` (`--no-write` skips).
+- Usage is counted in memory and never written to the database.
+- To compare models, run the same task with `--gemini-model` or `--llm-order` and read the two
+  reports side by side.
 
 **Exporting past offering reviews** (read-only, dry run by default, from `backend/`):
 `python -m evals.export_offering_cases` shows what would be written; add `--yes` to write

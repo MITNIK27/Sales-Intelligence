@@ -165,6 +165,11 @@ class FallbackStructuredLLM(StructuredLLM):
         # The model behind the most recent answer; read it right after the call it belongs to.
         self.last_model: str | None = None
 
+    @property
+    def vendors(self) -> list[tuple[str, str]]:
+        """(vendor, model) for each vendor in the chain, in the order they are tried."""
+        return [(vendor.name, vendor.model) for vendor in self._vendors]
+
     async def generate(self, prompt: str, schema: type[T]) -> T:
         errors: list[str] = []
         for vendor in self._vendors:

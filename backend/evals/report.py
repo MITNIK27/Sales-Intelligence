@@ -22,6 +22,7 @@ class CaseResult:
     tags: tuple[str, ...]
     checks: list[Check] = field(default_factory=list)
     error: str | None = None  # the model call failed or returned nothing usable
+    output: str | None = None  # the answer, kept (shortened) so a failure can be read
 
     @property
     def passed(self) -> bool:
@@ -34,7 +35,7 @@ class Report:
     prompt_version: str
     model: str
     results: list[CaseResult]
-    usage: dict[str, int] = field(default_factory=dict)  # calls, tokens_in, tokens_out
+    usage: dict[str, float] = field(default_factory=dict)  # calls, tokens, estimated cost
     date: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
 
     def summary(self) -> dict[str, Any]:
@@ -60,6 +61,22 @@ def report_filename(task: str, prompt_version: str, model: str) -> str:
     return f"{_safe(task)}-{_safe(prompt_version)}-{_safe(model)}.json"
 
 
+def _result_dict(r: CaseResult) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "case_id": r.case_id,
+        "tags": list(r.tags),
+        "passed": r.passed,
+        "error": r.error,
+        "checks": [
+            {"name": c.name, "ok": c.ok, **({"detail": c.detail} if c.detail else {})}
+            for c in r.checks
+        ],
+    }
+    if not r.passed and r.output is not None:
+        entry["output"] = r.output  # only for failures, so a report stays small
+    return entry
+
+
 def to_dict(report: Report) -> dict[str, Any]:
     return {
         "task": report.task,
@@ -68,19 +85,7 @@ def to_dict(report: Report) -> dict[str, Any]:
         "date": report.date,
         "summary": report.summary(),
         "usage": report.usage,
-        "results": [
-            {
-                "case_id": r.case_id,
-                "tags": list(r.tags),
-                "passed": r.passed,
-                "error": r.error,
-                "checks": [
-                    {"name": c.name, "ok": c.ok, **({"detail": c.detail} if c.detail else {})}
-                    for c in r.checks
-                ],
-            }
-            for r in report.results
-        ],
+        "results": [_result_dict(r) for r in report.results],
     }
 
 
