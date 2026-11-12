@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
 from app.modules.companies.models import Company
-from app.modules.companies.service import confirm_company, list_company_ids_by_source_run
+from app.modules.companies.service import (
+    active_company_ids,
+    confirm_company,
+    list_company_ids_by_source_run,
+)
 from app.modules.contacts.service import confirm_contact
 from app.modules.discovery_agent.agent import (
     CompanyDiscoveryAgentProtocol,
@@ -135,6 +139,8 @@ async def _run_auto_pipeline(
         company_ids = await list_company_ids_by_source_run(
             session, job.organization_id, uuid.UUID(payload["ingestion_run_id"])
         )
+    # A company a person marked not a fit takes no part in automatic work, however it got here.
+    company_ids = await active_company_ids(session, job.organization_id, company_ids)
 
     # Stage 2: qualification.
     # Only the criteria chosen for this run apply; none chosen is fine: companies stay "not

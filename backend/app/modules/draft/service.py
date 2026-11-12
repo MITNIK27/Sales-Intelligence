@@ -152,6 +152,8 @@ async def generate_draft(
 
     if company.needs_review:
         raise NeedsReviewError(f"company {company_id} needs review before drafting")
+    if company.dismissed_at is not None:
+        raise NeedsReviewError(f"company {company_id} was marked not a fit; restore it to draft")
     if contact.needs_review:
         raise NeedsReviewError(f"contact {contact_id} needs review before drafting")
 

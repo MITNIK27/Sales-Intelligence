@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.companies.models import Company
 from app.modules.contacts.models import (
     CHANNEL_TYPE_EMAIL,
     CHANNEL_TYPE_PHONE,
@@ -91,8 +92,10 @@ async def _run_bulk_verify(
     stmt = (
         select(ContactChannel)
         .join(Contact, Contact.id == ContactChannel.contact_id)
+        .join(Company, Company.id == Contact.company_id)
         .where(
             Contact.organization_id == job.organization_id,
+            Company.dismissed_at.is_(None),
             ContactChannel.verification_status == VERIFICATION_UNVERIFIED,
         )
         .limit(BULK_VERIFY_LIMIT)

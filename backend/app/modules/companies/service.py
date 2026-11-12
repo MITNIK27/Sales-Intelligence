@@ -178,6 +178,25 @@ async def search_company_index(
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def active_company_ids(
+    session: AsyncSession, organization_id: uuid.UUID, company_ids: list[uuid.UUID]
+) -> list[uuid.UUID]:
+    """`company_ids` without the companies a person marked not a fit, in the same order. An id
+    that matches no company passes through, so a caller's own "not found" handling still
+    applies. Every job that picks companies for automatic work goes through this."""
+    if not company_ids:
+        return []
+    rows = await session.execute(
+        select(Company.id).where(
+            Company.organization_id == organization_id,
+            Company.id.in_(company_ids),
+            Company.dismissed_at.is_not(None),
+        )
+    )
+    dismissed = set(rows.scalars())
+    return [company_id for company_id in company_ids if company_id not in dismissed]
+
+
 SORT_FIELDS = ("name", "created_at", "last_enriched_at", "enrichment_status", "qualification")
 # Columns whose sort key can be NULL (never enriched / never qualified) — always sorted last
 # regardless of direction, so "no value yet" doesn't visually dominate either end of the list.
@@ -255,6 +274,7 @@ async def list_company_ids_by_source_run(
     stmt = select(Company.id).where(
         Company.organization_id == organization_id,
         Company.source_ingestion_run_id == source_ingestion_run_id,
+        Company.dismissed_at.is_(None),
     )
     return list((await session.execute(stmt)).scalars().all())
 

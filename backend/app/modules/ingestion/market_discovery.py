@@ -226,6 +226,7 @@ async def _run_market_discovery(
     companies_created = 0
     created_ids: list[str] = []
     matched_ids: list[str] = []  # found live, but the company already existed
+    dismissed_skipped = 0  # found again, but a person already said it is not a fit
     enrichment: dict[str, Any] = {"enriched": 0, "failed": 0, "industry_filled": 0, "by_source": {}}
     total = len(candidates) or 1
 
@@ -267,6 +268,10 @@ async def _run_market_discovery(
                 created_ids.append(str(company.id))
                 await session.flush()
             else:
+                if company.dismissed_at is not None:
+                    # Not linked to the run, not enriched, not passed on: the decision stands.
+                    dismissed_skipped += 1
+                    continue
                 matched_ids.append(str(company.id))
             await link_company_to_run(
                 session,
@@ -316,6 +321,7 @@ async def _run_market_discovery(
     run.summary = {
         "candidates_found": len(candidates),
         "companies_created": companies_created,
+        "skipped_dismissed": dismissed_skipped,
         "reused_from_index": len(reused_companies),
         # Every company this run is about — newly found AND reused from the index — so ranking
         # and the results list cover both, not just the new ones.

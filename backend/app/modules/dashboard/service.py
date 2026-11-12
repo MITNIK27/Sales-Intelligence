@@ -201,9 +201,15 @@ async def _load(session: AsyncSession, ids: set[uuid.UUID]) -> _Data:
         return data
     id_list = list(ids)
     for company in (
-        await session.execute(select(Company).where(Company.id.in_(id_list)))
+        await session.execute(
+            select(Company).where(Company.id.in_(id_list), Company.dismissed_at.is_(None))
+        )
     ).scalars():
         data.companies[company.id] = company
+    # Companies a person marked not a fit are left out of every figure, not only the count.
+    id_list = list(data.companies)
+    if not id_list:
+        return data
     for result in (
         await session.execute(
             select(QualificationResult)

@@ -5,6 +5,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact, ContactChannel
 from app.modules.review.service import (
     DECISION_CONFIRMED,
@@ -332,8 +333,10 @@ async def list_due_follow_ups(
     list that replaces the sales rep's manual daily Excel check."""
     stmt = (
         select(Contact)
+        .join(Company, Company.id == Contact.company_id)
         .where(
             Contact.organization_id == organization_id,
+            Company.dismissed_at.is_(None),
             Contact.next_follow_up_at.is_not(None),
             Contact.next_follow_up_at <= as_of,
         )

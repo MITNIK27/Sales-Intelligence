@@ -210,6 +210,10 @@ async def run_role_relevance_check(
 
     if company.needs_review:
         raise CompanyNeedsReviewError(f"company {company_id} needs review before classification")
+    if company.dismissed_at is not None:
+        raise CompanyNeedsReviewError(
+            f"company {company_id} was marked not a fit; restore it to classify its contacts"
+        )
 
     if not company.contacts:
         raise NoContactsError("this company has no contacts to classify")

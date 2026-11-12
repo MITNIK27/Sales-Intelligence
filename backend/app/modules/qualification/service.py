@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
 from app.modules.companies.models import Company
-from app.modules.companies.service import get_company_detail, get_or_create_company
+from app.modules.companies.service import (
+    active_company_ids,
+    get_company_detail,
+    get_or_create_company,
+)
 from app.modules.enrichment.models import EnrichmentRecord
 from app.modules.enrichment.providers.base import (
     CompanyDataProvider,
@@ -439,6 +443,7 @@ async def _run_bulk_qualification(
     A single company's `GeminiClientError` (e.g. a transient Gemini hiccup) is caught and recorded
     in `errors` rather than aborting the rest of the batch — one bad company shouldn't cost every
     other company in the run its result."""
+    company_ids = await active_company_ids(session, organization_id, company_ids)
     chosen = criteria or []
     run_ids = frozenset(str(c.id) for c in chosen)
     total = len(company_ids) or 1

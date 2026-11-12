@@ -117,6 +117,7 @@ async def start_bulk_scrape(session: AsyncSession, organization_id: uuid.UUID) -
         select(Company)
         .where(
             Company.organization_id == organization_id,
+            Company.dismissed_at.is_(None),
             Company.enrichment_status.in_(
                 [ENRICHMENT_STATUS_NEVER_ENRICHED, ENRICHMENT_STATUS_FAILED]
             ),
@@ -139,7 +140,9 @@ async def list_needs_review(
     entries: list[NeedsReviewEntry] = []
 
     company_stmt = select(Company).where(
-        Company.organization_id == organization_id, Company.needs_review.is_(True)
+        Company.organization_id == organization_id,
+        Company.needs_review.is_(True),
+        Company.dismissed_at.is_(None),
     )
     for company in (await session.execute(company_stmt)).scalars().all():
         entries.append(
@@ -157,7 +160,12 @@ async def list_needs_review(
 
     contact_stmt = (
         select(Contact)
-        .where(Contact.organization_id == organization_id, Contact.needs_review.is_(True))
+        .join(Company, Company.id == Contact.company_id)
+        .where(
+            Contact.organization_id == organization_id,
+            Contact.needs_review.is_(True),
+            Company.dismissed_at.is_(None),
+        )
         .options(selectinload(Contact.company), selectinload(Contact.channels))
     )
     for contact in (await session.execute(contact_stmt)).scalars().all():

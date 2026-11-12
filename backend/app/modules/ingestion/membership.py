@@ -77,4 +77,17 @@ async def list_company_ids_for_run(
     )
     for company_id in created.scalars():
         ids.setdefault(company_id, None)
-    return list(ids)
+    if not ids:
+        return []
+    dismissed = set(
+        (
+            await session.execute(
+                select(Company.id).where(
+                    Company.organization_id == organization_id,
+                    Company.id.in_(list(ids)),
+                    Company.dismissed_at.is_not(None),
+                )
+            )
+        ).scalars()
+    )
+    return [company_id for company_id in ids if company_id not in dismissed]
