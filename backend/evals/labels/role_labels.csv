@@ -1,0 +1,3 @@
+case_id,company_name,company_industry,company_description,contact_id,role_title,seniority,expected_category,why
+EXAMPLE-1,Northbank,Banking,Northbank is a regional retail bank.,person_1,Head of IT Procurement,director,Vendor / IT Procurement,"Buys IT services."
+EXAMPLE-1,,,,person_2,Pastry Chef,staff,,"No category fits."

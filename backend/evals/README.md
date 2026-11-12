@@ -43,13 +43,32 @@ means the prompt or the model changed, not the web.
 | `qualification` | `company`, `criteria` (name, description, is_disqualifying), optional `signals` | `verdicts` (name to verdict), `verdicts_not` (name to forbidden verdicts), `quotes_valid`, `no_leak` |
 | `draft` | `company`, `contact` (first_name, role_title, seniority), `product`, optional `evidence.signals` | `no_unsupported_claims`, `max_words`, `no_leak` |
 | `offering_extraction` | `url`, `text` | `is_offering`, `kind`, `name_contains`, `no_figures`, `no_leak` |
+| `recommendation` | `company`, `product`, optional `contact_titles`, `signals`, `opportunity_context` | `no_unsupported_claims`, `talking_points_between` (`[low, high]`), `no_leak` |
+| `opportunity_assessment` | `company`, `area_label`, `evidence` (signal_type, text, date), optional `industry_context` | `verdict_in`, `verdict_not_in`, `min_findings`, `max_findings`, `max_dropped`, `no_leak` |
+| `offering_fit` | `company`, `area_label`, `evidence`, `offerings` (name, description, kind, buyer_profile) | `fits` (offerings that must cite verified evidence), `no_fit` (offerings that must cite none), `max_dropped`, `no_leak` |
+| `contact_relevance` | `company`, `area_label`, `contacts` (id, role_title, seniority), optional `product` | `roles_in` (id to allowed roles), `roles_not` (id to forbidden roles), `no_leak` |
+| `role_relevance` | `company`, `contacts` (id, role_title, seniority), `categories` (name, description, is_primary_target) | `matches` (id to category name or null), `matches_not`, `all_answered`, `no_leak` |
 
-**Cases the repository starts with.** 19 hand-written cases (injection, grounding, and a few
+The last five run the app's own prompt and its own checks on frozen evidence. An answer's citations
+are verified exactly as the app verifies them, so a citation that is not in the evidence counts as
+dropped, never as support.
+
+**Cases the repository starts with.** 37 hand-written cases (injection, grounding, and a few
 "obvious label" accuracy sanity checks). The accuracy cases here are deliberately easy. They do not
 replace labels from real companies.
 
-**Adding your own accuracy cases.** An accuracy case is only as good as its label. Put them in
-`cases/accuracy_<task>.jsonl`, one per line, in the shapes above.
+**A new task has no report until you run it.** The G5 check lets a task wait in
+`AWAITING_FIRST_REPORT` (in `governance_checks/test_prompt_version_has_eval_report.py`) until its
+first report is committed. Run `python -m evals.run --task <task> --yes`, commit the report, and
+take the task off that list: the check fails if you forget.
+
+**Adding your own accuracy cases.** An accuracy case is only as good as its label.
+
+*The easy way, for people who are not engineers:* fill in the spreadsheets in `labels/` (guide in
+`labels/README.md`) for qualification, role relevance and contact relevance, then run
+`python -m evals.import_labels` (a dry run that checks every row) and `--yes` to write the cases.
+
+*By hand:* put them in `cases/accuracy_<task>.jsonl`, one per line, in the shapes above.
 - Write the label from what a salesperson would decide using only the frozen input, and say why in
   `note`. Two people disagreeing on a case is useful: keep it and decide together.
 - Aim for 20 to 30 per task, with some that should come out "no" or "could not determine", not only

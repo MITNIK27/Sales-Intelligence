@@ -22,15 +22,19 @@ import sys
 from typing import Any
 
 from app.core.config import Settings, get_settings
+from app.modules.ai_recommendation.recommendation_generator import GeminiRecommendationGenerator
 from app.modules.draft.draft_generator import GeminiDraftGenerator
 from app.modules.llm.structured import build_structured_llm
 from app.modules.qualification.qualification_generator import GeminiQualificationGenerator
+from app.modules.role_relevance.role_relevance_generator import GeminiRoleRelevanceGenerator
 from evals.cases import Case, load_cases
 from evals.report import Report, diff_reports, previous_report, to_dict, write_report
 from evals.runner import run_task
 from evals.tasks import TASKS, Runtime, validate_cases
 
 MAX_REPEAT = 10  # a guard for quota; raise it deliberately if you need more
+# Tasks whose app code calls Gemini directly (no vendor chain), so only a Gemini key is needed.
+GEMINI_ONLY_TASKS = ("qualification", "draft", "recommendation", "role_relevance")
 
 
 def _repeat_count(value: str) -> int:
@@ -58,7 +62,7 @@ def build_runtime(
     else:
         order = llm_order or settings.opportunity_llm_order
     llm = build_structured_llm(settings, _vendors_to_use(order, fallback), groq_model)
-    if task in ("qualification", "draft"):
+    if task in GEMINI_ONLY_TASKS:
         label, needs = settings.gemini_model, {"gemini"}
     else:
         label = "+".join(model for _, model in llm.vendors) or "none"
@@ -68,6 +72,8 @@ def build_runtime(
         qualification=GeminiQualificationGenerator(settings),
         draft=GeminiDraftGenerator(settings),
         model=label,
+        recommendation=GeminiRecommendationGenerator(settings),
+        role_relevance=GeminiRoleRelevanceGenerator(settings),
     )
     return runtime, needs
 

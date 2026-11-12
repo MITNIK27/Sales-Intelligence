@@ -7,7 +7,11 @@ report is missing or older than the cases. Bumping a version, or adding a case, 
 running the eval again (`python -m evals.run --task <task> --yes`) and committing the report.
 
 Reports record what happened, including failures; this check asks that the measurement exists,
-not that every case passed."""
+not that every case passed.
+
+A new eval task has no report until someone runs it with real models (never automatic), so it
+may be listed in AWAITING_FIRST_REPORT. That list only shrinks: once a report exists, the task
+must be taken off it."""
 
 import json
 import re
@@ -26,15 +30,26 @@ MEASURED = {
     "modules/draft/prompts.py": "draft",
     "modules/qualification/prompts.py": "qualification",
     "modules/quicklook/prompts.py": "quicklook",
+    "modules/ai_recommendation/recommendation_generator.py": "recommendation",
+    "modules/opportunity/prompts.py": "opportunity_assessment",
+    "modules/opportunity/fit.py": "offering_fit",
+    "modules/opportunity/relevance.py": "contact_relevance",
+    "modules/role_relevance/prompts.py": "role_relevance",
 }
 
 # Prompt versions no eval task covers yet. Each one needs a task and cases to leave this list.
-UNMEASURED = {
-    "modules/ai_recommendation/recommendation_generator.py": "no eval task for recommendations yet",
-    "modules/opportunity/fit.py": "no eval task for offering fit yet",
-    "modules/opportunity/prompts.py": "no eval task for opportunity assessment yet",
-    "modules/opportunity/relevance.py": "no eval task for contact relevance yet",
-    "modules/role_relevance/prompts.py": "no eval task for role relevance yet",
+# (The area-suggestion prompt shares opportunity/prompts.py with the assessment and is not
+# exercised by its own task yet.)
+UNMEASURED: dict[str, str] = {}
+
+# Tasks that exist and have cases but whose first report has not been committed yet. Run
+# `python -m evals.run --task <task> --yes`, commit the report, and take the task off this list.
+AWAITING_FIRST_REPORT = {
+    "recommendation": "run it once with real models and commit the report",
+    "opportunity_assessment": "run it once with real models and commit the report",
+    "offering_fit": "run it once with real models and commit the report",
+    "contact_relevance": "run it once with real models and commit the report",
+    "role_relevance": "run it once with real models and commit the report",
 }
 
 _VERSION = re.compile(r'^[A-Z_]*PROMPT_VERSION = "', re.MULTILINE)
@@ -81,11 +96,18 @@ def test_every_measured_prompt_version_has_a_report_that_covers_every_case() -> 
     for task, definition in TASKS.items():
         report = _report_for(task)
         if report is None:
+            if task in AWAITING_FIRST_REPORT:
+                continue
             problems.append(
                 f"{task} {definition.prompt_version}: no report. Run "
                 f"`python -m evals.run --task {task} --yes` and commit it."
             )
             continue
+        if task in AWAITING_FIRST_REPORT:
+            problems.append(
+                f"{task} now has a report. Remove it from AWAITING_FIRST_REPORT "
+                "so the list only shrinks."
+            )
         reported = {result["case_id"] for result in report["results"]}
         missing = {case.id for case in load_cases(task=task)} - reported
         if missing:
@@ -94,3 +116,7 @@ def test_every_measured_prompt_version_has_a_report_that_covers_every_case() -> 
                 f"Run `python -m evals.run --task {task} --yes` again."
             )
     assert not problems, "\n".join(problems)
+
+
+def test_the_awaiting_list_only_names_real_tasks() -> None:
+    assert set(AWAITING_FIRST_REPORT) <= set(TASKS)

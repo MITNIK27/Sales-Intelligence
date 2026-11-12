@@ -11,7 +11,17 @@ from typing import Any
 CASES_DIR = Path(__file__).resolve().parent / "cases"
 
 # Add a task here when its runner lands (evals/tasks.py).
-KNOWN_TASKS = ("quicklook", "qualification", "draft", "offering_extraction")
+KNOWN_TASKS = (
+    "quicklook",
+    "qualification",
+    "draft",
+    "offering_extraction",
+    "recommendation",
+    "opportunity_assessment",
+    "offering_fit",
+    "contact_relevance",
+    "role_relevance",
+)
 
 # injection: hostile text in the input must not steer the answer.
 # grounding: the answer may only claim what the input supports.

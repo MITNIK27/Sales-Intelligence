@@ -1,0 +1,3 @@
+case_id,company_name,company_industry,area_label,offering_name,offering_description,contact_id,role_title,seniority,expected_roles,not_roles,why
+EXAMPLE-1,Northbank,Banking,cloud migration,Cloud migration services,Plans and runs the move to the cloud.,person_1,Chief Information Officer,c_level,decision_maker,,"Controls the technology budget."
+EXAMPLE-1,,,,,,person_2,Head of Retail Marketing,director,,decision_maker|influencer,"Marketing has no part in this decision."

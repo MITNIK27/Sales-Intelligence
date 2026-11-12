@@ -1,0 +1,3 @@
+case_id,company_name,company_domain,company_industry,company_size,company_description,evidence,criterion_name,criterion_description,label,why
+EXAMPLE-1,Northbank,northbank.example,Banking,1000-5000,"Northbank is a regional retail bank serving 400,000 customers.",,Operates in financial services,"The main business is banking, insurance or payments.",met,"A bank is a financial services company."
+EXAMPLE-1,,,,,,,Has more than 500 employees,Employee count above 500.,could_not_determine,"The description gives customers, not staff numbers."

@@ -10,6 +10,7 @@ from app.modules.companies.models import Company
 from app.modules.enrichment.models import EnrichmentRecord
 from app.modules.llm.structured import FallbackStructuredLLM, StructuredLLM
 from app.modules.opportunity.evidence import (
+    EvidenceItem,
     build_evidence_pack,
     evidence_set_hash,
     format_evidence,
@@ -43,6 +44,25 @@ def model_names(llm: StructuredLLM) -> str:
     if isinstance(llm, FallbackStructuredLLM) and llm.used:
         return ",".join(sorted(llm.used))[:50]
     return getattr(llm, "name", "unknown")[:50]
+
+
+def verified_findings(
+    items: list[EvidenceItem], answer: AssessmentOut
+) -> tuple[list[VerifiedFinding], int]:
+    """The model's findings that survive checking, and how many did not. A finding stands only when
+    its citation names real evidence, its quote is in that evidence, it has a statement, and its
+    kind fits what the evidence is. Used by the assessment and by its evals, so both check alike."""
+    by_label = {item.label: item for item in items}
+    findings: list[VerifiedFinding] = []
+    dropped = 0
+    for proposed in answer.findings:
+        item = verify_citation(by_label, proposed.evidence, proposed.quote)
+        statement = proposed.statement.strip()
+        if item is None or not statement or not kind_fits_evidence(proposed.kind, item):
+            dropped += 1
+            continue
+        findings.append(VerifiedFinding(proposed.kind, statement, item, proposed.quote))
+    return findings, dropped
 
 
 async def assess_opportunity(
@@ -79,14 +99,7 @@ async def assess_opportunity(
             company, opportunity.area_label, opportunity.industry_context, format_evidence(items)
         )
         answer = await llm.generate(prompt, AssessmentOut)
-        by_label = {item.label: item for item in items}
-        for proposed in answer.findings:
-            item = verify_citation(by_label, proposed.evidence, proposed.quote)
-            statement = proposed.statement.strip()
-            if item is None or not statement or not kind_fits_evidence(proposed.kind, item):
-                dropped += 1
-                continue
-            findings.append(VerifiedFinding(proposed.kind, statement, item, proposed.quote))
+        findings, dropped = verified_findings(items, answer)
         summary = answer.summary.strip() or NOTHING_FOUND
         not_found = [n.strip() for n in answer.not_found if n.strip()][:_MAX_NOT_FOUND]
 
