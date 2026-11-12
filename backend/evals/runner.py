@@ -1,10 +1,12 @@
 """Runs the cases of one task against a runtime and builds the report. No command-line handling and
 no choice of model here (that is `evals/run.py`), so it can be tested with fake models.
 
-Cases run one after another, with an optional pause between them, because the free tiers limit how
-many calls fit in a minute. A case whose model call fails is an error in the report, not a crash,
-so one bad call does not lose the rest of the run. Usage rows are collected in memory and never
-written to the database."""
+Cases run one after another, with an optional pause between calls, because the free tiers limit how
+many calls fit in a minute. With `repeat` above 1 each case runs that many times and the report
+says how many runs passed, because one run of a model that varies cannot tell flaky from
+broken. A case whose model call fails is an error in the report, not a crash, so one bad call
+does not lose the rest of the run. Usage rows are collected in memory and never written to the
+database."""
 
 import asyncio
 import json
@@ -39,6 +41,17 @@ async def _run_case(
     return CaseResult(case.id, case.tags, task.grade(case, output), output=shown)
 
 
+def _combine(attempts: list[CaseResult]) -> CaseResult:
+    """One result for a case run several times. It is the first failing run (so the report shows
+    what went wrong), or the last run when all passed, with the pass count added."""
+    if len(attempts) == 1:
+        return attempts[0]
+    shown = next((a for a in attempts if not a.passed), attempts[-1])
+    shown.runs = len(attempts)
+    shown.passes = sum(a.passed for a in attempts)
+    return shown
+
+
 def _usage(rows: list[ApiUsage]) -> dict[str, float]:
     llm = [row for row in rows if row.kind == "llm"]
     return {
@@ -57,7 +70,10 @@ async def run_task(
     runtime: Runtime,
     delay_seconds: float = 0.0,
     secrets: Sequence[str] = (),
+    repeat: int = 1,
 ) -> Report:
+    if repeat < 1:
+        raise ValueError("repeat must be at least 1")
     rows: list[ApiUsage] = []
 
     async def collect(row: ApiUsage) -> None:
@@ -65,12 +81,19 @@ async def run_task(
 
     previous = set_usage_sink(collect)
     results: list[CaseResult] = []
+    first_call = True
     try:
-        for position, case in enumerate(cases):
-            if position and delay_seconds:
-                await asyncio.sleep(delay_seconds)
-            with usage_scope(task=f"eval:{task.name}"):
-                results.append(await _run_case(task, case, runtime, secrets))
+        for case in cases:
+            attempts: list[CaseResult] = []
+            for _ in range(repeat):
+                if not first_call and delay_seconds:
+                    await asyncio.sleep(delay_seconds)
+                first_call = False
+                with usage_scope(task=f"eval:{task.name}"):
+                    attempts.append(await _run_case(task, case, runtime, secrets))
+            results.append(_combine(attempts))
     finally:
         set_usage_sink(previous)
-    return Report(task.name, task.prompt_version, runtime.model, results, usage=_usage(rows))
+    return Report(
+        task.name, task.prompt_version, runtime.model, results, usage=_usage(rows), repeat=repeat
+    )

@@ -11,6 +11,7 @@ Usage (from backend/, venv active, keys in backend/.env):
     python -m evals.run --task quicklook --yes           # runs it and writes a report
     python -m evals.run --all --yes
     python -m evals.run --task draft --tag injection --yes
+    python -m evals.run --task quicklook --repeat 3 --yes   # each case 3 times, shows flaky ones
     python -m evals.run --task quicklook --gemini-model gemini-2.5-flash --yes   # try a model
     python -m evals.run --task offering_extraction --llm-order gemini --yes
 """
@@ -28,6 +29,18 @@ from evals.cases import Case, load_cases
 from evals.report import Report, diff_reports, previous_report, to_dict, write_report
 from evals.runner import run_task
 from evals.tasks import TASKS, Runtime, validate_cases
+
+MAX_REPEAT = 10  # a guard for quota; raise it deliberately if you need more
+
+
+def _repeat_count(value: str) -> int:
+    try:
+        count = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a whole number") from exc
+    if not 1 <= count <= MAX_REPEAT:
+        raise argparse.ArgumentTypeError(f"must be between 1 and {MAX_REPEAT}")
+    return count
 
 
 def _vendors_to_use(order: str, fallback: bool) -> str:
@@ -79,6 +92,9 @@ def _print_report(report: Report, previous: dict[str, Any] | None, path: str | N
     tags = ", ".join(f"{t} {c['passed']}/{c['total']}" for t, c in by_tag)
     print(f"\n{report.task}  {report.prompt_version}  {report.model}")
     print(f"  passed {summary['passed']}/{summary['total']}  ({tags})")
+    if report.repeat > 1:
+        flaky = summary["flaky"]
+        print(f"  each case ran {report.repeat} times; flaky (some runs failed): {flaky}")
     usage = report.usage
     print(
         f"  usage: {int(usage.get('calls', 0))} calls "
@@ -89,7 +105,8 @@ def _print_report(report: Report, previous: dict[str, Any] | None, path: str | N
     for result in report.results:
         if result.passed:
             continue
-        print(f"  FAIL {result.case_id}")
+        runs = f" (passed {result.passes} of {result.runs} runs)" if result.runs > 1 else ""
+        print(f"  FAIL {result.case_id}{runs}")
         if result.error:
             print(f"    error: {result.error}")
         for check in result.checks:
@@ -130,7 +147,8 @@ async def main(args: argparse.Namespace) -> int:
     print("Plan (this calls the real models and spends quota):")
     for name, runtime, selected, missing in plan:
         status = f"MISSING {', '.join(missing)}, will be skipped" if missing else "ready"
-        print(f"  {name}: {len(selected)} case(s) on {runtime.model} ({status})")
+        calls = f", {len(selected) * args.repeat} runs" if args.repeat > 1 else ""
+        print(f"  {name}: {len(selected)} case(s){calls} on {runtime.model} ({status})")
     if not args.yes:
         print("\nDry run: nothing was called. Add --yes to run it.")
         return 0
@@ -140,7 +158,9 @@ async def main(args: argparse.Namespace) -> int:
     for name, runtime, selected, missing in plan:
         if missing or not selected:
             continue
-        report = await run_task(TASKS[name], selected, runtime, args.delay, secrets)
+        report = await run_task(
+            TASKS[name], selected, runtime, args.delay, secrets, args.repeat
+        )
         previous = previous_report(name)
         path = None if args.no_write else str(write_report(report))
         _print_report(report, previous, path)
@@ -158,6 +178,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tag", action="append", help="only cases with this tag (repeatable)")
     parser.add_argument("--case", action="append", help="only this case id (repeatable)")
     parser.add_argument("--limit", type=int, help="at most N cases per task")
+    parser.add_argument(
+        "--repeat", type=_repeat_count, default=1, help=f"run each case N times, 1 to {MAX_REPEAT}"
+    )
     parser.add_argument("--llm-order", help='vendors for Quick Look / offerings, "gemini,groq"')
     parser.add_argument("--fallback", action="store_true", help="use the whole vendor chain")
     parser.add_argument("--gemini-model", help="run with a different Gemini model")

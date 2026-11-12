@@ -67,6 +67,7 @@ python -m evals.run --task quicklook --yes            # run it, write a report
 python -m evals.run --all --yes                       # every task
 python -m evals.run --task draft --tag injection --yes
 python -m evals.run --task quicklook --case quicklook-injection-01 --yes
+python -m evals.run --task quicklook --repeat 3 --yes   # each case 3 times; shows flaky ones
 python -m evals.run --task quicklook --gemini-model <other model> --yes   # try another model
 python -m evals.run --task offering_extraction --llm-order gemini --yes   # force a vendor
 ```
@@ -78,6 +79,10 @@ python -m evals.run --task offering_extraction --llm-order gemini --yes   # forc
 - Output shows passes by tag, the calls and estimated cost, each failing case with the answer, and
   what changed since the previous report. The report is written to `reports/` (`--no-write` skips).
 - Usage is counted in memory and never written to the database.
+- `--repeat N` (1 to 10) runs every case N times and records how many runs passed. A case counts as
+  passed only if every run passed; one that passes some runs is reported as flaky. Use it before
+  deciding whether a failing case is broken or just varies, and before comparing two models. It
+  multiplies the calls, so the plan line shows the run count.
 - To compare models, run the same task with `--gemini-model` or `--llm-order` and read the two
   reports side by side.
 

@@ -23,10 +23,18 @@ class CaseResult:
     checks: list[Check] = field(default_factory=list)
     error: str | None = None  # the model call failed or returned nothing usable
     output: str | None = None  # the answer, kept (shortened) so a failure can be read
+    # With --repeat: how many times the case ran and how many of those runs passed. `passed` is
+    # strict (every run must pass); `flaky` is the in-between that one run cannot show.
+    runs: int = 1
+    passes: int | None = None
 
     @property
     def passed(self) -> bool:
         return self.error is None and all(check.ok for check in self.checks)
+
+    @property
+    def flaky(self) -> bool:
+        return self.runs > 1 and self.passes is not None and 0 < self.passes < self.runs
 
 
 @dataclass
@@ -36,6 +44,7 @@ class Report:
     model: str
     results: list[CaseResult]
     usage: dict[str, float] = field(default_factory=dict)  # calls, tokens, estimated cost
+    repeat: int = 1  # how many times each case was run
     date: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
 
     def summary(self) -> dict[str, Any]:
@@ -49,6 +58,7 @@ class Report:
             "total": len(self.results),
             "passed": sum(result.passed for result in self.results),
             "errors": sum(result.error is not None for result in self.results),
+            "flaky": sum(result.flaky for result in self.results),
             "by_tag": by_tag,
         }
 
@@ -72,6 +82,9 @@ def _result_dict(r: CaseResult) -> dict[str, Any]:
             for c in r.checks
         ],
     }
+    if r.runs > 1:
+        entry["runs"] = r.runs
+        entry["passes"] = r.passes
     if not r.passed and r.output is not None:
         entry["output"] = r.output  # only for failures, so a report stays small
     return entry
@@ -83,6 +96,7 @@ def to_dict(report: Report) -> dict[str, Any]:
         "prompt_version": report.prompt_version,
         "model": report.model,
         "date": report.date,
+        **({"repeat": report.repeat} if report.repeat > 1 else {}),
         "summary": report.summary(),
         "usage": report.usage,
         "results": [_result_dict(r) for r in report.results],

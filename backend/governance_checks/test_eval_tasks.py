@@ -234,3 +234,20 @@ def test_an_approved_proposal_becomes_a_valid_accuracy_case() -> None:
         raw["id"], raw["task"], tuple(raw["tags"]), raw["input"], raw["expect"], raw["note"]
     )
     validate_cases([case])
+
+
+# --- positive controls must test the model, not the thin-evidence rule ----------------------------
+
+
+def test_a_quicklook_case_that_expects_a_lead_has_more_evidence_than_the_thin_threshold() -> None:
+    """Under THIN_EVIDENCE_CHARS the app forces the call to "unclear" unless a quoted strong fit
+    exists, so a short positive control mostly tests that rule and flips between runs."""
+    from app.modules.quicklook.snapshot import THIN_EVIDENCE_CHARS
+
+    for case in load_cases(task="quicklook"):
+        if set(case.expect.get("call_in", [])) & {"yes", "maybe"}:
+            chars = sum(len(e["text"]) for e in case.input["evidence"])
+            assert chars >= THIN_EVIDENCE_CHARS, (
+                f"{case.id} expects a lead but has only {chars} characters of evidence "
+                f"(the app treats under {THIN_EVIDENCE_CHARS} as too thin to say yes or no)"
+            )
