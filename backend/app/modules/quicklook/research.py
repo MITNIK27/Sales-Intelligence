@@ -103,7 +103,7 @@ async def gather_research(
 ) -> tuple[list[Evidence], list[str]]:
     """News, open jobs and related-work results, searched at the same time."""
     moment = now or datetime.now(UTC)
-    parts: list[tuple[list[Evidence], list[str]]] = await asyncio.gather(
+    parts = await asyncio.gather(
         _news(sources, name, domain, moment),
         _hiring(sources, domain),
         _related_work(sources, name, area_tags),

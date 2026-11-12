@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from sqlalchemy import JSON, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -19,8 +20,8 @@ class CompanySnapshot(Base, TimestampMixin, UpdatedAtMixin):
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     domain: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
-    summary: Mapped[dict] = mapped_column(JSON)
-    sources: Mapped[list] = mapped_column(JSON)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON)
+    sources: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
     offerings_hash: Mapped[str] = mapped_column(String(64))
     # Which model and prompt wrote the summary; empty on snapshots made before this was kept.
     model_used: Mapped[str | None] = mapped_column(String(50))

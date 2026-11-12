@@ -37,3 +37,5 @@ class ApiUsage(Base, TimestampMixin):
     thinking_tokens: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     est_cost_usd: Mapped[float | None] = mapped_column(Float)
+    # Why a failed call failed, shortened and with anything key-like removed (recorder.short_error).
+    error: Mapped[str | None] = mapped_column(String(200))

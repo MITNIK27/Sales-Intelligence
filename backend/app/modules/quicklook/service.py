@@ -318,11 +318,11 @@ async def look_up(
         llm, chosen_name, chosen_domain, evidence, offerings, criteria, focus
     )
     notes.extend(summary.pop("notes", []))
-    sources = [{"url": e.url, "kind": e.kind} for e in evidence]
+    used: list[dict[str, Any]] = [{"url": e.url, "kind": e.kind} for e in evidence]
     snapshot = existing or CompanySnapshot(organization_id=organization_id, domain=chosen_domain)
     snapshot.name = str(summary["name"])[:255]
     snapshot.summary = summary
-    snapshot.sources = sources
+    snapshot.sources = used
     snapshot.offerings_hash = fingerprint
     snapshot.model_used = getattr(llm, "last_model", None)
     snapshot.prompt_version = PROMPT_VERSION

@@ -11,7 +11,7 @@ import hashlib
 import logging
 import re
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -318,9 +318,16 @@ async def run_sync(
     # Pages a person has asked to be read as offerings are read even if the sitemap no longer
     # lists them (a screened-out post, or an address added by hand).
     queued = {r.url for r in to_read}
-    for row in ledger.values():
-        if row.force_extract and row.url not in queued:
-            to_read.append(PageRef(row.url, row.lane, _aware(row.lastmod), row.title))
+    for forced_row in ledger.values():
+        if forced_row.force_extract and forced_row.url not in queued:
+            to_read.append(
+                PageRef(
+                    forced_row.url,
+                    forced_row.lane,
+                    _aware(forced_row.lastmod),
+                    forced_row.title,
+                )
+            )
 
     unreadable = 0
     for index, ref in enumerate(to_read, start=1):
@@ -485,7 +492,7 @@ async def _propose_removals(
     source: OfferingPageSource,
     by_url: dict[str, Product],
     ledger: dict[str, OfferingPage],
-    proposals: list[OfferingProposal],
+    proposals: Sequence[OfferingProposal],
     pending: list[OfferingProposal],
     refs: list[PageRef],
     post_refs: list[PageRef],

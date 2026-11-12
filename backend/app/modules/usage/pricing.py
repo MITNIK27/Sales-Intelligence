@@ -1,10 +1,15 @@
 """Estimated cost of a call, from published prices. These are estimates for budgeting, not a
 bill: free tiers cost nothing but are metered the same way so the paid-equivalent is visible.
 
-Sources (read 2026-10-28): the Google Gemini API pricing page (latest Flash-Lite, paid tier),
-Serper's Starter plan ($50 per 50,000 queries) and context.dev's Developer plan overage ($3 per
-1,000 credits). Groq's model prices were not found on its pricing page, so Groq calls record
-tokens but no cost."""
+Sources: the Google Gemini API pricing page (read 2026-11-12: gemini-3.5-flash-lite, paid tier,
+$0.30 in / $2.50 out per 1M tokens, thinking included), Serper's Starter plan ($50 per 50,000
+queries) and context.dev's Developer plan overage ($3 per 1,000 credits). Groq's model prices
+were not found on its pricing page, so Groq calls record tokens but no cost.
+
+What is not known: the app calls the rolling alias `gemini-flash-lite-latest`, which Google's
+pages do not document, so which model (and price) it resolves to is unconfirmed. The row below
+is right if it is 3.5 Flash-Lite; if it were 3.1 ($0.25 / $1.50) or 2.5 ($0.10 / $0.40) the
+estimate would be too high. Pinning GEMINI_MODEL to a named model removes the doubt."""
 
 # USD per 1M tokens: (input, output). The Gemini model used is the rolling Flash-Lite alias, so
 # the current Flash-Lite price is used; thinking tokens are billed as output.

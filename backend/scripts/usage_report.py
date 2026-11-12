@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.db import models as _models  # noqa: F401 - registers all models with SQLAlchemy
 from app.db.session import SessionLocal
-from app.modules.usage.service import cost_per_company, summarize_usage
+from app.modules.usage.service import cost_per_company, error_breakdown, summarize_usage
 
 # What the plan estimated, for the review. Measured figures should land in the same range; a
 # much higher one means a step is doing more than expected (retries, repeated judging).
@@ -32,6 +32,7 @@ async def main(days: int, review: bool) -> None:
     since = datetime.now(UTC) - timedelta(days=days)
     async with SessionLocal() as session:
         lines = await summarize_usage(session, since)
+        failures = await error_breakdown(session, since)
         per_company = await cost_per_company(session, since) if review else None
     if not lines:
         print(f"No usage recorded in the last {days} days.")
@@ -44,6 +45,10 @@ async def main(days: int, review: bool) -> None:
               f"{line.tokens_in:>10}{line.tokens_out:>9}{line.cached_tokens:>8}"
               f"{line.thinking_tokens:>8}{line.units:>7}{line.est_cost_usd:>9.4f}")
     print(f"\nTotal estimated: ${sum(line.est_cost_usd for line in lines):.4f}")
+    if failures:
+        print("\nFailed calls by reason")
+        for failure in failures:
+            print(f"  {failure.count:>4}  {failure.provider:<8} {failure.error}")
     if per_company is not None:
         _print_review(lines, per_company)
 

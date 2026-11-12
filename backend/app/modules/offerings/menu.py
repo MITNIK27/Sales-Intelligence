@@ -37,7 +37,7 @@ def parse_menu(html: str, base_url: str, groups: list[str]) -> list[MenuItem]:
     for anchor in nav.find_all("a", href=True):
         lines = anchor.get_text("\n", strip=True).split("\n")
         label = re.sub(r"\s+", " ", lines[0]).strip() if lines and lines[0] else ""
-        href = anchor["href"].strip()
+        href = str(anchor["href"]).strip()
         if href in ("", "#"):
             group = label
             continue

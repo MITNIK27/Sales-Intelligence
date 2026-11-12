@@ -101,7 +101,8 @@ def parse_lever(body: Any) -> list[Posting]:
     for job in body if isinstance(body, list) else []:
         if not isinstance(job, dict) or not _clean(job.get("text")):
             continue
-        categories = job.get("categories") if isinstance(job.get("categories"), dict) else {}
+        raw_categories = job.get("categories")
+        categories: dict[str, Any] = raw_categories if isinstance(raw_categories, dict) else {}
         postings.append(
             Posting(
                 title=_clean(job["text"]) or "",

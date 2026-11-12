@@ -99,6 +99,15 @@ class GroqStructuredLLM(StructuredLLM):
             raise LLMError(f"Groq did not return a valid answer: {exc}") from exc
 
 
+def _groq_error(resp: httpx.Response) -> str:
+    """Why Groq refused: its own message (for example which rate limit was hit) with the status."""
+    try:
+        message = resp.json().get("error", {}).get("message")
+    except Exception:  # noqa: BLE001 - a body that is not JSON just has no message
+        message = None
+    return f"HTTP {resp.status_code}: {message}" if message else f"HTTP {resp.status_code}"
+
+
 async def _meter_groq(model: str, resp: httpx.Response, begin: float) -> None:
     ok = resp.status_code < 400
     tokens_in = tokens_out = None
@@ -116,6 +125,7 @@ async def _meter_groq(model: str, resp: httpx.Response, begin: float) -> None:
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         latency_ms=elapsed_ms(begin),
+        error=None if ok else _groq_error(resp),
     )
 
 

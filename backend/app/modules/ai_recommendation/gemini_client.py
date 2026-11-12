@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.core.config import Settings
-from app.modules.usage.recorder import elapsed_ms, record_usage, started
+from app.modules.usage.recorder import elapsed_ms, record_usage, short_error, started
 
 Confidence = Literal["confident", "could_not_determine"]
 
@@ -86,9 +86,14 @@ async def _generate_metered(client: genai.Client, **kwargs: Any) -> types.Genera
     model = kwargs.get("model")
     try:
         response = await client.aio.models.generate_content(**kwargs)
-    except Exception:
+    except Exception as exc:
         await record_usage(
-            provider="gemini", kind="llm", status="error", model=model, latency_ms=elapsed_ms(begin)
+            provider="gemini",
+            kind="llm",
+            status="error",
+            model=model,
+            latency_ms=elapsed_ms(begin),
+            error=short_error(exc),
         )
         raise
     usage = getattr(response, "usage_metadata", None)

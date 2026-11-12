@@ -220,7 +220,7 @@ async def analyse_opportunity(
 
     by_id = {p.id: p for p in candidates}
     if chosen_ids:
-        targets = [by_id[i] for i in chosen_ids if i in by_id][:MAX_OFFERINGS_FOR_CONTACTS]
+        targets = [p for p in candidates if p.id in chosen_ids][:MAX_OFFERINGS_FOR_CONTACTS]
     else:
         targets = [
             by_id[m.product_id] for m in result.matches if m.band in (BAND_STRONG, BAND_POTENTIAL)

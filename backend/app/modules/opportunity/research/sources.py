@@ -142,19 +142,22 @@ class FallbackNewsSource:
         self._primary, self._backup = primary, backup
 
     async def search(self, query: str, since: datetime, limit: int) -> list[CollectedItem]:
+        found: list[CollectedItem] = []
         try:
             found = await self._primary.search(query, since, limit)
         except Exception as exc:  # noqa: BLE001 - the backup is the point of this class
             logger.info("news source failed, using the backup: %s", exc)
-            found = []
-        return found or await self._backup.search(query, since, limit)
+        if found:
+            return found
+        backup: list[CollectedItem] = await self._backup.search(query, since, limit)
+        return backup
 
     async def by_domain(self, domain: str, since: datetime, limit: int) -> list[CollectedItem]:
+        found: list[CollectedItem] = []
         try:
             found = await self._primary.by_domain(domain, since, limit)
         except Exception as exc:  # noqa: BLE001
             logger.info("news by website failed, using the backup: %s", exc)
-            found = []
         return found
 
 
@@ -168,12 +171,15 @@ class FallbackWebSource:
     async def search(
         self, query: str, include_domains: list[str] | None, limit: int
     ) -> list[CollectedItem]:
+        found: list[CollectedItem] = []
         try:
             found = await self._primary.search(query, include_domains, limit)
         except Exception as exc:  # noqa: BLE001 - the backup is the point of this class
             logger.info("web search failed, using the backup: %s", exc)
-            found = []
-        return found or await self._backup.search(query, include_domains, limit)
+        if found:
+            return found
+        backup: list[CollectedItem] = await self._backup.search(query, include_domains, limit)
+        return backup
 
 
 class JobBoardHiringSource:

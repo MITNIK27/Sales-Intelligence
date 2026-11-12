@@ -74,7 +74,8 @@ def _format_product_options(
     """One numbered block per candidate product, each with its own grounding — lets the model pick
     exactly one option rather than being told which single product to pitch."""
     blocks = []
-    for i, (product, recommendation) in enumerate(zip(products, recommendations), start=1):
+    pairs = zip(products, recommendations, strict=True)
+    for i, (product, recommendation) in enumerate(pairs, start=1):
         grounding_section, grounding_instruction = _format_grounding(recommendation)
         blocks.append(
             f"Option {i}: {product.name}\n"

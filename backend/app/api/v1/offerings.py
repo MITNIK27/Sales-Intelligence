@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
 from app.modules.offerings.coverage import get_coverage, request_extraction
+from app.modules.offerings.models import OfferingProposal
 from app.modules.offerings.review import (
     approve_proposal,
     duplicate_hints,
@@ -25,13 +26,16 @@ from app.modules.offerings.schemas import (
     SyncStarted,
     SyncStatus,
 )
+from app.modules.products.models import Product
 
 # Shares the /products prefix and must be mounted BEFORE the products router, or "/products/sync"
 # would be read as a product id.
 router = APIRouter(prefix="/products", tags=["offerings"])
 
 
-def _to_out(proposal, product, duplicate: str | None = None) -> ProposalOut:  # noqa: ANN001
+def _to_out(
+    proposal: OfferingProposal, product: Product | None, duplicate: str | None = None
+) -> ProposalOut:
     return ProposalOut(
         id=proposal.id,
         change=proposal.change,

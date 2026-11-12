@@ -55,7 +55,9 @@ def add_snapshot(
 def hiring_trend(snapshots: list[dict[str, Any]] | None) -> str | None:
     """Direction of the matching-posting count between the last two snapshots. None until there
     are two: one count is a number, not a trend, and the screen says so."""
-    counts = [s.get("matching") for s in snapshots or [] if isinstance(s.get("matching"), int)]
+    counts: list[int] = [
+        m for s in snapshots or [] if isinstance(m := s.get("matching"), int)
+    ]
     if len(counts) < 2:
         return None
     before, now = counts[-2], counts[-1]

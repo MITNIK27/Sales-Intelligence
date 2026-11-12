@@ -2,7 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.usage.models import ApiUsage
@@ -86,3 +86,28 @@ async def cost_per_company(session: AsyncSession, since: datetime, top: int = 5)
         average_est_cost_usd=total / len(totals) if totals else 0.0,
         most_expensive=ranked,
     )
+
+
+@dataclass(frozen=True)
+class ErrorLine:
+    provider: str
+    error: str
+    count: int
+
+
+async def error_breakdown(
+    session: AsyncSession, since: datetime, limit: int = 10
+) -> list[ErrorLine]:
+    """The most common reasons calls failed since `since`, by provider. A call that failed before
+    this was recorded has no reason and is shown as "(not recorded)". Each retry is its own call."""
+    rows = await session.execute(
+        select(ApiUsage.provider, ApiUsage.error, func.count())
+        .where(ApiUsage.created_at >= since, ApiUsage.status == "error")
+        .group_by(ApiUsage.provider, ApiUsage.error)
+        .order_by(func.count().desc())
+        .limit(limit)
+    )
+    return [
+        ErrorLine(provider, error or "(not recorded)", count)
+        for provider, error, count in rows.all()
+    ]

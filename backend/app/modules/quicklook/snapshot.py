@@ -90,9 +90,8 @@ def _verified_offerings(
         if offering is None or band not in _BAND_RANK or offering.label in picked:
             continue
         source = by_evidence.get((item.evidence or "").strip().upper())
-        verified = (
-            source is not None and bool(item.quote) and quote_is_in_source(item.quote, source.text)
-        )
+        quote = item.quote or ""
+        verified = source is not None and bool(quote) and quote_is_in_source(quote, source.text)
         if band != "weak" and not verified:
             band = "weak"  # a fit with no proof behind it is only a stretch
         picked[offering.label] = {

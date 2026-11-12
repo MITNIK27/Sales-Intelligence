@@ -196,6 +196,8 @@ async def run_qualification_check(
     if not criteria and not allow_empty:
         raise NoCriteriaConfiguredError("no criteria chosen to check against")
 
+    overall_verdict: str
+    criteria_results: list[dict[str, Any]]
     if not criteria:
         overall_verdict, criteria_results = VERDICT_NOT_CHECKED, []
     else:
@@ -300,18 +302,19 @@ async def _run_adhoc_qualification(
         # Typed by name only, but the website found belongs to a company we already have. The
         # row made a moment ago is empty, so drop it and check the existing company instead.
         existing = await session.get(Company, enriched["existing_company_id"])
-        await session.delete(company)
-        await session.flush()
-        company, created = existing, False
-        await _enrich_company(
-            session,
-            job.organization_id,
-            company,
-            domain_provider,
-            company_provider,
-            contact_provider,
-            signal_provider,
-        )
+        if existing is not None:  # if it has gone, keep the company just made rather than lose both
+            await session.delete(company)
+            await session.flush()
+            company, created = existing, False
+            await _enrich_company(
+                session,
+                job.organization_id,
+                company,
+                domain_provider,
+                company_provider,
+                contact_provider,
+                signal_provider,
+            )
     done = 1
     if progress_callback:
         next_step = f"Looking for evidence about {focus}" if focus else "Judging fit"

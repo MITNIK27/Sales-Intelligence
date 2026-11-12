@@ -430,7 +430,7 @@ class ContextDevProvider(CompanyDataProvider, SignalDataProvider):
     ) -> list[str]:
         """URLs context.dev finds for a domain (1 credit). Raises on transport/server errors."""
         pages = await self.map_pages(domain, sitemap_url, exclude_regex)
-        return [page["url"] for page in pages]
+        return [url for page in pages if (url := page["url"])]
 
     async def map_pages(
         self, domain: str, sitemap_url: str | None = None, exclude_regex: str | None = None
