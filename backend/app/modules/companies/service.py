@@ -1,7 +1,8 @@
 import re
 import uuid
+from datetime import UTC, datetime
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -10,6 +11,9 @@ from app.modules.contacts.models import Contact
 from app.modules.qualification.models import QualificationResult
 from app.modules.review.service import (
     DECISION_CONFIRMED,
+    DECISION_NOT_A_FIT,
+    DECISION_RESTORED,
+    NOT_A_FIT_REASONS,
     SUBJECT_COMPANY,
     company_snapshot,
     record_review_decision,
@@ -163,7 +167,11 @@ async def search_company_index(
     ]
     stmt = (
         select(Company)
-        .where(Company.organization_id == organization_id, or_(*keyword_conditions))
+        .where(
+            Company.organization_id == organization_id,
+            Company.dismissed_at.is_(None),  # a company a person rejected is never reused
+            or_(*keyword_conditions),
+        )
         .order_by(Company.last_enriched_at.desc().nulls_last())
         .limit(limit)
     )
@@ -183,11 +191,17 @@ async def list_companies(
     offset: int = 0,
     sort_by: str = "name",
     sort_dir: str = "asc",
+    dismissed: str = "hide",
 ) -> tuple[list[tuple[Company, int, str | None]], int]:
-    """Returns ([(company, contact_count, latest_qualification_verdict), ...], total_count)."""
-    count_stmt = (
-        select(func.count()).select_from(Company).where(Company.organization_id == organization_id)
-    )
+    """Returns ([(company, contact_count, latest_qualification_verdict), ...], total_count).
+    `dismissed` is "hide" (the default: companies a person marked not a fit are left out),
+    "include" (both) or "only" (just those, so one can be restored)."""
+    conditions: list[ColumnElement[bool]] = [Company.organization_id == organization_id]
+    if dismissed == "only":
+        conditions.append(Company.dismissed_at.is_not(None))
+    elif dismissed != "include":
+        conditions.append(Company.dismissed_at.is_(None))
+    count_stmt = select(func.count()).select_from(Company).where(*conditions)
     total = (await session.execute(count_stmt)).scalar_one()
 
     # QualificationResult is append-only — only the newest row per company matters for display,
@@ -225,7 +239,7 @@ async def list_companies(
         select(Company, func.count(Contact.id), latest_qual.c.overall_verdict)
         .outerjoin(Contact, Contact.company_id == Company.id)
         .outerjoin(latest_qual, latest_qual.c.company_id == Company.id)
-        .where(Company.organization_id == organization_id)
+        .where(*conditions)
         .group_by(Company.id, latest_qual.c.overall_verdict)
         .order_by(order, Company.id)  # stable tiebreaker for equal sort keys
         .limit(limit)
@@ -283,3 +297,80 @@ async def confirm_company(
     company.needs_review_reason = None
     await session.flush()
     return company
+
+
+MAX_NOTE_CHARS = 500
+
+
+class InvalidDismissalReasonError(ValueError):
+    """The reason is not one of `NOT_A_FIT_REASONS`."""
+
+
+async def dismiss_company(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    company_id: uuid.UUID,
+    reason: str,
+    note: str | None = None,
+) -> tuple[Company, bool] | None:
+    """A person says this company is not a fit: it is hidden, left out of automatic work, and
+    the decision is recorded with what the person was shown (docs/ai-governance.md, G4).
+    Returns (company, changed), or None when there is no such company. Dismissing one that is
+    already dismissed changes nothing and adds no second label."""
+    if reason not in NOT_A_FIT_REASONS:
+        raise InvalidDismissalReasonError(f"reason must be one of {NOT_A_FIT_REASONS}")
+    company = await get_company_detail(session, organization_id, company_id)
+    if company is None:
+        return None
+    if company.dismissed_at is not None:
+        return company, False
+    clean_note = (note or "").strip()[:MAX_NOTE_CHARS] or None
+    record_review_decision(
+        session,
+        organization_id=organization_id,
+        subject_type=SUBJECT_COMPANY,
+        subject_id=company.id,
+        company_id=company.id,
+        decision=DECISION_NOT_A_FIT,
+        was_flagged=company.needs_review,
+        flag_reason=company.needs_review_reason,
+        snapshot=company_snapshot(company),
+        reason_code=reason,
+        note=clean_note,
+    )
+    company.dismissed_at = datetime.now(UTC)
+    company.dismissed_reason = reason
+    company.dismissed_note = clean_note
+    await session.flush()
+    return company, True
+
+
+async def restore_company(
+    session: AsyncSession, organization_id: uuid.UUID, company_id: uuid.UUID
+) -> tuple[Company, bool] | None:
+    """Undo a dismissal. The undo is recorded too, with the reason that was withdrawn, so a
+    label that a person later changed their mind about can be told apart from one that stood.
+    Returns (company, changed), or None when there is no such company."""
+    company = await get_company_detail(session, organization_id, company_id)
+    if company is None:
+        return None
+    if company.dismissed_at is None:
+        return company, False
+    record_review_decision(
+        session,
+        organization_id=organization_id,
+        subject_type=SUBJECT_COMPANY,
+        subject_id=company.id,
+        company_id=company.id,
+        decision=DECISION_RESTORED,
+        was_flagged=company.needs_review,
+        flag_reason=company.needs_review_reason,
+        snapshot=company_snapshot(company),
+        reason_code=company.dismissed_reason,
+        note=company.dismissed_note,
+    )
+    company.dismissed_at = None
+    company.dismissed_reason = None
+    company.dismissed_note = None
+    await session.flush()
+    return company, True

@@ -67,6 +67,8 @@ class DiscoveredCompany:
     source_snippet: str
     needs_review: bool = False
     needs_review_reason: str | None = None
+    # The extraction model's own explanation of why it accepted this company.
+    reasoning: str = ""
 
 
 @dataclass(frozen=True)

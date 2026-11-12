@@ -128,6 +128,20 @@ def _build_search_query(parsed_fields: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _discovery_evidence(candidate: Any, criteria: MarketCriteria) -> dict[str, Any]:
+    """What discovery saw when it proposed a company, kept on the company so a person's later
+    "not a fit" can be compared with it. Shortened, because the text comes from the web."""
+    return {
+        "source_snippet": (getattr(candidate, "source_snippet", None) or "")[:1000] or None,
+        "extractor_reasoning": (getattr(candidate, "reasoning", None) or "")[:500] or None,
+        "criteria": {
+            "industry_keywords": criteria.industry_keywords,
+            "location": criteria.location,
+            "employee_size_range": criteria.employee_size_range,
+        },
+    }
+
+
 def _to_market_criteria(parsed_fields: dict[str, Any]) -> MarketCriteria:
     industry_keywords = (parsed_fields.get("industry_keywords") or {}).get("value") or []
     location = (parsed_fields.get("location") or {}).get("value")
@@ -248,6 +262,7 @@ async def _run_market_discovery(
                 # regardless of match confidence.
                 company.needs_review = candidate.needs_review
                 company.needs_review_reason = candidate.needs_review_reason
+                company.discovery_evidence = _discovery_evidence(candidate, criteria)
                 companies_created += 1
                 created_ids.append(str(company.id))
                 await session.flush()

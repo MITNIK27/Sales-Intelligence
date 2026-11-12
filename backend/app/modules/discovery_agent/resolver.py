@@ -44,4 +44,5 @@ class CompanyResolver:
             source_snippet=extracted.source_snippet,
             needs_review=extracted.needs_review,
             needs_review_reason=extracted.needs_review_reason,
+            reasoning=extracted.reasoning,
         )

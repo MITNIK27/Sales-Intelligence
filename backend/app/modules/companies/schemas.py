@@ -2,9 +2,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.contacts.schemas import ContactOut
+from app.modules.review.service import NOT_A_FIT_REASONS
 
 
 class CompanyListItem(BaseModel):
@@ -20,6 +21,8 @@ class CompanyListItem(BaseModel):
     qualification_verdict: str | None
     created_at: datetime
     last_enriched_at: datetime | None
+    dismissed_at: datetime | None = None
+    dismissed_reason: str | None = None
 
 
 class CompanyList(BaseModel):
@@ -44,7 +47,32 @@ class CompanyDetail(BaseModel):
     last_enriched_at: datetime | None
     enrichment_error: str | None
     criteria: list[dict[str, object]] = []
+    dismissed_at: datetime | None = None
+    dismissed_reason: str | None = None
+    dismissed_note: str | None = None
     contacts: list[ContactOut]
+
+
+class CompanyDismissRequest(BaseModel):
+    reason: str
+    note: str | None = Field(default=None, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _known_reason(cls, value: str) -> str:
+        if value not in NOT_A_FIT_REASONS:
+            raise ValueError(f"reason must be one of {NOT_A_FIT_REASONS}")
+        return value
+
+
+class CompanyBulkDismissRequest(CompanyDismissRequest):
+    company_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class CompanyBulkDismissResult(BaseModel):
+    dismissed: int
+    already_dismissed: int
+    not_found: list[uuid.UUID]
 
 
 class CompanyConfirmRequest(BaseModel):

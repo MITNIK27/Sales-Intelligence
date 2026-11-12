@@ -9,13 +9,22 @@ from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
 from app.modules.companies.models import Company
 from app.modules.companies.schemas import (
+    CompanyBulkDismissRequest,
+    CompanyBulkDismissResult,
     CompanyConfirmRequest,
     CompanyConfirmResult,
     CompanyDetail,
+    CompanyDismissRequest,
     CompanyList,
     CompanyListItem,
 )
-from app.modules.companies.service import confirm_company, get_company_detail, list_companies
+from app.modules.companies.service import (
+    confirm_company,
+    dismiss_company,
+    get_company_detail,
+    list_companies,
+    restore_company,
+)
 from app.modules.contacts.schemas import ContactOut, PersonCreate
 from app.modules.contacts.service import PersonAlreadyListedError, add_person
 from app.modules.draft.draft_generator import GeminiDraftGenerator
@@ -41,10 +50,13 @@ async def list_companies_endpoint(
         "name", "created_at", "last_enriched_at", "enrichment_status", "qualification"
     ] = Query("name"),
     sort_dir: Literal["asc", "desc"] = Query("asc"),
+    dismissed: Literal["hide", "include", "only"] = Query(
+        "hide", description="companies marked not a fit: leave out, include, or show only those"
+    ),
     session: AsyncSession = Depends(get_db),
 ) -> CompanyList:
     rows, total = await list_companies(
-        session, DEFAULT_ORGANIZATION_ID, limit, offset, sort_by, sort_dir
+        session, DEFAULT_ORGANIZATION_ID, limit, offset, sort_by, sort_dir, dismissed
     )
     items = [
         CompanyListItem(
@@ -58,10 +70,36 @@ async def list_companies_endpoint(
             qualification_verdict=qualification_verdict,
             created_at=company.created_at,
             last_enriched_at=company.last_enriched_at,
+            dismissed_at=company.dismissed_at,
+            dismissed_reason=company.dismissed_reason,
         )
         for company, contact_count, qualification_verdict in rows
     ]
     return CompanyList(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.post("/dismiss", response_model=CompanyBulkDismissResult)
+async def dismiss_companies_endpoint(
+    body: CompanyBulkDismissRequest, session: AsyncSession = Depends(get_db)
+) -> CompanyBulkDismissResult:
+    """Mark several companies not a fit with one reason (for clearing a noisy run). All in one
+    transaction; each company gets its own labelled decision."""
+    dismissed = already = 0
+    missing: list[uuid.UUID] = []
+    for company_id in dict.fromkeys(body.company_ids):  # in order, each id once
+        result = await dismiss_company(
+            session, DEFAULT_ORGANIZATION_ID, company_id, body.reason, body.note
+        )
+        if result is None:
+            missing.append(company_id)
+        elif result[1]:
+            dismissed += 1
+        else:
+            already += 1
+    await session.commit()
+    return CompanyBulkDismissResult(
+        dismissed=dismissed, already_dismissed=already, not_found=missing
+    )
 
 
 @router.get("/{company_id}", response_model=CompanyDetail)
@@ -72,6 +110,37 @@ async def get_company_endpoint(
     if company is None:
         raise HTTPException(status_code=404, detail="company not found")
     return CompanyDetail.model_validate(company)
+
+
+@router.post("/{company_id}/dismiss", response_model=CompanyDetail)
+async def dismiss_company_endpoint(
+    company_id: uuid.UUID,
+    body: CompanyDismissRequest,
+    session: AsyncSession = Depends(get_db),
+) -> CompanyDetail:
+    """A rep saying this company is not a fit. It is hidden and skipped by automatic work, and
+    can be brought back with `/restore`."""
+    result = await dismiss_company(
+        session, DEFAULT_ORGANIZATION_ID, company_id, body.reason, body.note
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="company not found")
+    detail = CompanyDetail.model_validate(result[0])
+    await session.commit()
+    return detail
+
+
+@router.post("/{company_id}/restore", response_model=CompanyDetail)
+async def restore_company_endpoint(
+    company_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> CompanyDetail:
+    """Undo a \"not a fit\"."""
+    result = await restore_company(session, DEFAULT_ORGANIZATION_ID, company_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="company not found")
+    detail = CompanyDetail.model_validate(result[0])
+    await session.commit()
+    return detail
 
 
 @router.post("/{company_id}/confirm", response_model=CompanyConfirmResult)

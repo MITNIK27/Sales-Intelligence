@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -55,6 +55,16 @@ class Company(Base, TimestampMixin, UpdatedAtMixin):
     )
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
     needs_review_reason: Mapped[str | None] = mapped_column(String(255))
+    # A person said this company is not a fit (docs/ai-governance.md, G4). Dismissed companies
+    # are hidden from lists and left out of automatic work; Undo clears these three. The
+    # history of every decision stays in `review_decisions`.
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    dismissed_reason: Mapped[str | None] = mapped_column(String(30))  # NOT_A_FIT_REASONS
+    dismissed_note: Mapped[str | None] = mapped_column(String(500))
+    # What Market Discovery saw when it proposed this company: the text it was found in, the
+    # extraction model's own reasoning and the market asked for. Empty for companies that did
+    # not come from a discovery run. Kept so a person's later decision can be compared with it.
+    discovery_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     last_enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enrichment_error: Mapped[str | None] = mapped_column(String)
     # Where each enriched field came from, set when enrichment fills it:

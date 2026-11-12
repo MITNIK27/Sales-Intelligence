@@ -30,4 +30,9 @@ class ReviewDecision(Base, TimestampMixin):
     # but is a different signal from rejecting a flagged one.
     was_flagged: Mapped[bool] = mapped_column(Boolean)
     flag_reason: Mapped[str | None] = mapped_column(String(255))
+    # For not_a_fit (and the restore that undoes it): the reason picked from a short fixed list,
+    # and an optional free-text note. The note is typed by a person and may mention people, so
+    # it only goes to a model through a chain cleared for personal data.
+    reason_code: Mapped[str | None] = mapped_column(String(30))
+    note: Mapped[str | None] = mapped_column(String(500))
     snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON)
