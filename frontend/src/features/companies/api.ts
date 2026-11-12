@@ -5,8 +5,11 @@ import type {
   CompanyConfirmRequest,
   CompanyConfirmResult,
   CompanyDetail,
+  CompanyDismissRequest,
+  CompanyDismissResult,
   Contact,
   Draft,
+  DismissalCheckResult,
   JobStatus,
   ProductList,
   CompanyCriterion,
@@ -62,3 +65,15 @@ export const confirmContact = (contactId: string) =>
   apiPost<Contact>(`/contacts/${contactId}/confirm`);
 export const deleteContact = (contactId: string) =>
   apiDelete(`/contacts/${contactId}`);
+
+// Marking companies not a fit. One call covers a single company or many; the server holds back
+// any that have outreach on record until `acknowledge_history` says the person was told.
+export const dismissCompanies = (body: CompanyDismissRequest) =>
+  apiPost<CompanyDismissResult>("/companies/dismiss", body);
+// Which of these have outreach or sent drafts, so the person can be asked first. Changes nothing.
+export const checkDismissal = (companyIds: string[]) =>
+  apiPost<DismissalCheckResult>("/companies/dismissal-check", {
+    company_ids: companyIds,
+  });
+export const restoreCompany = (id: string) =>
+  apiPost<CompanyDetail>(`/companies/${id}/restore`);

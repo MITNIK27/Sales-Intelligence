@@ -23,6 +23,7 @@ import {
   OFFERING_BAND_LABEL,
   OFFERING_BAND_TONE,
 } from "@/features/quicklook/callStyle";
+import { reasonLabel } from "@/features/companies/notAFit/reasons";
 import { formatDateTime } from "@/lib/format";
 import { safeHref } from "@/lib/safeHref";
 import { cn } from "@/lib/utils";
@@ -80,6 +81,26 @@ export function SnapshotCard({
             <p className="text-sm text-foreground">{snapshot.call_reason}</p>
           </div>
         </div>
+
+        {snapshot.existing_company_dismissed_reason && (
+          <p
+            role="status"
+            className="border border-border bg-chip-warning-bg px-4 py-3 text-sm text-chip-warning-fg"
+          >
+            You marked this company not a fit (
+            {reasonLabel(snapshot.existing_company_dismissed_reason)}). It is hidden from your
+            companies list.{" "}
+            {known && (
+              <Link
+                to={`/companies/${known}`}
+                className="font-medium underline underline-offset-4"
+              >
+                Open it
+              </Link>
+            )}
+            {known && " to undo."}
+          </p>
+        )}
 
         <div>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

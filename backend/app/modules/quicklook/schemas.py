@@ -82,6 +82,8 @@ class SnapshotOut(BaseModel):
     updated_at: datetime
     cached: bool
     existing_company_id: uuid.UUID | None
+    # Set when that company was marked not a fit: the reason the person gave.
+    existing_company_dismissed_reason: str | None = None
 
 
 class CandidateOut(BaseModel):

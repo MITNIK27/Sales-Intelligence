@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { apiGet, apiPatch, apiPost } from "@/api/client";
+import { NotAFitButton } from "@/features/companies/notAFit/NotAFitButton";
 import type {
   Draft,
   MarketDiscoveryWorklist,
@@ -117,17 +118,23 @@ export function RunWorklist({
           </summary>
           <ul className="flex flex-col divide-y divide-border border-t border-border">
             {notShown.map((row) => (
-              <li key={row.company_id} className="px-4 py-2 text-sm">
-                <Link
-                  to={`/companies/${row.company_id}?run=${runId}`}
-                  className="font-medium hover:underline"
-                >
-                  {row.name}
-                </Link>
-                <span className="text-muted-foreground">
-                  {" "}
-                  — {row.skip_reason}
-                </span>
+              <li
+                key={row.company_id}
+                className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm"
+              >
+                <div>
+                  <Link
+                    to={`/companies/${row.company_id}?run=${runId}`}
+                    className="font-medium hover:underline"
+                  >
+                    {row.name}
+                  </Link>
+                  <span className="text-muted-foreground">
+                    {" "}
+                    — {row.skip_reason}
+                  </span>
+                </div>
+                <NotAFitButton companyIds={[row.company_id]} onDone={load} />
               </li>
             ))}
           </ul>
@@ -189,6 +196,7 @@ function ReadyRow({
             )}
           </div>
           <div className="flex items-center gap-2">
+            <NotAFitButton companyIds={[row.company_id]} onDone={onChanged} />
             {row.verdict === "could_not_determine" && (
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
                 Needs evidence

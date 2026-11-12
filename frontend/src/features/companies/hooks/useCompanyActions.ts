@@ -8,6 +8,7 @@ import {
   confirmContact,
   deleteContact,
   generateRecommendation,
+  restoreCompany,
   saveCompanyCriteria,
   searchContacts,
 } from "@/features/companies/api";
@@ -30,6 +31,18 @@ export function useCompanyActions(
   const { showToast } = useToast();
   const fail = (err: unknown, fallback: string) =>
     showToast({ description: errorMessage(err, fallback) });
+
+  // Undo "not a fit": the company is listed and used by automatic work again.
+  async function restore() {
+    if (!companyId) return;
+    try {
+      await restoreCompany(companyId);
+      await data.refreshCompany();
+      showToast({ description: "Company restored.", variant: "success" });
+    } catch (err) {
+      fail(err, "failed to restore the company");
+    }
+  }
 
   async function createRecommendation(productId: string) {
     if (!companyId) return;
@@ -153,6 +166,7 @@ export function useCompanyActions(
   }
 
   return {
+    restore,
     createRecommendation,
     runQualification,
     saveCriteria,

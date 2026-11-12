@@ -46,6 +46,8 @@ export type Snapshot = {
   cached: boolean;
   // Set when the company is already in the companies list.
   existing_company_id: string | null;
+  // Set when that company was marked not a fit: the reason the person gave.
+  existing_company_dismissed_reason?: string | null;
 };
 
 export type Candidate = { name: string; domain: string; snippet: string };

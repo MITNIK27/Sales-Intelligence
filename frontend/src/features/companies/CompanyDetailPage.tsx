@@ -11,6 +11,8 @@ import { useCompanyActions } from "@/features/companies/hooks/useCompanyActions"
 import { useCompanyData } from "@/features/companies/hooks/useCompanyData";
 import { useEnrichmentJob } from "@/features/companies/hooks/useEnrichmentJob";
 import { Brief } from "@/features/brief/Brief";
+import { DismissedBanner } from "@/features/companies/notAFit/DismissedBanner";
+import { QuickCheckSaid } from "@/features/companies/notAFit/QuickCheckSaid";
 import { useBuyingRoles } from "@/features/brief/useBuyingRoles";
 import { useRunOfferings } from "@/features/brief/useRunOfferings";
 import { COMPANY_TABS, tabFromParams } from "@/features/companies/lib/tabs";
@@ -112,7 +114,19 @@ export function CompanyDetailPage() {
         }
         fromRun={runOfferings.length > 0}
         onConfirm={actions.confirmWholeCompany}
+        onDismissed={() => {
+          void data.refreshCompany();
+        }}
       />
+      {company.dismissed_at && (
+        <DismissedBanner
+          reason={company.dismissed_reason}
+          note={company.dismissed_note}
+          dismissedAt={company.dismissed_at}
+          onRestore={actions.restore}
+        />
+      )}
+      <QuickCheckSaid note={company.quick_check} />
       <div className="mb-6">
         <PipelineStatusStepper steps={steps} />
       </div>

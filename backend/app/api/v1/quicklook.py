@@ -31,6 +31,7 @@ from app.modules.quicklook.service import (
     PageFetcher,
     Searcher,
     SnapshotNotFoundError,
+    existing_company_dismissal,
     existing_company_id,
     get_snapshot,
     look_up,
@@ -92,6 +93,9 @@ async def _snapshot_out(
         updated_at=snapshot.updated_at,
         cached=cached,
         existing_company_id=await existing_company_id(
+            session, snapshot.organization_id, snapshot.domain
+        ),
+        existing_company_dismissed_reason=await existing_company_dismissal(
             session, snapshot.organization_id, snapshot.domain
         ),
     )

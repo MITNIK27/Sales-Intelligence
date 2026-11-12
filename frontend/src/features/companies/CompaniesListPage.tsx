@@ -10,6 +10,7 @@ import type {
   ScrapeAllStarted,
   SortDirection,
 } from "@/api/types";
+import { Checkbox } from "@/components/Checkbox";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,8 +21,10 @@ import {
   QualificationVerdictBadge,
 } from "@/components/StatusBadge";
 import { TablePagination } from "@/components/TablePagination";
+import { Tabs } from "@/components/Tabs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useToast } from "@/components/ui/toast";
 import {
   Table,
   TableBody,
@@ -30,6 +33,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { restoreCompany } from "@/features/companies/api";
+import { errorMessage } from "@/features/companies/lib/contacts";
+import { NotAFitButton } from "@/features/companies/notAFit/NotAFitButton";
+import { reasonLabel } from "@/features/companies/notAFit/reasons";
 import { formatDate } from "@/lib/format";
 
 // After a bulk scrape is triggered, refresh the list on an interval for a short window so
@@ -45,7 +52,18 @@ const SORT_LABELS: Record<CompanySortField, string> = {
   qualification: "Qualification",
 };
 
+type ListView = "active" | "dismissed";
+
+const LIST_TABS: { id: ListView; label: string }[] = [
+  { id: "active", label: "Companies" },
+  { id: "dismissed", label: "Not a fit" },
+];
+
 export function CompaniesListPage() {
+  const { showToast } = useToast();
+  const [view, setView] = useState<ListView>("active");
+  // Companies ticked on this page, for marking several not a fit at once.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [data, setData] = useState<CompanyList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scraping, setScraping] = useState(false);
@@ -64,6 +82,7 @@ export function CompaniesListPage() {
       sort_by: sortBy,
       sort_dir: sortDir,
     });
+    if (view === "dismissed") params.set("dismissed", "only");
     return apiGet<CompanyList>(`/companies?${params}`)
       .then(setData)
       .catch((err) =>
@@ -74,11 +93,44 @@ export function CompaniesListPage() {
   }
 
   useEffect(() => {
+    setSelected(new Set()); // a ticked row that is no longer on screen must not be acted on
     loadCompanies();
     return () => {
       if (refreshRef.current) window.clearInterval(refreshRef.current);
     };
-  }, [page, pageSize, sortBy, sortDir]);
+  }, [page, pageSize, sortBy, sortDir, view]);
+
+  function changeView(next: ListView) {
+    setView(next);
+    setPage(1);
+  }
+
+  function toggleOne(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllOnPage() {
+    if (!data) return;
+    const ids = data.items.map((company) => company.id);
+    setSelected((current) =>
+      ids.every((id) => current.has(id)) ? new Set() : new Set(ids),
+    );
+  }
+
+  async function handleRestore(id: string, name: string) {
+    try {
+      await restoreCompany(id);
+      showToast({ description: `${name} restored.`, variant: "success" });
+      await loadCompanies();
+    } catch (err) {
+      showToast({ description: errorMessage(err, "failed to restore the company") });
+    }
+  }
 
   function handleSort(field: CompanySortField) {
     if (field === sortBy) {
@@ -174,13 +226,28 @@ export function CompaniesListPage() {
 
   return (
     <div>
-      <PageHeader title={`Companies (${data.total})`} action={scrapeAction} />
-      {scrapeMessage && (
+      <PageHeader
+        title={`${view === "active" ? "Companies" : "Not a fit"} (${data.total})`}
+        action={view === "active" ? scrapeAction : undefined}
+      />
+      <Tabs
+        label="Company lists"
+        tabs={LIST_TABS}
+        active={view}
+        onChange={changeView}
+      />
+      {view === "active" && scrapeMessage && (
         <p className="mb-4 text-sm text-muted-foreground">{scrapeMessage}</p>
       )}
 
       <Card className="p-0">
-        {data.total === 0 ? (
+        {data.total === 0 && view === "dismissed" ? (
+          <EmptyState
+            icon={Building2}
+            title="Nothing marked not a fit"
+            description="Companies you mark as not a fit are listed here, where you can undo it. Every reason you give helps us see what the search gets wrong."
+          />
+        ) : data.total === 0 ? (
           <EmptyState
             icon={Building2}
             title="No companies yet"
@@ -198,9 +265,45 @@ export function CompaniesListPage() {
           />
         ) : (
           <>
+            {view === "active" && selected.size > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 text-sm">
+                <span>{selected.size} selected</span>
+                <div className="flex items-center gap-2">
+                  <NotAFitButton
+                    companyIds={[...selected]}
+                    label={`Not a fit (${selected.size})`}
+                    onDone={() => {
+                      setSelected(new Set());
+                      void loadCompanies();
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelected(new Set())}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </div>
+            )}
             <Table>
               <TableHeader>
                 <TableRow>
+                  {view === "active" && (
+                    <TableHead className="w-8">
+                      <Checkbox
+                        checked={
+                          data.items.length > 0 &&
+                          data.items.every((company) => selected.has(company.id))
+                        }
+                        indeterminate={selected.size > 0}
+                        onChange={toggleAllOnPage}
+                        label="Select all companies on this page"
+                      />
+                    </TableHead>
+                  )}
                   <SortableHead field="name" />
                   <TableHead>Website</TableHead>
                   <TableHead>Industry</TableHead>
@@ -209,11 +312,26 @@ export function CompaniesListPage() {
                   <SortableHead field="last_enriched_at" />
                   <SortableHead field="enrichment_status" />
                   <SortableHead field="qualification" />
+                  {view === "dismissed" && (
+                    <>
+                      <TableHead>Reason</TableHead>
+                      <TableHead />
+                    </>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.items.map((company) => (
                   <TableRow key={company.id}>
+                    {view === "active" && (
+                      <TableCell>
+                        <Checkbox
+                          checked={selected.has(company.id)}
+                          onChange={() => toggleOne(company.id)}
+                          label={`Select ${company.name}`}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="whitespace-normal">
                       <Link
                         to={`/companies/${company.id}`}
@@ -254,6 +372,23 @@ export function CompaniesListPage() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
+                    {view === "dismissed" && (
+                      <>
+                        <TableCell className="whitespace-normal">
+                          {reasonLabel(company.dismissed_reason)}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRestore(company.id, company.name)}
+                          >
+                            Undo
+                          </Button>
+                        </TableCell>
+                      </>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

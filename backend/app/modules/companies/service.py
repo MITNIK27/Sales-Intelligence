@@ -1,5 +1,6 @@
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import ColumnElement, func, or_, select
@@ -326,17 +327,112 @@ class InvalidDismissalReasonError(ValueError):
     """The reason is not one of `NOT_A_FIT_REASONS`."""
 
 
+@dataclass(frozen=True)
+class CompanyHistory:
+    """Work with a company that a dismissal would hide: logged outreach and sent drafts."""
+
+    outreach_activities: int = 0
+    sent_drafts: int = 0
+
+    @property
+    def any(self) -> bool:
+        return bool(self.outreach_activities or self.sent_drafts)
+
+    def describe(self) -> str:
+        parts = []
+        if self.outreach_activities:
+            noun = "outreach activity" if self.outreach_activities == 1 else "outreach activities"
+            parts.append(f"{self.outreach_activities} logged {noun}")
+        if self.sent_drafts:
+            noun = "sent draft" if self.sent_drafts == 1 else "sent drafts"
+            parts.append(f"{self.sent_drafts} {noun}")
+        return " and ".join(parts)
+
+
+class CompanyHasHistoryError(Exception):
+    """The company has logged outreach or sent drafts and the person has not confirmed that
+    hiding it is intended. Raised by `dismiss_company`; the API turns it into a 409."""
+
+    def __init__(self, company_name: str, history: CompanyHistory) -> None:
+        self.history = history
+        super().__init__(
+            f"{company_name} has {history.describe()}. Marking it not a fit hides it and stops "
+            "its follow-up reminders. Confirm to mark it not a fit anyway."
+        )
+
+
+async def company_outreach_history(
+    session: AsyncSession, organization_id: uuid.UUID, company_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, CompanyHistory]:
+    """Logged outreach and sent drafts for each company (zeros when there are none)."""
+    # Late imports, like `contacts.service.delete_contact`: these modules import this one.
+    from app.modules.draft.models import DRAFT_STATUS_SENT, Draft
+    from app.modules.outreach.models import OutreachActivity
+
+    if not company_ids:
+        return {}
+    outreach_rows = await session.execute(
+        select(Contact.company_id, func.count(OutreachActivity.id))
+        .join(Contact, Contact.id == OutreachActivity.contact_id)
+        .where(
+            OutreachActivity.organization_id == organization_id,
+            Contact.company_id.in_(company_ids),
+        )
+        .group_by(Contact.company_id)
+    )
+    outreach = {company_id: count for company_id, count in outreach_rows.all()}
+    sent_rows = await session.execute(
+        select(Draft.company_id, func.count(Draft.id))
+        .where(
+            Draft.organization_id == organization_id,
+            Draft.company_id.in_(company_ids),
+            Draft.status == DRAFT_STATUS_SENT,
+        )
+        .group_by(Draft.company_id)
+    )
+    sent = {company_id: count for company_id, count in sent_rows.all()}
+    return {
+        company_id: CompanyHistory(outreach.get(company_id, 0), sent.get(company_id, 0))
+        for company_id in company_ids
+    }
+
+
+async def dismissal_check(
+    session: AsyncSession, organization_id: uuid.UUID, company_ids: list[uuid.UUID]
+) -> list[tuple[uuid.UUID, str, CompanyHistory]]:
+    """The companies among `company_ids` that have outreach or sent drafts, with their names, so
+    a screen can ask before dismissing them. Companies with nothing to lose are not listed."""
+    history = await company_outreach_history(session, organization_id, company_ids)
+    flagged = [company_id for company_id, h in history.items() if h.any]
+    if not flagged:
+        return []
+    name_rows = await session.execute(
+        select(Company.id, Company.name).where(
+            Company.organization_id == organization_id, Company.id.in_(flagged)
+        )
+    )
+    names = {company_id: name for company_id, name in name_rows.all()}
+    return [
+        (company_id, names[company_id], history[company_id])
+        for company_id in flagged
+        if company_id in names
+    ]
+
+
 async def dismiss_company(
     session: AsyncSession,
     organization_id: uuid.UUID,
     company_id: uuid.UUID,
     reason: str,
     note: str | None = None,
+    acknowledge_history: bool = False,
 ) -> tuple[Company, bool] | None:
     """A person says this company is not a fit: it is hidden, left out of automatic work, and
     the decision is recorded with what the person was shown (docs/ai-governance.md, G4).
     Returns (company, changed), or None when there is no such company. Dismissing one that is
-    already dismissed changes nothing and adds no second label."""
+    already dismissed changes nothing and adds no second label. A company with logged outreach or
+    sent drafts raises `CompanyHasHistoryError` unless `acknowledge_history` says the person
+    has been told and still wants it hidden."""
     if reason not in NOT_A_FIT_REASONS:
         raise InvalidDismissalReasonError(f"reason must be one of {NOT_A_FIT_REASONS}")
     company = await get_company_detail(session, organization_id, company_id)
@@ -344,6 +440,12 @@ async def dismiss_company(
         return None
     if company.dismissed_at is not None:
         return company, False
+    if not acknowledge_history:
+        history = (await company_outreach_history(session, organization_id, [company.id]))[
+            company.id
+        ]
+        if history.any:
+            raise CompanyHasHistoryError(company.name, history)
     clean_note = (note or "").strip()[:MAX_NOTE_CHARS] or None
     record_review_decision(
         session,

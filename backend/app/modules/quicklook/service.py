@@ -217,6 +217,40 @@ async def existing_company_id(
     ).scalar_one_or_none()
 
 
+async def existing_company_dismissal(
+    session: AsyncSession, organization_id: uuid.UUID, domain: str
+) -> str | None:
+    """The reason a person gave when they marked this website's company not a fit, or None when
+    there is no such company or it was not dismissed."""
+    return (
+        await session.execute(
+            select(Company.dismissed_reason).where(
+                Company.organization_id == organization_id,
+                func.lower(Company.domain) == domain,
+                Company.dismissed_at.is_not(None),
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def snapshot_note_for_domain(
+    session: AsyncSession, organization_id: uuid.UUID, domain: str
+) -> dict[str, object] | None:
+    """The call and reason Quick Check gave for this website, if it was ever looked up."""
+    snapshot = await _find_snapshot(session, organization_id, domain.lower())
+    if snapshot is None:
+        return None
+    summary = snapshot.summary or {}
+    if not summary.get("call"):
+        return None
+    return {
+        "call": summary["call"],
+        "call_reason": summary.get("call_reason") or "",
+        "relevance": summary.get("relevance"),
+        "updated_at": snapshot.updated_at,
+    }
+
+
 async def look_up(
     session: AsyncSession,
     organization_id: uuid.UUID,

@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { ProductMultiSelect } from "@/components/ProductMultiSelect";
 import { NeedsReviewBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { NotAFitButton } from "@/features/companies/notAFit/NotAFitButton";
 
 // The title, and (for a company still flagged for review) the offerings to pitch and the Confirm
 // action. Confirming resumes the automated pipeline, which may pitch more than one offering.
@@ -13,12 +14,15 @@ export function CompanyHeader({
   products,
   fromRun,
   onConfirm,
+  onDismissed,
 }: {
   company: CompanyDetail;
   products: Product[] | null;
   // The offerings are the ones chosen for the Market Discovery run, so they start selected.
   fromRun: boolean;
   onConfirm: (productIds: string[]) => Promise<void>;
+  // After the company was marked not a fit, so the page can reload.
+  onDismissed: () => void;
 }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirming, setConfirming] = useState(false);
@@ -46,7 +50,10 @@ export function CompanyHeader({
         </span>
       }
       action={
-        company.needs_review ? (
+        // A company marked not a fit has its own banner with an Undo; nothing else applies to it.
+        company.dismissed_at ? undefined : (
+          <div className="flex items-end gap-2">
+            {company.needs_review && (
           <div className="flex flex-col items-end gap-2">
             {fromRun && products && products.length > 0 && (
               <p className="text-sm text-muted-foreground">
@@ -75,7 +82,10 @@ export function CompanyHeader({
               {confirming ? "Confirming…" : "Confirm Company"}
             </Button>
           </div>
-        ) : undefined
+            )}
+            <NotAFitButton companyIds={[company.id]} onDone={onDismissed} />
+          </div>
+        )
       }
     />
   );

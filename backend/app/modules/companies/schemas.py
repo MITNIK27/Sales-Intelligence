@@ -32,6 +32,16 @@ class CompanyList(BaseModel):
     offset: int
 
 
+class QuickCheckNote(BaseModel):
+    """What Quick Check said about this company, so the reason it was kept or rejected is not
+    lost once it becomes a company."""
+
+    call: str
+    call_reason: str
+    relevance: str | None
+    updated_at: datetime
+
+
 class CompanyDetail(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,12 +60,16 @@ class CompanyDetail(BaseModel):
     dismissed_at: datetime | None = None
     dismissed_reason: str | None = None
     dismissed_note: str | None = None
+    quick_check: QuickCheckNote | None = None
     contacts: list[ContactOut]
 
 
 class CompanyDismissRequest(BaseModel):
     reason: str
     note: str | None = Field(default=None, max_length=500)
+    # The person has been told the company has logged outreach or sent drafts and still wants
+    # it hidden.
+    acknowledge_history: bool = False
 
     @field_validator("reason")
     @classmethod
@@ -69,10 +83,29 @@ class CompanyBulkDismissRequest(CompanyDismissRequest):
     company_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
 
 
+class CompanyHistoryOut(BaseModel):
+    company_id: uuid.UUID
+    company_name: str
+    outreach_activities: int
+    sent_drafts: int
+
+
+class DismissalCheckRequest(BaseModel):
+    company_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+
+
+class DismissalCheckResult(BaseModel):
+    """Companies that have outreach or sent drafts; those with nothing to lose are not listed."""
+
+    with_history: list[CompanyHistoryOut]
+
+
 class CompanyBulkDismissResult(BaseModel):
     dismissed: int
     already_dismissed: int
     not_found: list[uuid.UUID]
+    # Left as they were: they have outreach or sent drafts and need the person's confirmation.
+    needs_confirmation: list[CompanyHistoryOut] = []
 
 
 class CompanyConfirmRequest(BaseModel):

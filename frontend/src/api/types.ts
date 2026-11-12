@@ -55,6 +55,9 @@ export type CompanyListItem = {
   qualification_verdict: QualificationVerdict | null;
   created_at: string;
   last_enriched_at: string | null;
+  // Set when a person marked the company not a fit (only listed with the Not a fit view).
+  dismissed_at?: string | null;
+  dismissed_reason?: string | null;
 };
 
 export type CompanySortField =
@@ -150,7 +153,46 @@ export type CompanyDetail = {
   enrichment_error: string | null;
   // What the person wants to know about this company, typed here or on the search that found it.
   criteria?: CompanyCriterion[];
+  // Set when a person marked this company not a fit: why, and an optional note.
+  dismissed_at?: string | null;
+  dismissed_reason?: string | null;
+  dismissed_note?: string | null;
+  // What Quick Check said about this website, when it was ever looked up.
+  quick_check?: QuickCheckNote | null;
   contacts: Contact[];
+};
+
+export type QuickCheckNote = {
+  call: string;
+  call_reason: string;
+  relevance: string | null;
+  updated_at: string;
+};
+
+// A company that has logged outreach or sent drafts, which hiding it would lose sight of.
+export type CompanyHistory = {
+  company_id: string;
+  company_name: string;
+  outreach_activities: number;
+  sent_drafts: number;
+};
+
+export type DismissalCheckResult = { with_history: CompanyHistory[] };
+
+export type CompanyDismissRequest = {
+  company_ids: string[];
+  reason: string;
+  note: string | null;
+  // The person has been told about the outreach on record and still wants it hidden.
+  acknowledge_history: boolean;
+};
+
+export type CompanyDismissResult = {
+  dismissed: number;
+  already_dismissed: number;
+  not_found: string[];
+  // Left as they were: they have outreach on record and need the person's confirmation.
+  needs_confirmation: CompanyHistory[];
 };
 
 export type CompanyCriterion = {

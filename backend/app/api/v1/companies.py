@@ -15,12 +15,18 @@ from app.modules.companies.schemas import (
     CompanyConfirmResult,
     CompanyDetail,
     CompanyDismissRequest,
+    CompanyHistoryOut,
     CompanyList,
     CompanyListItem,
+    DismissalCheckRequest,
+    DismissalCheckResult,
+    QuickCheckNote,
 )
 from app.modules.companies.service import (
+    CompanyHasHistoryError,
     confirm_company,
     dismiss_company,
+    dismissal_check,
     get_company_detail,
     list_companies,
     restore_company,
@@ -37,9 +43,19 @@ from app.modules.enrichment.service import (
     start_company_scrape,
 )
 from app.modules.orchestrator.service import classify_and_draft_company
+from app.modules.quicklook.service import snapshot_note_for_domain
 from app.modules.role_relevance.role_relevance_generator import GeminiRoleRelevanceGenerator
 
 router = APIRouter(prefix="/companies", tags=["companies"])
+
+
+async def _detail(session: AsyncSession, company: Company) -> CompanyDetail:
+    """The company page's data, with what Quick Check said about the website if it was looked up."""
+    detail = CompanyDetail.model_validate(company)
+    if company.domain:
+        note = await snapshot_note_for_domain(session, DEFAULT_ORGANIZATION_ID, company.domain)
+        detail.quick_check = QuickCheckNote.model_validate(note) if note else None
+    return detail
 
 
 @router.get("", response_model=CompanyList)
@@ -86,10 +102,28 @@ async def dismiss_companies_endpoint(
     transaction; each company gets its own labelled decision."""
     dismissed = already = 0
     missing: list[uuid.UUID] = []
+    held: list[CompanyHistoryOut] = []
     for company_id in dict.fromkeys(body.company_ids):  # in order, each id once
-        result = await dismiss_company(
-            session, DEFAULT_ORGANIZATION_ID, company_id, body.reason, body.note
-        )
+        try:
+            result = await dismiss_company(
+                session,
+                DEFAULT_ORGANIZATION_ID,
+                company_id,
+                body.reason,
+                body.note,
+                body.acknowledge_history,
+            )
+        except CompanyHasHistoryError as exc:
+            name = str(exc).split(" has ", 1)[0]
+            held.append(
+                CompanyHistoryOut(
+                    company_id=company_id,
+                    company_name=name,
+                    outreach_activities=exc.history.outreach_activities,
+                    sent_drafts=exc.history.sent_drafts,
+                )
+            )
+            continue
         if result is None:
             missing.append(company_id)
         elif result[1]:
@@ -98,7 +132,31 @@ async def dismiss_companies_endpoint(
             already += 1
     await session.commit()
     return CompanyBulkDismissResult(
-        dismissed=dismissed, already_dismissed=already, not_found=missing
+        dismissed=dismissed,
+        already_dismissed=already,
+        not_found=missing,
+        needs_confirmation=held,
+    )
+
+
+@router.post("/dismissal-check", response_model=DismissalCheckResult)
+async def dismissal_check_endpoint(
+    body: DismissalCheckRequest, session: AsyncSession = Depends(get_db)
+) -> DismissalCheckResult:
+    """Which of these companies have logged outreach or sent drafts, so the screen can ask the
+    person before dismissing them. Changes nothing."""
+    ids = list(dict.fromkeys(body.company_ids))
+    found = await dismissal_check(session, DEFAULT_ORGANIZATION_ID, ids)
+    return DismissalCheckResult(
+        with_history=[
+            CompanyHistoryOut(
+                company_id=company_id,
+                company_name=name,
+                outreach_activities=history.outreach_activities,
+                sent_drafts=history.sent_drafts,
+            )
+            for company_id, name, history in found
+        ]
     )
 
 
@@ -109,7 +167,7 @@ async def get_company_endpoint(
     company = await get_company_detail(session, DEFAULT_ORGANIZATION_ID, company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="company not found")
-    return CompanyDetail.model_validate(company)
+    return await _detail(session, company)
 
 
 @router.post("/{company_id}/dismiss", response_model=CompanyDetail)
@@ -120,12 +178,20 @@ async def dismiss_company_endpoint(
 ) -> CompanyDetail:
     """A rep saying this company is not a fit. It is hidden and skipped by automatic work, and
     can be brought back with `/restore`."""
-    result = await dismiss_company(
-        session, DEFAULT_ORGANIZATION_ID, company_id, body.reason, body.note
-    )
+    try:
+        result = await dismiss_company(
+            session,
+            DEFAULT_ORGANIZATION_ID,
+            company_id,
+            body.reason,
+            body.note,
+            body.acknowledge_history,
+        )
+    except CompanyHasHistoryError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="company not found")
-    detail = CompanyDetail.model_validate(result[0])
+    detail = await _detail(session, result[0])
     await session.commit()
     return detail
 
@@ -138,7 +204,7 @@ async def restore_company_endpoint(
     result = await restore_company(session, DEFAULT_ORGANIZATION_ID, company_id)
     if result is None:
         raise HTTPException(status_code=404, detail="company not found")
-    detail = CompanyDetail.model_validate(result[0])
+    detail = await _detail(session, result[0])
     await session.commit()
     return detail
 
