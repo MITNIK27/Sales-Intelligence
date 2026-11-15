@@ -44,6 +44,12 @@ class AssessRequest(BaseModel):
     force: bool = False
 
 
+class SuggestRequest(BaseModel):
+    # An explicit second look: ask the model again and replace the suggestions, instead of
+    # returning the ones already made.
+    refresh: bool = False
+
+
 class AssessStarted(BaseModel):
     job_id: uuid.UUID
 

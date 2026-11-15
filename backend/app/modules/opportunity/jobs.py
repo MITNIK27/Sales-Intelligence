@@ -214,7 +214,9 @@ async def process_suggest_areas_job(
         await progress_callback(0, 1, detail="Looking for other areas")
     settings = get_settings()
     llm = build_structured_llm(settings, order=settings.opportunity_llm_order)
-    suggested = await suggest_for_company(session, llm, company)
+    suggested = await suggest_for_company(
+        session, llm, company, refresh=bool((job.payload or {}).get("refresh"))
+    )
     if progress_callback:
         await progress_callback(1, 1, detail="Done")
     return {"company_id": str(company.id), "suggested": len(suggested)}

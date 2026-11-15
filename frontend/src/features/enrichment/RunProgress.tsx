@@ -2,13 +2,13 @@ import { Check, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { JobStatus } from "@/api/types";
-
-const STAGES = [
-  "Find & enrich companies",
-  "Check fit",
-  "Find decision-makers",
-  "Draft for confirmed contacts",
-];
+import {
+  STAGE_TITLES,
+  currentActivity,
+  recentTrail,
+  stageExplainer,
+  stageHeadline,
+} from "@/features/enrichment/runStory";
 
 function formatElapsed(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -16,8 +16,9 @@ function formatElapsed(seconds: number): string {
   return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
 }
 
-// What is really happening while the pipeline runs: which of the four stages we are in, how far
-// through the companies, and how long it has taken — all from the job's own progress record.
+// What is really happening while the pipeline runs, told as a short story: a headline for the
+// step, the four steps, how far through this step, the thing being worked on right now, and the
+// last few things that really happened. All of it comes from the job's own progress record.
 export function RunProgress({ job }: { job: JobStatus }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -36,31 +37,48 @@ export function RunProgress({ job }: { job: JobStatus }) {
   );
   const stageDone = progress?.stage_done;
   const stageTotal = progress?.stage_total;
+  const activity = currentActivity(
+    currentStage,
+    progress?.detail,
+    job.status === "pending",
+  );
+  const trail = recentTrail(progress?.trail, activity);
 
   return (
-    <div className="flex flex-col gap-3">
-      <ol className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        {STAGES.map((name, index) => {
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-base font-semibold">{stageHeadline(currentStage)}</p>
+        <p className="text-sm text-muted-foreground">
+          {stageExplainer(currentStage)}
+        </p>
+      </div>
+
+      <ol className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+        {STAGE_TITLES.map((name, index) => {
           const stageNumber = index + 1;
           const finished = stageNumber < currentStage;
           const active = stageNumber === currentStage;
           return (
             <li
               key={name}
+              aria-current={active ? "step" : undefined}
               className={
                 active
-                  ? "flex items-center gap-1 font-semibold"
+                  ? "flex items-center gap-1.5 font-semibold"
                   : finished
-                    ? "flex items-center gap-1 text-muted-foreground"
-                    : "flex items-center gap-1 text-muted-foreground/60"
+                    ? "flex items-center gap-1.5 text-muted-foreground"
+                    : "flex items-center gap-1.5 text-muted-foreground/60"
               }
             >
               {finished ? (
-                <Check className="size-3.5 text-primary" />
+                <Check className="size-4 text-primary" aria-label="done" />
               ) : active ? (
-                <Loader2 className="size-3.5 animate-spin text-primary" />
+                <Loader2
+                  className="size-4 animate-spin text-primary motion-reduce:animate-none"
+                  aria-hidden="true"
+                />
               ) : (
-                <span className="inline-block size-3.5 text-center text-xs">
+                <span className="inline-block size-4 text-center text-xs">
                   {stageNumber}
                 </span>
               )}
@@ -72,28 +90,45 @@ export function RunProgress({ job }: { job: JobStatus }) {
 
       {stageTotal != null && stageDone != null && stageTotal > 0 && (
         <div>
-          <div className="h-2 w-full overflow-hidden rounded bg-muted">
+          <div
+            className="h-2 w-full overflow-hidden bg-muted"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={stageTotal}
+            aria-valuenow={stageDone}
+          >
             <div
-              className="h-full bg-primary transition-all"
+              className="h-full bg-primary transition-all duration-500"
               style={{
                 width: `${Math.round((stageDone / stageTotal) * 100)}%`,
               }}
             />
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {stageDone} / {stageTotal}
+            {stageDone} of {stageTotal} in this step
             {progress?.enriched != null && ` · ${progress.enriched} enriched`}
             {progress?.failed ? ` · ${progress.failed} failed` : ""}
           </p>
         </div>
       )}
 
-      <p className="text-sm">
-        {progress?.detail ??
-          (job.status === "pending"
-            ? "Waiting for the worker to pick this up…"
-            : "Starting…")}
+      <p className="text-base" aria-live="polite">
+        {activity}
       </p>
+
+      {trail.length > 0 && (
+        <ul
+          aria-label="What just happened"
+          className="flex flex-col gap-1 border-l-2 border-border pl-3 text-sm text-muted-foreground"
+        >
+          {trail.map((line, index) => (
+            <li key={line} style={{ opacity: 1 - index * 0.2 }}>
+              {line}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <p className="text-xs text-muted-foreground">
         Elapsed {formatElapsed(elapsed)}
       </p>

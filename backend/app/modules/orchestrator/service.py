@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -13,6 +13,7 @@ from app.modules.companies.service import (
     confirm_company,
     list_company_ids_by_source_run,
 )
+from app.modules.contacts.models import Contact
 from app.modules.contacts.service import confirm_contact
 from app.modules.discovery_agent.agent import (
     CompanyDiscoveryAgentProtocol,
@@ -70,13 +71,28 @@ JOB_TYPE_BULK_CONFIRM = "bulk_confirm"
 STAGE_NAMES = ("Discovery & enrichment", "Qualification", "Role classification", "Drafting")
 
 
-def _stage_callback(parent: ProgressCallback | None, stage: int) -> ProgressCallback | None:
+TRAIL_LENGTH = 5
+
+
+def _stage_callback(
+    parent: ProgressCallback | None, stage: int, trail: list[str] | None = None
+) -> ProgressCallback | None:
     """Wraps the job's progress callback so a stage's per-company ticks report as "stage N, item
-    i of M" while the overall bar still counts completed stages (N-1 of 4)."""
+    i of M" while the overall bar still counts completed stages (N-1 of 4).
+
+    `trail` is the run's list of recent messages, shared by every stage: each new `detail` is added
+    (newest last, repeats skipped) and the last few are sent along as `trail`, so the screen can
+    show what has really just happened."""
     if parent is None:
         return None
 
     async def callback(done: int, total: int, **extra: object) -> None:
+        detail = extra.get("detail")
+        if trail is not None and isinstance(detail, str) and (not trail or trail[-1] != detail):
+            trail.append(detail)
+            del trail[:-TRAIL_LENGTH]
+        if trail is not None:
+            extra["trail"] = list(trail)
         await parent(
             stage - 1,
             4,
@@ -114,6 +130,7 @@ async def _run_auto_pipeline(
     within a stage — the detailed breakdown lives in the returned result, not the progress bar."""
     payload = job.payload or {}
     settings = get_settings()
+    trail: list[str] = []
 
     # Stage 1: discovery — always runs, this is why the job exists.
     discovery_result = await _run_market_discovery(
@@ -124,11 +141,15 @@ async def _run_auto_pipeline(
         company_provider,
         contact_provider,
         signal_provider,
-        progress_callback=_stage_callback(progress_callback, 1),
+        progress_callback=_stage_callback(progress_callback, 1, trail),
         contact_search_provider=contact_search_provider,
     )
-    if progress_callback:
-        await progress_callback(1, 4, stage=2, stage_name=STAGE_NAMES[1])
+    stage_two = _stage_callback(progress_callback, 2, trail)
+    if stage_two:
+        found_count = len(discovery_result.get("company_ids") or [])
+        await stage_two(
+            0, found_count or 1, detail=f"Found {found_count} companies, now checking fit"
+        )
 
     # Companies reused from the existing index belong to this run too (they used to be skipped);
     # the discovery summary lists them alongside the newly created ones.
@@ -158,7 +179,7 @@ async def _run_auto_pipeline(
         job.organization_id,
         company_ids,
         qualification_generator,
-        progress_callback=_stage_callback(progress_callback, 2),
+        progress_callback=_stage_callback(progress_callback, 2, trail),
         criteria=run_criteria,
     )
     qualification_result: dict[str, Any] = {
@@ -202,12 +223,41 @@ async def _run_auto_pipeline(
     )
     await session.commit()
     ranking_result["offering_fit_queued"] = fit_queued
-    if progress_callback:
-        await progress_callback(2, 4, stage=3, stage_name=STAGE_NAMES[2])
 
     qualified_company_ids = ranked_ids
     capped = qualified_company_ids[: settings.auto_pipeline_max_companies_to_draft]
     was_capped = len(qualified_company_ids) > len(capped)
+    stage_three = _stage_callback(progress_callback, 3, trail)
+    if stage_three:
+        if was_capped:
+            message = (
+                f"{len(qualified_company_ids)} companies fit; finding people at the top "
+                f"{len(capped)} by score"
+            )
+        else:
+            message = f"{len(capped)} companies fit, now finding the right people"
+        await stage_three(0, len(capped) or 1, detail=message)
+    contact_counts: dict[uuid.UUID, int] = {}
+    company_names: dict[uuid.UUID, str] = {}
+    if capped:
+        company_names = {
+            cid: name
+            for cid, name in (
+                await session.execute(
+                    select(Company.id, Company.name).where(Company.id.in_(capped))
+                )
+            ).all()
+        }
+        contact_counts = {
+            cid: n
+            for cid, n in (
+                await session.execute(
+                    select(Contact.company_id, func.count())
+                    .where(Contact.company_id.in_(capped))
+                    .group_by(Contact.company_id)
+                )
+            ).all()
+        }
 
     # Stage 3: role classification — capped set only, to bound Gemini calls on a broad prompt.
     # A company still flagged `needs_review` (unconfirmed discovery hit, listicle-shaped name,
@@ -225,12 +275,17 @@ async def _run_auto_pipeline(
         role_errors: list[dict[str, str]] = []
         role_skipped_needs_review: list[dict[str, str]] = []
         for position, company_id in enumerate(capped, start=1):
-            role_progress = _stage_callback(progress_callback, 3)
+            role_progress = _stage_callback(progress_callback, 3, trail)
             if role_progress:
+                people = contact_counts.get(company_id, 0)
                 await role_progress(
                     position - 1,
                     len(capped),
-                    detail=f"Classifying roles {position} of {len(capped)}",
+                    detail=(
+                        f"Finding decision-makers at {company_names.get(company_id, 'company')}"
+                        f" ({position} of {len(capped)})"
+                        + (f", sorting {people} people by role" if people else "")
+                    ),
                 )
             try:
                 await run_role_relevance_check(
@@ -258,8 +313,9 @@ async def _run_auto_pipeline(
             "skipped_needs_review": role_skipped_needs_review,
         }
     await session.commit()
-    if progress_callback:
-        await progress_callback(3, 4, stage=4, stage_name=STAGE_NAMES[3])
+    stage_four = _stage_callback(progress_callback, 4, trail)
+    if stage_four:
+        await stage_four(0, 1, detail="People sorted. Drafts are written when you choose someone")
 
     # Stage 4: drafting — only the primary-target contacts identified above. A contact still
     # flagged `needs_review` (e.g. a company that's fine but one scraped/searched contact isn't)

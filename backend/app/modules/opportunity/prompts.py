@@ -73,5 +73,6 @@ Evidence:
 {wrap_untrusted(evidence_text, "evidence")}
 
 Return areas, each with a short label (for example "cloud migration"), one sentence on why the \
-evidence points to it, the evidence label and a verbatim quote. Return an empty list if the \
+evidence points to it (say what the company is doing and, where one of the areas we can help with \
+fits, name it), the evidence label and a verbatim quote. Return an empty list if the \
 evidence does not support any area."""

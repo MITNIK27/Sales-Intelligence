@@ -35,11 +35,12 @@ export type RunOffering = { id: string; name: string; kind: string };
 export const fetchRunOfferings = (runId: string) =>
   apiGet<RunOffering[]>(`/market-discovery/${runId}/offerings`);
 
-export const suggestAreas = (companyId: string) =>
-  apiPost<{ job_id: string }>(
-    `/companies/${companyId}/opportunities/suggest`,
-    {},
-  );
+// `refresh` asks the model again and replaces the suggestions; without it, areas already suggested
+// are returned and no model call is made.
+export const suggestAreas = (companyId: string, refresh = false) =>
+  apiPost<{ job_id: string }>(`/companies/${companyId}/opportunities/suggest`, {
+    refresh,
+  });
 
 // Research what we could offer the company as a whole: its news, hiring and work in the areas we
 // sell in, then every offering judged against it. Runs in the background.

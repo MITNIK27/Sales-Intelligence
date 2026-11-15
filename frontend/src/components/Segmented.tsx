@@ -40,7 +40,7 @@ export function Segmented<T extends string>({
             aria-checked={on}
             onClick={() => onChange(option.id)}
             className={cn(
-              "inline-flex h-9 items-center gap-1.5 px-3 text-sm transition-colors",
+              "inline-flex h-10 items-center gap-1.5 px-3 text-sm transition-colors",
               "focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary",
               i > 0 && "border-l border-border",
               on

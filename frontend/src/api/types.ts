@@ -8,6 +8,8 @@ export type JobProgress = {
   done: number;
   total: number;
   detail?: string | null;
+  // The last few things that really happened, oldest first.
+  trail?: string[];
   stage?: number;
   stage_name?: string;
   stage_done?: number;

@@ -33,7 +33,7 @@ function AddArea({ onAdd }: { onAdd: (label: string) => void }) {
 
   if (!open) {
     return (
-      <Button type="button" variant="outline" onClick={() => setOpen(true)}>
+      <Button type="button" variant="action" onClick={() => setOpen(true)}>
         <Plus className="size-4" aria-hidden="true" /> Add area
       </Button>
     );
@@ -46,12 +46,12 @@ function AddArea({ onAdd }: { onAdd: (label: string) => void }) {
         placeholder="e.g. data platform"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        className="h-9 w-56"
+        className="h-10 w-56"
       />
       <Button type="submit" disabled={!draft.trim()}>
         Research it
       </Button>
-      <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+      <Button type="button" variant="action" onClick={() => setOpen(false)}>
         Cancel
       </Button>
     </form>
@@ -166,6 +166,7 @@ export function BriefFilterBar({
           />
         ) : (
           <SimpleSelect
+            tall
             label="Opportunity area"
             value={areaId ?? ""}
             options={areaOptions.map((o) => ({

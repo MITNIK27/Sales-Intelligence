@@ -120,7 +120,7 @@ export function NotAFitButton({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" size="sm" variant="outline">
+        <Button type="button" variant="action">
           <Ban className="size-4" aria-hidden="true" />
           {label}
         </Button>

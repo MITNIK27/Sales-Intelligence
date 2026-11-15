@@ -455,7 +455,25 @@ async def _run_bulk_qualification(
     needs_evidence_company_ids: list[str] = []
     eligible_company_ids: list[str] = []
     errors: list[dict[str, str]] = []
+    names = (
+        {
+            cid: name
+            for cid, name in (
+                await session.execute(
+                    select(Company.id, Company.name).where(Company.id.in_(company_ids))
+                )
+            ).all()
+        }
+        if progress_callback and company_ids
+        else {}
+    )
     for i, company_id in enumerate(company_ids, start=1):
+        if progress_callback:
+            await progress_callback(
+                i - 1,
+                total,
+                detail=f"Checking fit: {names.get(company_id, 'company')} ({i} of {total})",
+            )
         try:
             result = await run_qualification_check(
                 session,
@@ -476,7 +494,9 @@ async def _run_bulk_qualification(
         except (CompanyNotFoundError, GeminiClientError) as exc:
             errors.append({"company_id": str(company_id), "error": str(exc)})
         if progress_callback:
-            await progress_callback(i, total)
+            await progress_callback(
+                i, total, detail=f"{names.get(company_id, 'Company')} checked ({i} of {total})"
+            )
     return {
         **counts,
         "qualified_company_ids": qualified_company_ids,

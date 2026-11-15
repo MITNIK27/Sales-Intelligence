@@ -33,6 +33,7 @@ import {
   toRequestCriteria,
   type Requirement,
 } from "@/features/enrichment/runCriteria";
+import { RunOutcome } from "@/features/enrichment/RunOutcome";
 import { RunProgress } from "@/features/enrichment/RunProgress";
 import { RunWorklist } from "@/features/enrichment/RunWorklist";
 import { usePersistentState } from "@/lib/usePersistentState";
@@ -91,6 +92,12 @@ export function MarketDiscoveryPage() {
   const pollRef = useRef<number | null>(null);
 
   const [qualifying, setQualifying] = useState(false);
+  // How many companies the worklist shows as ready and as left out, for the finished summary.
+  const [worklistCounts, setWorklistCounts] = useState<{
+    runId: string;
+    ready: number;
+    notShown: number;
+  } | null>(null);
   const [qualifyError, setQualifyError] = useState<string | null>(null);
   const [qualifyJob, setQualifyJob] = useState<JobStatus | null>(null);
   const qualifyPollRef = useRef<number | null>(null);
@@ -601,10 +608,14 @@ export function MarketDiscoveryPage() {
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg font-bold">
-              {job.status === "running" && (
-                <Loader2 className="size-4 animate-spin text-primary" />
+              {runInProgress && (
+                <Loader2 className="size-4 animate-spin text-primary motion-reduce:animate-none" />
               )}
-              Progress: {jobStatusLabel(job.status)}
+              {runInProgress
+                ? "Working on your search"
+                : job.status === "done"
+                  ? "Search complete"
+                  : `Progress: ${jobStatusLabel(job.status)}`}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -615,16 +626,38 @@ export function MarketDiscoveryPage() {
               <p className="text-sm text-destructive">{job.error}</p>
             )}
             {job.status === "done" && run?.summary && (
-              <p className="text-sm text-muted-foreground">
-                {run.summary.candidates_found} candidates found ·{" "}
-                {run.summary.companies_created} new companies
-                {pipelineResult?.qualification.ran
-                  ? ` · ${pipelineResult.qualification.qualified} qualified`
-                  : ""}
-                {pipelineResult?.drafting.ran
-                  ? ` · ${pipelineResult.drafting.drafts_generated} drafts`
-                  : ""}
-              </p>
+              <RunOutcome
+                outcome={{
+                  found: run.summary.candidates_found,
+                  fit: pipelineResult?.qualification.ran
+                    ? pipelineResult.qualification.qualified +
+                      pipelineResult.qualification.could_not_determine +
+                      (pipelineResult.qualification.not_checked ?? 0)
+                    : null,
+                  sorted: pipelineResult?.role_classification.ran
+                    ? pipelineResult.role_classification.companies_classified
+                    : null,
+                  ready:
+                    worklistCounts?.runId === runId
+                      ? worklistCounts.ready
+                      : null,
+                  needAttention:
+                    worklistCounts?.runId === runId
+                      ? worklistCounts.notShown
+                      : null,
+                }}
+                cappedAt={
+                  pipelineResult?.capped
+                    ? (pipelineResult.ranking?.top.length ?? null)
+                    : null
+                }
+                onReview={() =>
+                  document
+                    .getElementById("run-worklist")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+                onNewSearch={resetSearch}
+              />
             )}
             {run?.error && (
               <p className="mt-2 text-sm text-destructive">{run.error}</p>
@@ -792,22 +825,10 @@ export function MarketDiscoveryPage() {
               </details>
             )}
 
-            {job.status === "done" && (
-              <p className="mt-3 text-sm">
-                <Link
-                  to="/companies"
-                  className="text-primary-text hover:underline"
-                >
-                  View companies →
-                </Link>
-              </p>
-            )}
-
-            {(job.status === "done" || job.status === "failed") && (
+            {job.status === "failed" && (
               <Button
                 type="button"
-                size="sm"
-                variant="outline"
+                variant="action"
                 className="mt-3"
                 onClick={resetSearch}
               >
@@ -890,6 +911,15 @@ export function MarketDiscoveryPage() {
             selectedProductIds.length === 1 ? selectedProductIds[0] : null
           }
           live={job.status === "running" || job.status === "pending"}
+          onSummary={(ready, notShown) =>
+            setWorklistCounts((previous) =>
+              previous?.runId === runId &&
+              previous.ready === ready &&
+              previous.notShown === notShown
+                ? previous
+                : { runId, ready, notShown },
+            )
+          }
         />
       )}
     </div>

@@ -40,3 +40,5 @@ frontend/src/**/*.test.tsx
 # Local outputs and build artifacts
 Claude outputs/
 frontend/tsconfig.tsbuildinfo
+
+backup.sql

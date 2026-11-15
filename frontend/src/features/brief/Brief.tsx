@@ -8,6 +8,7 @@ import { BriefBody } from "@/features/brief/BriefBody";
 import { toggleId } from "@/features/brief/briefFilter";
 import { BriefFilterBar } from "@/features/brief/BriefFilterBar";
 import { StartBriefCard } from "@/features/brief/StartBriefCard";
+import { SuggestedAreas } from "@/features/brief/SuggestedAreas";
 import {
   briefTargets,
   doneOfferingIds,
@@ -147,6 +148,12 @@ export function Brief({
         onSelectArea={chooseArea}
         onAddArea={addArea}
       />
+      <SuggestedAreas
+        suggested={suggested}
+        suggesting={opps.suggesting}
+        onSuggest={(refresh) => void opps.suggest(refresh)}
+        onChoose={addArea}
+      />
       {error && (
         <p role="alert" className="mb-4 text-sm text-destructive">
           {error}
@@ -177,7 +184,7 @@ export function Brief({
           onResearch={() => opps.research(selected.id, !!selected.assessment)}
           onPickArea={chooseArea}
           onOverall={lookOverall}
-          onSuggest={opps.suggest}
+          onSuggest={() => void opps.suggest(false)}
           findingOffers={opps.findingOffers}
           onFindOffers={findOffers}
           onBriefAround={briefAround}

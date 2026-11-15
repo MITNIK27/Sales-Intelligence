@@ -47,7 +47,7 @@ export function FilterButton({
           type="button"
           aria-label={`${label}: ${summary}`}
           className={cn(
-            "inline-flex h-9 max-w-72 items-center gap-2 border bg-card px-3 text-sm",
+            "inline-flex h-10 max-w-72 items-center gap-2 border bg-card px-3 text-sm",
             "shadow-xs transition-colors hover:border-primary hover:bg-muted",
             "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary",
             chosen.length > 0 ? "border-primary" : "border-border",

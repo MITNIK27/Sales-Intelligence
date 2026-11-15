@@ -70,8 +70,9 @@ export function CompaniesListPage() {
   const [scrapeMessage, setScrapeMessage] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
-  const [sortBy, setSortBy] = useState<CompanySortField>("name");
-  const [sortDir, setSortDir] = useState<SortDirection>("asc");
+  const [sortBy, setSortBy] = useState<CompanySortField>("created_at");
+  // Most recently discovered first.
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
   const refreshRef = useRef<number | null>(null);
 
   function loadCompanies() {

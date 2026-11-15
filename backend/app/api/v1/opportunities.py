@@ -33,6 +33,7 @@ from app.modules.opportunity.schemas import (
     OpportunityOut,
     RecommendRequest,
     RelevanceOverrideRequest,
+    SuggestRequest,
 )
 from app.modules.opportunity.service import (
     get_opportunity,
@@ -88,15 +89,21 @@ async def create_company_opportunity_endpoint(
     "/{company_id}/opportunities/suggest", response_model=AssessStarted, status_code=202
 )
 async def suggest_areas_endpoint(
-    company_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+    company_id: uuid.UUID,
+    body: SuggestRequest | None = None,
+    session: AsyncSession = Depends(get_db),
 ) -> AssessStarted:
     """Look for other areas this company's evidence points to. Runs in the background; areas
-    already suggested are kept, so asking again does not spend another model call."""
+    already suggested are kept, so asking again does not spend another model call, unless the
+    request says `refresh`, which asks the model again and replaces the suggestions."""
     company = await session.get(Company, company_id)
     if company is None or company.organization_id != DEFAULT_ORGANIZATION_ID:
         raise HTTPException(status_code=404, detail="company not found")
     job = await enqueue_job(
-        session, DEFAULT_ORGANIZATION_ID, JOB_TYPE_SUGGEST_AREAS, {"company_id": str(company.id)}
+        session,
+        DEFAULT_ORGANIZATION_ID,
+        JOB_TYPE_SUGGEST_AREAS,
+        {"company_id": str(company.id), "refresh": bool(body and body.refresh)},
     )
     await session.commit()
     return AssessStarted(job_id=job.id)

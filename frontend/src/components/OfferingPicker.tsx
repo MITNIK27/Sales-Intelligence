@@ -60,7 +60,7 @@ export function OfferingPicker({
         {/* The list scrolls inside this box: the dropdown sizes itself to the screen, so a class
             on the dropdown itself is overridden and the full list would show. */}
         <div
-          className="max-h-60 overflow-y-auto"
+          className="max-h-60 overflow-y-auto overflow-x-hidden"
           onScroll={(e) => {
             const box = e.currentTarget;
             if (box.scrollHeight - box.scrollTop - box.clientHeight < 24)

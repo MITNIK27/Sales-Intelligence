@@ -1,6 +1,12 @@
-import { Check, Copy, ExternalLink } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronRight,
+  Copy,
+  ExternalLink,
+} from "lucide-react";
 import { WebsiteLink } from "@/components/WebsiteLink";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { apiGet, apiPatch, apiPost } from "@/api/client";
@@ -15,7 +21,14 @@ import type {
   WorklistRow,
 } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { CompanyLogo } from "@/components/CompanyLogo";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 
 const LIVE_REFRESH_MS = 3000;
@@ -31,15 +44,22 @@ export function RunWorklist({
   runId,
   productId,
   live,
+  onSummary,
 }: {
   runId: string;
   productId: string | null;
   live: boolean;
+  // Told how many companies are ready and how many were left out, for the run's summary.
+  onSummary?: (ready: number, notShown: number) => void;
 }) {
   const [worklist, setWorklist] = useState<MarketDiscoveryWorklist | null>(
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  // The company whose details are open in a window over the list.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const summaryRef = useRef(onSummary);
+  summaryRef.current = onSummary;
 
   const load = useCallback(() => {
     return apiGet<MarketDiscoveryWorklist>(
@@ -48,6 +68,7 @@ export function RunWorklist({
       .then((data) => {
         setWorklist(data);
         setError(null);
+        summaryRef.current?.(data.ready.length, data.not_shown.length);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "failed to load results");
@@ -69,11 +90,14 @@ export function RunWorklist({
     );
 
   const { ready, not_shown: notShown } = worklist;
+  // Looked up each time, so the window keeps following the live list and closes if the company
+  // leaves it (for example when it is marked not a fit).
+  const openRow = ready.find((row) => row.company_id === openId) ?? null;
   // Mid-run, companies that haven't been qualified yet all look "not shown"; an empty
   // "Ready for you" block would only mislead. The status card above shows real progress.
   if (live && ready.length === 0) return null;
   return (
-    <div className="mt-6 flex flex-col gap-4">
+    <div id="run-worklist" className="mt-6 flex scroll-mt-4 flex-col gap-4">
       <div>
         <h2 className="text-lg font-bold">
           Ready for you{" "}
@@ -85,8 +109,8 @@ export function RunWorklist({
           )}
         </h2>
         <p className="text-sm text-muted-foreground">
-          Qualified companies with likely decision-makers. Pick the right person
-          and a draft is written for them — nothing is drafted until you choose.
+          Click a company to see its people and write a draft. Nothing is
+          drafted until you choose.
         </p>
       </div>
 
@@ -101,50 +125,207 @@ export function RunWorklist({
         </Card>
       )}
 
-      {ready.map((row) => (
-        <ReadyRow
-          key={row.company_id}
-          row={row}
-          runId={runId}
-          productId={productId}
-          onChanged={load}
-        />
-      ))}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {ready.map((row) => (
+          <ReadyCard
+            key={row.company_id}
+            row={row}
+            onOpen={() => setOpenId(row.company_id)}
+            onChanged={load}
+          />
+        ))}
+      </div>
+
+      <Dialog
+        open={openRow !== null}
+        onOpenChange={(next) => {
+          if (!next) setOpenId(null);
+        }}
+      >
+        {openRow && (
+          <DialogContent className="overflow-hidden">
+            <div className="flex items-start gap-3 border-b border-border p-5 pr-14">
+              <CompanyLogo name={openRow.name} domain={openRow.domain} />
+              <div className="min-w-0">
+                <DialogTitle>{openRow.name}</DialogTitle>
+                <DialogDescription>
+                  {[
+                    openRow.industry,
+                    openRow.employee_count_range &&
+                      `${openRow.employee_count_range} employees`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Company details"}
+                </DialogDescription>
+              </div>
+            </div>
+            <div className="overflow-y-auto p-5">
+              <ReadyDetail
+                row={openRow}
+                runId={runId}
+                productId={productId}
+                onChanged={load}
+              />
+            </div>
+          </DialogContent>
+        )}
+      </Dialog>
 
       {notShown.length > 0 && (
-        <details className="rounded-md border border-border">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">
-            {notShown.length} not shown — why
-          </summary>
-          <ul className="flex flex-col divide-y divide-border border-t border-border">
+        <section
+          aria-label="Companies not shown"
+          className="border border-chip-warning-fg/40 border-l-4 border-l-chip-warning-fg bg-chip-warning-bg"
+        >
+          <div className="flex items-start gap-3 px-4 py-3">
+            <AlertTriangle
+              className="mt-0.5 size-5 shrink-0 text-chip-warning-fg"
+              aria-hidden="true"
+            />
+            <div>
+              <h3 className="text-base font-bold text-chip-warning-fg">
+                {notShown.length}{" "}
+                {notShown.length === 1 ? "company was" : "companies were"} not
+                shown
+              </h3>
+              <p className="text-sm text-chip-warning-fg">
+                Each one is listed with the reason, so nothing is dropped
+                silently.
+              </p>
+            </div>
+          </div>
+          <ul className="flex flex-col divide-y divide-chip-warning-fg/20 border-t border-chip-warning-fg/20 bg-card">
             {notShown.map((row) => (
               <li
                 key={row.company_id}
-                className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm"
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
               >
-                <div>
-                  <Link
-                    to={`/companies/${row.company_id}?run=${runId}`}
-                    className="font-medium hover:underline"
-                  >
-                    {row.name}
-                  </Link>
-                  <span className="text-muted-foreground">
-                    {" "}
-                    — {row.skip_reason}
-                  </span>
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <CompanyLogo
+                    name={row.name}
+                    domain={row.domain}
+                    className="size-10 text-base"
+                  />
+                  <div className="min-w-0">
+                    <Link
+                      to={`/companies/${row.company_id}?run=${runId}`}
+                      className="font-semibold text-primary-text hover:underline"
+                    >
+                      {row.name}
+                    </Link>
+                    <p className="text-muted-foreground">{row.skip_reason}</p>
+                  </div>
                 </div>
                 <NotAFitButton companyIds={[row.company_id]} onDone={load} />
               </li>
             ))}
           </ul>
-        </details>
+        </section>
       )}
     </div>
   );
 }
 
-function ReadyRow({
+// The first sentence of the reason a company qualified: the one line that says why it is here.
+export function firstSentence(text: string | null): string | null {
+  if (!text) return null;
+  const match = text.match(/^.*?[.!?](?=\s|$)/);
+  return (match ? match[0] : text).trim();
+}
+
+// A company as a short card: logo, who it is, why it fits, how many people to look at. The whole
+// card is clickable and says so (it changes colour under the pointer and ends in "View details");
+// the details open in a window so the list behind keeps its place. The rest (the whole brief,
+// areas, history) is on the company page.
+function ReadyCard({
+  row,
+  onOpen,
+  onChanged,
+}: {
+  row: WorklistRow;
+  onOpen: () => void;
+  onChanged: () => void;
+}) {
+  const people = row.candidates.length;
+  const drafts = row.candidates.filter((c) => c.draft).length;
+  const why = firstSentence(row.why);
+  return (
+    <Card
+      onClick={onOpen}
+      className="group cursor-pointer transition-colors hover:border-primary hover:bg-muted motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-reduce:transition-none"
+    >
+      <CardContent>
+        <div className="flex items-start gap-3">
+          <CompanyLogo name={row.name} domain={row.domain} />
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-label={`View details for ${row.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen();
+            }}
+            className="min-w-0 flex-1 cursor-pointer text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          >
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="text-base font-semibold group-hover:text-primary-text">
+                {row.name}
+              </span>
+              {row.verdict === "could_not_determine" ? (
+                <span className="bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
+                  Needs evidence
+                </span>
+              ) : (
+                <span className="bg-chip-success-bg px-1.5 py-0.5 text-xs font-semibold text-chip-success-fg">
+                  Qualified
+                </span>
+              )}
+              {row.priority_score != null && (
+                <span
+                  className="bg-primary/10 px-1.5 py-0.5 text-xs font-semibold"
+                  title="Priority Score (0-100)"
+                >
+                  Score {Math.round(row.priority_score)}
+                </span>
+              )}
+            </span>
+            <span className="mt-0.5 block text-sm text-muted-foreground">
+              {[
+                row.industry,
+                row.employee_count_range &&
+                  `${row.employee_count_range} employees`,
+                row.domain,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+            {why && <span className="mt-1 line-clamp-2 text-sm">{why}</span>}
+            <span className="mt-3 flex items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+              <span>
+                {people} {people === 1 ? "person" : "people"} to review
+                {drafts > 0 && ` · ${drafts} draft${drafts === 1 ? "" : "s"}`}
+              </span>
+              <span className="inline-flex items-center gap-0.5 font-semibold text-primary-text">
+                View details
+                <ChevronRight
+                  className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
+                  aria-hidden="true"
+                />
+              </span>
+            </span>
+          </button>
+          {/* Its own click must not open the card. */}
+          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+            <NotAFitButton companyIds={[row.company_id]} onDone={onChanged} />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// What was shown on the long card before: why it qualified, the evidence, how the score was made
+// and each candidate with the draft button.
+function ReadyDetail({
   row,
   runId,
   productId,
@@ -159,91 +340,71 @@ function ReadyRow({
   const draftCount = row.candidates.filter((c) => c.draft).length;
 
   return (
-    <Card>
-      <CardContent>
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div>
-            <Link
-              to={`/companies/${row.company_id}?run=${runId}`}
-              className="text-base font-semibold hover:underline"
-            >
-              {row.name}
-            </Link>
-            {row.domain && (
-              <WebsiteLink domain={row.domain} className="ml-2 text-sm" />
-            )}
-            <p className="flex flex-wrap items-center gap-x-3 text-sm text-muted-foreground">
-              {row.industry && (
-                <FactWithSource
-                  label={row.industry}
-                  source={row.provenance?.industry?.source}
-                />
-              )}
-              {row.employee_count_range && (
-                <FactWithSource
-                  label={`${row.employee_count_range} employees`}
-                  source={row.provenance?.employee_count_range?.source}
-                />
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          {row.description && (
+            <p className="line-clamp-3 text-xs text-muted-foreground">
+              {row.description}
+              {row.provenance?.description?.source && (
+                <SourceChip source={row.provenance.description.source} />
               )}
             </p>
-            {row.description && (
-              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                {row.description}
-                {row.provenance?.description?.source && (
-                  <SourceChip source={row.provenance.description.source} />
-                )}
-              </p>
+          )}
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-muted-foreground">
+            {row.domain && (
+              <WebsiteLink domain={row.domain} className="text-sm" />
             )}
-          </div>
-          <div className="flex items-center gap-2">
-            <NotAFitButton companyIds={[row.company_id]} onDone={onChanged} />
-            {row.verdict === "could_not_determine" && (
-              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-800">
-                Needs evidence
-              </span>
+            {row.industry && (
+              <FactWithSource
+                label={row.industry}
+                source={row.provenance?.industry?.source}
+              />
             )}
-            {row.priority_score != null && (
-              <span
-                className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold"
-                title="Priority Score (0-100): market fit, size, industry, signals, news, technology, contacts"
-              >
-                Score {Math.round(row.priority_score)}
-              </span>
+            {row.employee_count_range && (
+              <FactWithSource
+                label={`${row.employee_count_range} employees`}
+                source={row.provenance?.employee_count_range?.source}
+              />
             )}
-            <span className="text-xs text-muted-foreground">
-              data: {row.data_source}
-            </span>
-          </div>
-        </div>
-
-        {row.why && (
-          <p className="mt-2 text-sm">
-            <span className="font-semibold">Why it qualified: </span>
-            {row.why}
+            <span className="text-xs">data: {row.data_source}</span>
           </p>
-        )}
-
-        <CriteriaEvidence criteria={row.criteria} confidence={row.confidence} />
-        <ScoreDetails breakdown={row.score_breakdown} />
-
-        <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Contacts · {contactCount} candidate{contactCount === 1 ? "" : "s"} ·{" "}
-          {draftCount} draft
-          {draftCount === 1 ? "" : "s"}
-        </p>
-        <div className="mt-1 flex flex-col divide-y divide-border border-t border-border">
-          {row.candidates.map((candidate) => (
-            <CandidateRow
-              key={candidate.contact_id}
-              companyId={row.company_id}
-              candidate={candidate}
-              productId={productId}
-              onChanged={onChanged}
-            />
-          ))}
         </div>
-      </CardContent>
-    </Card>
+        <Link
+          to={`/companies/${row.company_id}?run=${runId}`}
+          className="text-sm font-medium text-primary-text hover:underline"
+        >
+          Open company page →
+        </Link>
+      </div>
+
+      {row.why && (
+        <p className="mt-2 text-sm">
+          <span className="font-semibold">Why it qualified: </span>
+          {row.why}
+        </p>
+      )}
+
+      <CriteriaEvidence criteria={row.criteria} confidence={row.confidence} />
+      <ScoreDetails breakdown={row.score_breakdown} />
+
+      <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Contacts · {contactCount} candidate{contactCount === 1 ? "" : "s"} ·{" "}
+        {draftCount} draft
+        {draftCount === 1 ? "" : "s"}
+      </p>
+      <div className="mt-1 flex flex-col divide-y divide-border border-t border-border">
+        {row.candidates.map((candidate) => (
+          <CandidateRow
+            key={candidate.contact_id}
+            companyId={row.company_id}
+            candidate={candidate}
+            productId={productId}
+            onChanged={onChanged}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -353,10 +514,10 @@ function CandidateRow({
             title={
               !productId
                 ? "Choose an offering above before writing a draft"
-                : undefined
+                : "Confirms this person and writes a first email"
             }
           >
-            {working ? "Writing…" : "This is the right person — write draft"}
+            {working ? "Writing…" : "Write draft"}
           </Button>
         )}
       </div>

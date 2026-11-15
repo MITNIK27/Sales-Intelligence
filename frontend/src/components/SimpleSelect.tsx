@@ -18,7 +18,9 @@ export function SimpleSelect({
   label,
   placeholder,
   className,
+  tall = false,
 }: {
+  tall?: boolean;
   value: string;
   options: SimpleSelectOption[];
   onChange: (value: string) => void;
@@ -31,7 +33,12 @@ export function SimpleSelect({
       <SelectTrigger
         aria-label={label}
         size="sm"
-        className={cn("bg-card", className)}
+        className={cn(
+          "bg-card",
+          // Taller to sit level with the other controls in a toolbar.
+          tall && "data-[size=sm]:h-10",
+          className,
+        )}
       >
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>

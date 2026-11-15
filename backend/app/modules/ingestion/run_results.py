@@ -18,6 +18,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.modules.companies.models import ENRICHMENT_STATUS_FAILED, Company
 from app.modules.contacts.models import (
     CHANNEL_TYPE_EMAIL,
@@ -319,9 +320,11 @@ async def build_run_worklist(
             if not company_contacts:
                 skip_reason = "qualified, but no contacts were found"
             elif classified == 0:
+                cap = get_settings().auto_pipeline_max_companies_to_draft
                 skip_reason = (
-                    f"qualified, but its {len(company_contacts)} contacts were not "
-                    "classified yet (run limit)"
+                    f"qualified, but outside this run's top {cap} companies, so its "
+                    f"{len(company_contacts)} contacts were not sorted by role. Open the company "
+                    'and use "Suggest buying roles".'
                 )
             else:
                 skip_reason = (

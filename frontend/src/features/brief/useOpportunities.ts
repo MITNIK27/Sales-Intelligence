@@ -109,12 +109,12 @@ export function useOpportunities(companyId: string | null) {
   }
 
   // Ask for other areas the evidence points to; they arrive as suggested areas.
-  async function suggest() {
-    if (!companyId) return;
+  async function suggest(refresh = false) {
+    if (!companyId || suggesting) return;
     setSuggesting(true);
     setError(null);
     try {
-      const { job_id } = await suggestAreas(companyId);
+      const { job_id } = await suggestAreas(companyId, refresh);
       const job = await waitForJob(job_id, () => false);
       if (job?.status === "failed")
         setError(job.error ?? "could not look for other areas");
