@@ -43,11 +43,11 @@ export function OfferIdeas({
   }
 
   return (
-    <Card className="mb-6">
+    <Card className="mb-4">
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-lg font-bold">What we could offer</h2>
+            <h2 className="text-base font-bold">What we could offer</h2>
             <p className="text-sm text-muted-foreground">
               We look at their recent news, open jobs and work in the areas we
               sell in, then check every one of our offerings against what we

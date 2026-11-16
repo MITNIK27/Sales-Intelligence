@@ -20,6 +20,13 @@ STATUS_SUGGESTED = "suggested"
 STATUS_ACTIVE = "active"
 STATUS_ARCHIVED = "archived"
 
+# Why an area is in the suggested list: the person searched for the offering in Market Discovery,
+# the evidence points to it near what they searched, or it is a next best area.
+SOURCE_SEARCHED = "searched"
+SOURCE_EVIDENCE = "evidence"
+SOURCE_NEXT_BEST = "next_best"
+SUGGESTION_SOURCES = (SOURCE_SEARCHED, SOURCE_EVIDENCE, SOURCE_NEXT_BEST)
+
 VERDICT_SUPPORTED = "supported"
 VERDICT_EMERGING = "emerging"
 VERDICT_WEAK = "weak"
@@ -53,6 +60,11 @@ class CompanyOpportunity(Base, TimestampMixin, UpdatedAtMixin):
     created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ingestion_runs.id"))
     # Why an area was suggested (one sentence), kept with the suggestion.
     suggestion_reason: Mapped[str | None] = mapped_column(String(500))
+    # Where a suggestion came from (SUGGESTION_SOURCES), its place in the list (lower is first), and
+    # a fingerprint of the offerings it was made for, so a list made for others is not reused.
+    suggestion_source: Mapped[str | None] = mapped_column(String(20))
+    suggestion_rank: Mapped[int | None] = mapped_column(Integer)
+    suggestion_focus: Mapped[str | None] = mapped_column(String(64))
     # What each collector (news, hiring, web) did last time: when, what it searched, how much it
     # found, any error, and for hiring the counts over time. It decides what is still fresh and is
     # the source of the plain "searched, found nothing" statements.

@@ -1,5 +1,11 @@
 # Sales Intelligence — Product Assessment Brief
 
+> **Historical snapshot (2026-09-29/30).** This brief describes the product as it was then. Since
+> then: AI governance and evals, Quick Look snapshots, the Company Brief, "Not a fit", per-call cost
+> metering and a new run screen have shipped, and the Gemini calls were consolidated. For the current
+> state read [`project-overview.md`](project-overview.md), [`architecture.md`](architecture.md),
+> [`data-model.md`](data-model.md), [`roadmap.md`](roadmap.md) and [`ai-governance.md`](ai-governance.md).
+
 > **What this document is.** This is the master context file for an outside product/UX/market
 > assessment of "Sales Intelligence," run as a Claude.ai Project. Add this file plus the
 > knowledge-base files listed at the end to that Project, then run the assessment prompt at the

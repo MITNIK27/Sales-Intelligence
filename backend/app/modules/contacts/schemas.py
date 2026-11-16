@@ -27,6 +27,8 @@ class ContactOut(BaseModel):
     timezone: str | None
     needs_review: bool
     needs_review_reason: str | None
+    # How sure the search was that they work at this company (0..1); null for people added by hand.
+    confidence: float | None = None
     channels: list[ContactChannelOut]
 
 

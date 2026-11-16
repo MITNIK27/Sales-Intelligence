@@ -427,8 +427,35 @@ Offerings Importer"); entities in [`data-model.md`](data-model.md).
 - **Phase 5 (built, not yet run against real data):** after ranking, a run queues one light fit job per ranked company (up to `auto_pipeline_max_companies_to_draft`) for the run's chosen offerings, without contact search and outside the pipeline's stages, so it can never fail or slow a run. Worklist links carry `?run=<id>`; the company page reads the run's offerings (`GET /market-discovery/{run}/offerings`), starts with them selected and labels fits "Chosen for this run" or "Also fits". "Suggest other areas" (`POST /companies/{id}/opportunities/suggest`) saves areas the evidence points to, once per company.
 - **Phase 6 (done, apart from the real-data review):** (1) the dashboard's Cost and health panel shows 30-day estimated spend by provider (`GET /usage/summary`); (2) `python scripts/usage_report.py --review` prints average cost per researched company, the most expensive companies, the failed-call rate and the top cost lines beside the plan's estimates, so the cost review is one command once real runs exist; (3) the structured-output seam has a per-vendor personal-data flag: `build_structured_llm(..., personal_data=True)` drops vendors not cleared to receive names or emails, Groq stays excluded until `GROQ_MAY_RECEIVE_PERSONAL_DATA=true` is set after a privacy review, and a chain left with no cleared vendor fails instead of leaking; (4) the new screens use the app's own select component rather than the browser's.
 - **Cost review, to do after the real test runs:** run `python scripts/usage_report.py --days 7 --review` and compare with the plan's estimates (about $0.02 to $0.04 per researched area, about $0.005 per fit judgment, about $0.03 to $0.05 per Quick Check brief). Then decide the open items: a paid Gemini key for prompts that carry personal data, and whether Groq may receive any.
-- **Deliberately not done:** moving the six older direct Gemini call sites (market parser, qualification, role relevance, recommendation, draft, discovery extraction) behind the seam. They are already metered. Moving them changes the model settings (the seam uses temperature 0) and can change wording, and four of them handle personal data, so it needs a side-by-side check on real output first. It is a separate change, not polish.
-  (phase 5).
+- **Phase 7 (done):** "AI Recommended Areas" on the Brief tab: a button that shows chips (an area and a one-line reason) suggested from the evidence on file, becoming "Refresh AI Recommendations" once chips exist. Refresh makes a fresh model call and replaces the chips; if it fails or returns nothing new the old chips stay, repeat clicks while running are ignored, and reopening the tab makes no model call.
+- **Deliberately not done:** moving the six older direct Gemini call sites (market parser, qualification, role relevance, recommendation, draft, discovery extraction) behind the Groq-first seam. They are metered and all go through the single `generate_structured()` helper now (see AI Governance below). Moving them changes the model settings (the seam uses temperature 0) and can change wording, and four of them handle personal data, so it needs a side-by-side check on real output first. It is a separate change, not polish.
+
+## "Not a Fit" (governance Phase 4a) — **Done**
+
+Mark a company out so it stays out. Design in [`architecture.md`](architecture.md) ("Not a Fit and the Review Log"); fields in [`data-model.md`](data-model.md).
+
+- Dismiss and restore a company, singly or in bulk, with a reason from a short fixed list and an optional note; hidden from lists by default (`dismissed=hide|include|only`).
+- Left out of every automatic path (auto pipeline, bulk qualification and scrape, contact verification, Needs Review, follow-up reminders, dashboard figures, run results) and out of the discovery reuse index. A later Market Discovery run that finds it again counts `skipped_dismissed`. Drafting and role classification are refused until it is restored.
+- A company with logged outreach or sent drafts is not dismissed until the person confirms: the screen warns, and the server answers 409 without the confirmation.
+- Screens: a "Not a fit" button on the company page, the Run Worklist and the companies list; an Active / Not a fit toggle with Undo; a banner on a dismissed company; what Quick Check said about the site shown on the company page.
+- **Not built (Phase 4b):** a Market Discovery judge that reads the note and the saved discovery evidence to explain why the search got it wrong.
+
+## Run Screen and Company Page Tidy-up (Phase 7) — **Done**
+
+- Honest progress: stages name the company being worked on and keep a short trail of real events; "Starting…" only appears while a job waits for the worker.
+- A finish summary (headline, Found > Fit > People sorted > Ready, next step); "Ready for you" as compact cards with logo, score and why it fits, opening details in a dialog; companies not shown are listed in a highlighted box with the reason; the "run limit" skip reason says what it means and what to do; the draft button reads "Write draft".
+- Company page: the unused "Choose offerings" dropdown beside Confirm Company is gone; "Not a fit" looks like a button. Companies list sorts by last discovered, newest first. Select dropdowns open under their trigger.
+- `backend/scripts/delete_companies_before.py` removes companies discovered before a date with their dependent data (dry run by default; `--yes` asks for the count).
+
+## AI Governance (controls G1 to G10) — **Phases 0 to 7 built; see the file for status**
+
+Rules, status of each control and the check that enforces it are in [`ai-governance.md`](ai-governance.md) ([ADR 0014](decisions/0014-ai-governance.md)). Shipped between 2026-11-04 and 2026-11-16:
+
+- Phase 0 to 1: the controls and key-free checks (`backend/governance_checks/`); every Gemini call through `generate_structured()` with an output cap and a repair retry; cached and thinking tokens logged; `model_used` and `prompt_version` on every AI-written row; model calls from web routes named `api:<route>`.
+- Phase 2: outside text fenced in every prompt (`llm/untrusted.py`); finished drafts checked for invented figures and past-work claims (`draft/claims.py`, "Check before sending").
+- Phase 3: the eval harness (`backend/evals/`, 37 cases, nine tasks, reports, `--repeat`, spreadsheet labels); the review decision log (`modules/review/`); every measured prompt version needs an eval report.
+- Phase 4a: "Not a fit" (above). Phase 5 prep and 6: failure reasons stored on failed calls (`api_usage.error`), the Gemini price check, clean types and CI, and the reusable `ai-project-governance` skill (`docs/skills/`).
+- **Open:** reports for the five newest eval tasks; accuracy against real labelled companies (needs labels from the team); temperature 0 for judgments (an experiment, to be measured); a spending ceiling (deferred to a paid key); confirming Groq's terms before it may see personal data; the Market Discovery judge (Phase 4b).
 
 ## Planned Next
 
@@ -436,7 +463,13 @@ Offerings Importer"); entities in [`data-model.md`](data-model.md).
   between "I have a company or a list" and "I sent a good email". To be scoped from how each role
   actually works.
 - Move the other Gemini call sites behind the structured LLM seam, Groq first, one task at a time
-  after a side-by-side comparison on real data.
+  after a side-by-side comparison on real data (all already go through `generate_structured()`).
+- Close the AI governance open items (see "AI Governance" above): first eval reports for five tasks,
+  labelled-company accuracy, and the Market Discovery judge.
+- Make CI mean something: the unit and frontend tests are git-ignored, so CI runs only the
+  governance checks.
+- Branding and positioning, starting from
+  [`marketing/purple-cow-analysis.md`](marketing/purple-cow-analysis.md).
 - A knowledge layer (graph and vector index) derived from approved offerings, with Postgres staying
   the system of record. Discussed, not designed.
 - Deployment (hosted API, worker and database) together with sign-in, access control, spend caps
@@ -454,11 +487,13 @@ Called out explicitly here so they don't get silently carried forward:
 
 ## Known documentation gaps
 
-- No ADR yet for the offerings importer (page ledger and verification layers) or for qualification
-  states; the design is described in `architecture.md` for now.
+- No ADR yet for the offerings importer (page ledger and verification layers), for qualification
+  states, for Quick Look or for "Not a fit"; the design is described in `architecture.md` for now.
+  AI governance has its own record ([ADR 0014](decisions/0014-ai-governance.md)), which used that
+  number so 0012 and 0013 stay free.
 - Two code comments reference ADRs that were never actually written: `context_dev.py` cites
   "docs/decisions/0012-context-dev-evaluation.md" and `qualification/ranking.py` cites "ADR 0005/
-  0013" for the Priority Score — only `0011` exists in `docs/decisions/` today. Both decisions were
+  0013" for the Priority Score — only `0001` to `0011` and `0014` exist in `docs/decisions/` today. Both decisions were
   made and shipped (see "Evidence-Grounded Qualification, Priority Ranking & Drafting" above); the
   write-up just never happened. Flagged here rather than silently fabricated ADR text.
 
@@ -526,3 +561,9 @@ Saved qualification criteria are no longer applied automatically anywhere.
 - **Why "Not worked out yet" did nothing:** the offering shortlist was a pure word match, so a company sharing no word with any offering got no judgement at all. When nothing is chosen and nothing matches, the model now names the offerings worth judging (`opportunity/pick.py`, ids checked against the catalogue; if it cannot answer, the first few offerings are judged), and each is still judged against evidence.
 - **Drafts follow the Brief.** A contact's "Write a draft" lists only the offerings already researched for the company, best fit first and preselected as the recommendation. With nothing researched it lists everything, seven at a time. The shared `OfferingPicker` (researched group, seven at a time on scroll) is also used on the Recommendations tab.
 - **Outreach** replaces the Drafts and Follow-ups sidebar items: one page with Drafts and Follow-ups tabs (`/outreach?view=`), ready for sent mail and replies once Gmail is linked. `/drafts` and `/follow-ups` redirect there.
+
+## Brief starts from the Market Discovery search
+- **Discovery always searches globally.** It used to fill its 10-company quota from companies already in the database (a loose keyword match) before searching the web, so a stress run could show only companies you already had. The index step is gone; a found company you already have is matched by domain and linked to the run, not duplicated.
+- **The Brief opens with the answer.** `GET /companies/{id}/search-context` reads the company's own run memberships (not the `?run=` address) and returns what was searched, the run's criteria and, per offering searched, the stored fit (band computed in code), reasoning, quotes and a state (judged, being worked out, not checked). The card "From your Market Discovery search" shows it above the recommendations.
+- **The searched offerings are researched for real.** After ranking, the top companies (`run_area_research_company_limit`, default 5) get the first few run offerings (`run_area_research_offering_limit`, default 3) researched in their own area, then judged. Capped because each is several model and search calls.
+- **One recommendation list, in order.** The two buttons were the same job. Now one control suggests: first the areas searched in Market Discovery (reason built in code from the stored fit), then evidence-backed areas connected to those offerings or to ones selected on the Brief, then next best areas when the searched fit is low or unchecked. Pass 1 proposes with verified quotes, pass 2 (`judge_areas`) maps each area to an offering and drops unsupported ones, pass 3 widens only when needed. Code decides the order. Rows record source, rank and a focus hash (migration `c4d8e2f61a93`), so a list made for other offerings is not reused, and the screen says in a sentence what happened.

@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -35,6 +36,7 @@ from app.modules.opportunity.schemas import (
     RelevanceOverrideRequest,
     SuggestRequest,
 )
+from app.modules.opportunity.search_context import build_search_context
 from app.modules.opportunity.service import (
     get_opportunity,
     get_or_create_opportunity,
@@ -63,6 +65,18 @@ async def list_company_opportunities_endpoint(
 ) -> list[OpportunityOut]:
     opportunities = await list_opportunities(session, DEFAULT_ORGANIZATION_ID, company_id)
     return [await _with_assessment(session, o) for o in opportunities]
+
+
+@company_router.get("/{company_id}/search-context")
+async def company_search_context_endpoint(
+    company_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """What this company was searched for in Market Discovery and how each offering searched for
+    fits, so the Brief opens with the answer already on screen."""
+    company = await session.get(Company, company_id)
+    if company is None or company.organization_id != DEFAULT_ORGANIZATION_ID:
+        raise HTTPException(status_code=404, detail="company not found")
+    return await build_search_context(session, company)
 
 
 @company_router.post("/{company_id}/opportunities", response_model=OpportunityOut, status_code=201)
@@ -103,7 +117,11 @@ async def suggest_areas_endpoint(
         session,
         DEFAULT_ORGANIZATION_ID,
         JOB_TYPE_SUGGEST_AREAS,
-        {"company_id": str(company.id), "refresh": bool(body and body.refresh)},
+        {
+            "company_id": str(company.id),
+            "refresh": bool(body and body.refresh),
+            "offering_ids": [str(i) for i in (body.offering_ids if body else [])],
+        },
     )
     await session.commit()
     return AssessStarted(job_id=job.id)
@@ -156,7 +174,11 @@ async def assess_opportunity_endpoint(
         session,
         DEFAULT_ORGANIZATION_ID,
         JOB_TYPE_ASSESS_OPPORTUNITY,
-        {"opportunity_id": str(opportunity.id), "force": bool(body and body.force)},
+        {
+            "opportunity_id": str(opportunity.id),
+            "force": bool(body and body.force),
+            "product_ids": [str(i) for i in (body.product_ids if body else [])],
+        },
     )
     await session.commit()
     return AssessStarted(job_id=job.id)

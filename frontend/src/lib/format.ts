@@ -90,3 +90,9 @@ const JOB_STATUS: Record<string, string> = {
 export function jobStatusLabel(status: string): string {
   return JOB_STATUS[status] ?? humanize(status);
 }
+
+// How many words a text has: runs of non-space characters, so "Hi, Sam." is two.
+export function countWords(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}

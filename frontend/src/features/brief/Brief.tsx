@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { ErrorState } from "@/components/ErrorState";
@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { BriefBody } from "@/features/brief/BriefBody";
 import { toggleId } from "@/features/brief/briefFilter";
 import { BriefFilterBar } from "@/features/brief/BriefFilterBar";
+import { SearchContextCard } from "@/features/brief/SearchContextCard";
 import { StartBriefCard } from "@/features/brief/StartBriefCard";
 import { SuggestedAreas } from "@/features/brief/SuggestedAreas";
 import {
@@ -21,6 +22,7 @@ import {
   pickOpportunity,
 } from "@/features/brief/opportunityLabels";
 import { useOpportunities } from "@/features/brief/useOpportunities";
+import { useSearchContext } from "@/features/brief/useSearchContext";
 
 // The Company Brief: one report for one company, about one offering filter and one opportunity
 // area, used by both Quick Check and the company page. The filter bar stays in view; everything
@@ -30,25 +32,25 @@ export function Brief({
   companyName = null,
   runOfferingIds = [],
   alwaysShow = false,
+  showIndustry = true,
   onDataChanged,
 }: {
   companyId: string;
   companyName?: string | null;
   runOfferingIds?: string[];
   alwaysShow?: boolean;
+  // False when the page around the Brief already shows the company's industry.
+  showIndustry?: boolean;
   // Called after something in the brief changed people or recommendations, so the page around
   // it can reload what it shows.
   onDataChanged?: () => void;
 }) {
   const opps = useOpportunities(companyId);
+  const searchContext = useSearchContext(companyId, true);
   const offerings = useOfferingOptions();
   const filter = useBriefFilter(runOfferingIds, offerings.known);
   const [params, setParams] = useSearchParams();
   const { items, error } = opps;
-  // Opened from a Market Discovery run, only that run's offerings are offered, with a way to see
-  // the rest. Without a run there is nothing to narrow by, so every offering is listed.
-  const [showAll, setShowAll] = useState(false);
-  const fromRun = runOfferingIds.length > 0;
   // Offerings that already have a researched brief of their own are finished: they leave the list,
   // and a choice of one is dropped (this is what removes the filter once its search completes).
   const done = useMemo(
@@ -65,13 +67,14 @@ export function Brief({
     // Only when a chosen offering becomes finished.
   }, [dropKey]);
   const available = offerings.options.filter((o) => !done.has(o.id));
-  const offeringOptions =
-    fromRun && !showAll
-      ? available.filter(
-          (o) =>
-            runOfferingIds.includes(o.id) || filter.offeringIds.includes(o.id),
-        )
-      : available;
+  // Every offering stays available: a rep can look at the company for anything we sell. The ones the
+  // company was searched for come first, under their own heading.
+  const offeringOptions = [
+    ...available
+      .filter((o) => runOfferingIds.includes(o.id))
+      .map((o) => ({ ...o, group: "From your search" })),
+    ...available.filter((o) => !runOfferingIds.includes(o.id)),
+  ];
 
   if (items === null && error) {
     return (
@@ -93,6 +96,8 @@ export function Brief({
   if (areas.length === 0 && !alwaysShow) return null;
 
   const selected = pickOpportunity(items, params.get("area"));
+  // The search result and the recommended areas belong to the company as a whole, not to one area.
+  const onOverallView = selected === null || selected.area_key === "general";
 
   const chooseArea = (id: string) =>
     setParams(
@@ -104,8 +109,8 @@ export function Brief({
       { replace: true },
     );
 
-  async function addArea(label: string) {
-    const created = await opps.addArea(titleCaseArea(label));
+  async function addArea(label: string, productIds: string[] = []) {
+    const created = await opps.addArea(titleCaseArea(label), productIds);
     if (created) chooseArea(created.id);
   }
 
@@ -121,7 +126,7 @@ export function Brief({
     const target = briefTargets([productId], offerings.products)[0];
     if (!target) return;
     filter.setIds([productId]);
-    await addArea(target.areaLabel);
+    await addArea(target.areaLabel, [productId]);
   }
 
   async function lookOverall() {
@@ -132,10 +137,8 @@ export function Brief({
   return (
     <section aria-label="Company brief" className="mt-2">
       <BriefFilterBar
-        industry={selected?.industry_context ?? null}
+        industry={showIndustry ? (selected?.industry_context ?? null) : null}
         offeringOptions={offeringOptions}
-        narrowed={fromRun ? !showAll : null}
-        onToggleNarrowed={() => setShowAll((v) => !v)}
         offeringIds={filter.offeringIds}
         source={filter.source}
         onToggleOffering={(id) =>
@@ -148,12 +151,29 @@ export function Brief({
         onSelectArea={chooseArea}
         onAddArea={addArea}
       />
-      <SuggestedAreas
-        suggested={suggested}
-        suggesting={opps.suggesting}
-        onSuggest={(refresh) => void opps.suggest(refresh)}
-        onChoose={addArea}
-      />
+      {onOverallView &&
+        searchContext.context &&
+        searchContext.context.runs.length > 0 && (
+          <SearchContextCard
+            runs={searchContext.context.runs}
+            onResearch={async (o) => {
+              await addArea(o.area_label, [o.product_id]);
+              await searchContext.reload();
+            }}
+            onOpenArea={chooseArea}
+          />
+        )}
+      {onOverallView && (
+        <SuggestedAreas
+          suggested={suggested}
+          suggesting={opps.suggesting}
+          notice={opps.suggestNotice}
+          onSuggest={(refresh) =>
+            void opps.suggest(refresh, filter.offeringIds)
+          }
+          onChoose={(label) => addArea(label)}
+        />
+      )}
       {error && (
         <p role="alert" className="mb-4 text-sm text-destructive">
           {error}
@@ -184,12 +204,13 @@ export function Brief({
           onResearch={() => opps.research(selected.id, !!selected.assessment)}
           onPickArea={chooseArea}
           onOverall={lookOverall}
-          onSuggest={() => void opps.suggest(false)}
+          onSuggest={() => void opps.suggest(false, filter.offeringIds)}
           findingOffers={opps.findingOffers}
           onFindOffers={findOffers}
           onBriefAround={briefAround}
           onChanged={() => {
             opps.reload();
+            void searchContext.reload();
             onDataChanged?.();
           }}
         />

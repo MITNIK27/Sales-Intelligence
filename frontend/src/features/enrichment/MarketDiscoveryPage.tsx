@@ -1,4 +1,12 @@
-import { Loader2, Sparkles } from "lucide-react";
+import {
+  ChevronDown,
+  ListChecks,
+  Loader2,
+  MessageSquareText,
+  Search,
+  Send,
+  Sparkles,
+} from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -16,8 +24,8 @@ import type {
   RoleCategory,
   RoleCategoryList,
 } from "@/api/types";
-import { CouldNotDetermineBadge } from "@/components/StatusBadge";
 import { PageHeader } from "@/components/PageHeader";
+import { CouldNotDetermineBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,9 +34,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { InfoTip } from "@/components/InfoTip";
 import { ProductMultiSelect } from "@/components/ProductMultiSelect";
 import { RoleCategoryMultiSelect } from "@/components/RoleCategoryMultiSelect";
+import { FormSection } from "@/components/FormSection";
 import { MarketFitRequirements } from "@/features/enrichment/MarketFitRequirements";
 import {
-  criteriaSummary,
   seedRequirements,
   toRequestCriteria,
   type Requirement,
@@ -382,10 +390,7 @@ export function MarketDiscoveryPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Market Discovery"
-        description='Describe a target market in plain text — e.g. "SaaS companies in Bangalore, 50-200 employees" — and confirm the parsed interpretation before any scraping runs.'
-      />
+      <PageHeader title="Market Discovery" />
 
       {missingSetup.length > 0 && (
         <p className="mb-4 rounded-md border border-chip-warning-fg/30 bg-chip-warning-bg px-4 py-2 text-sm text-chip-warning-fg">
@@ -407,101 +412,112 @@ export function MarketDiscoveryPage() {
         </Card>
       )}
 
-      <Card className="mb-6 border-primary/30 bg-primary/5">
-        <CardContent>
-          <div className="flex items-start gap-3">
-            <Sparkles className="mt-0.5 size-5 shrink-0 text-primary" />
-            <div>
-              <p className="font-semibold">What this does</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                This is how new companies enter Sales Intelligence — the whole
-                prospecting engine starts here.
-              </p>
-              <ol className="mt-3 flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground">
-                <li>
-                  You describe the market you're targeting, in plain English.
-                </li>
-                <li>
-                  We parse it into structured filters and show you exactly what
-                  we understood — you correct anything before any search runs.
-                </li>
-                <li>
-                  Once you confirm, we automatically search for matching
-                  companies, judge whether each one is worth pursuing, figure
-                  out who to talk to there, and draft outreach messages ready
-                  for your review.
-                </li>
-              </ol>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <details className="group mb-6 border border-primary/30 bg-primary/5">
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-3 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+          <Sparkles
+            className="size-5 shrink-0 text-primary"
+            aria-hidden="true"
+          />
+          <span className="font-semibold">What this does</span>
+          <span className="text-sm text-muted-foreground">
+            New companies enter Sales Intelligence here.
+          </span>
+          <ChevronDown
+            className="ml-auto size-5 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
+            aria-hidden="true"
+          />
+        </summary>
+        <ol className="flex list-decimal flex-col gap-1 px-5 pb-4 pl-12 text-sm text-muted-foreground">
+          <li>Describe the companies you want to find, in your own words.</li>
+          <li>
+            We turn it into filters and show them to you. Change anything before
+            the search starts.
+          </li>
+          <li>
+            After you confirm, we find matching companies, check which ones are
+            worth pursuing, find who to talk to, and prepare outreach drafts for
+            you to review.
+          </li>
+        </ol>
+      </details>
 
-      <Card>
-        <CardContent>
-          <form onSubmit={handleParse} className="flex flex-col gap-3">
-            <Textarea
-              value={rawInput}
-              onChange={(e) => setRawInput(e.target.value)}
-              placeholder="e.g. SaaS companies in Bangalore, 50-200 employees"
-              rows={3}
-              disabled={busy}
-            />
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={!rawInput.trim() || busy}>
-                {parsing ? "Parsing…" : "Parse"}
+      <FormSection
+        icon={MessageSquareText}
+        title="Describe the companies you want"
+        description="Write it the way you would say it: industry, place, size, anything else that matters."
+      >
+        <form onSubmit={handleParse} className="flex flex-col gap-3">
+          <Textarea
+            aria-label="Describe the companies you want to find"
+            value={rawInput}
+            onChange={(e) => setRawInput(e.target.value)}
+            placeholder="e.g. SaaS companies in Bangalore, 50-200 employees"
+            rows={3}
+            disabled={busy}
+          />
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={!rawInput.trim() || busy}>
+              {parsing ? "Parsing…" : "Parse"}
+            </Button>
+            {(rawInput || runId || job) && !busy && (
+              <Button type="button" variant="outline" onClick={resetSearch}>
+                Reset
               </Button>
-              {(rawInput || runId || job) && !busy && (
-                <Button type="button" variant="outline" onClick={resetSearch}>
-                  Reset
-                </Button>
-              )}
-            </div>
-            {runInProgress && (
-              <p className="text-xs text-muted-foreground">
-                A run is in progress — you can start a new search when it
-                finishes.
-              </p>
             )}
-          </form>
-          {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
-        </CardContent>
-      </Card>
+          </div>
+          {runInProgress && (
+            <p className="text-xs text-muted-foreground">
+              A search is still running. You can start a new one when it
+              finishes.
+            </p>
+          )}
+        </form>
+        {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+      </FormSection>
 
       {showConfirmForm && confidence && (
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle className="text-lg font-bold">
-              Confirm interpretation
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="mb-4 text-sm text-muted-foreground">
-              Correct anything that's wrong before starting the search — fields
-              marked "could not determine" were left blank, not guessed.
+        <section
+          aria-label="Confirm your search"
+          className="mt-6 flex flex-col gap-5"
+        >
+          <div>
+            <h2 className="text-xl font-bold">Check your search</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              We filled this in from what you typed. Fix anything that is off,
+              then start.
             </p>
+          </div>
 
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label
-                  htmlFor="industry-keywords"
-                  className="flex items-center gap-2"
-                >
-                  Industry keywords (comma-separated)
-                  {confidence.industry_keywords === "could_not_determine" && (
-                    <CouldNotDetermineBadge />
-                  )}
-                </Label>
-                <Input
-                  id="industry-keywords"
-                  type="text"
-                  value={industryKeywords}
-                  onChange={(e) => setIndustryKeywords(e.target.value)}
-                />
-              </div>
+          <FormSection
+            icon={Search}
+            title="Your search details"
+            description="This is what we understood from your description. Change anything that is wrong, or leave a field empty to not filter on it."
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label
+                htmlFor="industry-keywords"
+                className="flex items-center gap-2"
+              >
+                Industry
+                {confidence.industry_keywords === "could_not_determine" && (
+                  <CouldNotDetermineBadge />
+                )}
+              </Label>
+              <Input
+                id="industry-keywords"
+                type="text"
+                value={industryKeywords}
+                placeholder="e.g. healthcare, logistics"
+                onChange={(e) => setIndustryKeywords(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Separate several with commas.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="location" className="flex items-center gap-2">
-                  Location
+                  Where
                   {confidence.location === "could_not_determine" && (
                     <CouldNotDetermineBadge />
                   )}
@@ -510,6 +526,7 @@ export function MarketDiscoveryPage() {
                   id="location"
                   type="text"
                   value={location}
+                  placeholder="City, country or region"
                   onChange={(e) => setLocation(e.target.value)}
                 />
               </div>
@@ -518,7 +535,7 @@ export function MarketDiscoveryPage() {
                   htmlFor="employee-size-range"
                   className="flex items-center gap-2"
                 >
-                  Employee size range
+                  Company size
                   {confidence.employee_size_range === "could_not_determine" && (
                     <CouldNotDetermineBadge />
                   )}
@@ -527,81 +544,105 @@ export function MarketDiscoveryPage() {
                   id="employee-size-range"
                   type="text"
                   value={employeeSizeRange}
+                  placeholder="e.g. 500-2000 or 5000+"
                   onChange={(e) => setEmployeeSizeRange(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Number of employees.
+                </p>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <Label>Offerings to pitch (for automatic drafting)</Label>
-                {products && products.length > 1 && (
-                  <ProductMultiSelect
-                    products={products}
-                    selectedIds={new Set(selectedProductIds)}
-                    onToggle={(productId) =>
-                      setSelectedProductIds((current) =>
-                        current.includes(productId)
-                          ? current.filter((id) => id !== productId)
-                          : [...current, productId],
-                      )
-                    }
-                  />
-                )}
-                {selectedProductIds.length === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {products && products.length === 0
-                      ? "No offerings added yet — discovery, qualification, and role classification will still run automatically, but drafting will be skipped."
-                      : "Leaving none selected skips automatic drafting — discovery, qualification, and role classification still run."}
-                  </p>
-                )}
-                {selectedProductIds.length > 1 && (
-                  <p className="text-xs text-muted-foreground">
-                    With more than one selected, drafting picks whichever single
-                    offering best fits each company rather than pitching all of
-                    them.
-                  </p>
-                )}
-              </div>
-              {roleCategories.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  <Label className="flex items-center gap-2">
-                    Target roles to focus on (optional)
-                    <InfoTip label="About target roles">
-                      Leave this empty to look at every role. Pick roles only if
-                      you want this search to concentrate on them; you still
-                      choose which contacts to confirm.
-                    </InfoTip>
-                  </Label>
-                  <RoleCategoryMultiSelect
-                    categories={roleCategories}
-                    selectedIds={new Set(selectedRoleCategoryIds)}
-                    onToggle={(categoryId) =>
-                      setSelectedRoleCategoryIds((current) =>
-                        current.includes(categoryId)
-                          ? current.filter((id) => id !== categoryId)
-                          : [...current, categoryId],
-                      )
-                    }
-                  />
-                </div>
+            </div>
+          </FormSection>
+
+          <FormSection
+            icon={ListChecks}
+            title="Checks for every company"
+            optional
+            description="Optional. Each company is checked against these and keeps them on its page. Mark a check as must have to drop companies that clearly fail it."
+          >
+            <MarketFitRequirements
+              value={requirements}
+              onChange={setRequirements}
+            />
+          </FormSection>
+
+          <FormSection
+            icon={Send}
+            title="Offerings and people to focus on"
+            optional
+            description="Not needed to find companies. Choose these if you want fit checks and drafts built around specific offerings and roles."
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label>Offerings to pitch</Label>
+              {products && products.length > 1 && (
+                <ProductMultiSelect
+                  products={products}
+                  selectedIds={new Set(selectedProductIds)}
+                  onToggle={(productId) =>
+                    setSelectedProductIds((current) =>
+                      current.includes(productId)
+                        ? current.filter((id) => id !== productId)
+                        : [...current, productId],
+                    )
+                  }
+                />
               )}
-              <MarketFitRequirements
-                value={requirements}
-                onChange={setRequirements}
-              />
-              <p className="text-sm text-muted-foreground">
-                {criteriaSummary(requirements)}
+              <p className="text-xs text-muted-foreground">
+                {selectedProductIds.length === 0
+                  ? products && products.length === 0
+                    ? "No offerings added yet. Add them under Offerings to get fit checks and drafts."
+                    : "Nothing chosen yet. You can still write a draft for any company later."
+                  : selectedProductIds.length === 1
+                    ? "We check how well it fits each company and write drafts around it."
+                    : "Each offering is checked against every company. Each draft pitches the one that fits that company best."}
               </p>
             </div>
+            {roleCategories.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <Label className="flex items-center gap-2">
+                  People to focus on
+                  <InfoTip label="About people to focus on">
+                    Leave this on all roles to look at everyone. Pick roles only
+                    if you want this search to concentrate on them; you still
+                    choose which contacts to confirm.
+                  </InfoTip>
+                </Label>
+                <RoleCategoryMultiSelect
+                  categories={roleCategories}
+                  selectedIds={new Set(selectedRoleCategoryIds)}
+                  onToggle={(categoryId) =>
+                    setSelectedRoleCategoryIds((current) =>
+                      current.includes(categoryId)
+                        ? current.filter((id) => id !== categoryId)
+                        : [...current, categoryId],
+                    )
+                  }
+                />
+              </div>
+            )}
+          </FormSection>
 
+          <div className="flex flex-wrap items-center justify-between gap-4 border border-border bg-card px-5 py-4 shadow-xs">
+            <p className="max-w-xl text-sm text-muted-foreground">
+              The search runs in the background, so you can keep using the app.
+              Progress shows below once it starts.
+            </p>
             <Button
               type="button"
+              size="lg"
               onClick={handleConfirm}
               disabled={busy}
-              className="mt-6"
+              className="min-w-44"
             >
-              {confirming ? "Starting…" : "Confirm & Start Discovery"}
+              {confirming ? (
+                <Loader2 className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Search aria-hidden="true" />
+              )}
+              {confirming ? "Starting…" : "Start the search"}
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
       {job && (

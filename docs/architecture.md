@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-10-30._
+_Last updated: 2026-11-16._
 
 ## Overview
 
@@ -20,14 +20,20 @@ Ingest         →  modules/ingestion (+ modules/discovery_agent for Market Disc
 Enrich         →  modules/enrichment (+ providers/), modules/companies, modules/contacts
 Verify         →  modules/verification (deferred, see Phases below)
 AI Analysis    →  modules/qualification, modules/role_relevance, modules/ai_recommendation,
-                  modules/products, modules/offerings (+ modules/llm)
+                  modules/products, modules/offerings, modules/opportunity,
+                  modules/quicklook (+ modules/llm)
 Reach Out      →  modules/draft, modules/outreach (cadence, tracker)
 Orchestration  →  modules/orchestrator (the one-prompt pipeline chaining the stages above)
 ```
 
-Cross-cutting: `modules/auth` (org/user/roles), `modules/credits` (usage ledger),
-`modules/jobs` (background work tracking and the worker), `modules/dashboard` (read-only reporting
-over the pipeline's own data, no writes and no data model of its own).
+Cross-cutting: `modules/auth` (org/user/roles), `modules/credits` (credit ledger),
+`modules/usage` (per-call cost and token log), `modules/review` (the log of what a person decided
+about something the system flagged), `modules/jobs` (background work tracking and the worker),
+`modules/dashboard` (read-only reporting over the pipeline's own data, no writes and no data model
+of its own).
+
+Behind these sit the AI governance controls (G1 to G10): see
+[AI Governance and Evals](#ai-governance-and-evals) below and [`ai-governance.md`](ai-governance.md).
 
 ## Background Jobs, Simplified
 
@@ -50,8 +56,10 @@ intentionally minimal:
 No new infrastructure beyond Postgres. If volume ever outgrows one polling worker, this can be
 swapped for Celery/Arq + Redis; `jobs` is the seam where that happens.
 
-Job types: CSV ingestion, scrape/enrich, Market Discovery parse and auto-pipeline, bulk and ad hoc
-qualification (`adhoc_qualify` powers Quick Check), bulk confirm, and `sync_offerings`.
+Job types (`_HANDLERS`): CSV ingestion, scrape/enrich, Market Discovery and auto-pipeline, contact
+verification, bulk and ad hoc qualification (`adhoc_qualify` powers Quick Check), bulk confirm,
+`sync_offerings`, and the opportunity jobs (assess, analyse, recommend, suggest areas, company
+offers).
 
 The worker does not reload on code changes; restart it after a backend change.
 
@@ -66,13 +74,29 @@ dependency:
   free scraper leaves (thin firmographics, too few genuine signals) under a per-run credit ceiling.
   Search-based contact discovery reads only what Serper already indexed on a trusted-domain
   allowlist and never logs into or scrapes LinkedIn ([ADR 0010](decisions/0010-search-based-contact-discovery.md)).
-- `modules/llm/structured.py`: a small **structured-output LLM seam** (`StructuredLLM`) with a Groq
-  implementation, a Gemini implementation and a fallback wrapper (`build_structured_llm`). The
-  order is configurable (`OFFERINGS_LLM_ORDER`, default `groq,gemini`); any failure or rate limit
-  on the first falls through to the next. Only the offerings importer uses it today. The rest of
-  the app (qualification, role relevance, drafting, discovery, recommendations) still calls Gemini
-  directly through `ai_recommendation/gemini_client.py`; moving those behind the seam, one task at
-  a time and after a side-by-side comparison, is planned.
+- **Two ways to call a model, both ending in one place.**
+  - `ai_recommendation/gemini_client.py::generate_structured()` is the **only place a Gemini client
+    is built** (control G6, enforced by a governance check). It sets an output cap
+    (`MAX_OUTPUT_TOKENS`, 8192) and a temperature on every call, sends a thinking budget only when a
+    caller asks, gives one repair retry on an unreadable answer, fails at once on an answer cut off
+    at the cap, and records the call in `api_usage`. Market parsing, discovery extraction,
+    qualification, role relevance, recommendations and drafting call Gemini through it directly.
+  - `modules/llm/structured.py`: a **structured-output LLM seam** (`StructuredLLM`) with a Groq
+    implementation, a Gemini implementation (through `generate_structured()`) and a fallback
+    wrapper (`build_structured_llm`). The order is configurable (`OFFERINGS_LLM_ORDER`, default
+    `groq,gemini`); any failure or rate limit on the first falls through to the next. Used by the
+    offerings importer, Quick Look, opportunity research and the buyer-profile generator.
+    `build_structured_llm(..., personal_data=True)` drops vendors not cleared for names or emails
+    (control G1): Groq stays excluded until `GROQ_MAY_RECEIVE_PERSONAL_DATA=true` is set after a
+    privacy review, and a chain left with no cleared vendor fails instead of leaking.
+  - Moving the six older direct call sites behind the Groq-first seam is **not done** on purpose: it
+    changes model settings and can change wording, and four of them handle personal data, so it
+    needs a side-by-side check on real output first.
+- `modules/llm/untrusted.py`: `wrap_untrusted()` fences scraped pages, search snippets, news, job
+  posts and contact titles in every prompt that includes outside text, and each prompt starts with
+  a notice that marked text is data and never instructions (control G2). It lowers the risk; the
+  real limits stay in code (schema checks, quote verification, verdicts computed in Python, a
+  person reviews drafts).
 - `offerings/sources.py`: a **page source** seam for reading website pages, with context.dev as the
   primary reader and the in-house scraper as fallback (`OFFERINGS_SOURCE_ORDER`).
 - `discovery_agent/` ([ADR 0004](decisions/0004-discovery-agent.md)): turns a free-text market
@@ -130,6 +154,56 @@ hangs off a `CompanyOpportunity`.
 - **Limits.** Many companies use their own career sites, so hiring coverage is partial; Lever's
   board gives no posting date; trends need at least two collections over time.
 
+### Opportunity module layout
+`opportunity/` is split into small files: `service.py` and `areas.py` (an opportunity per business
+area, with free-text areas turned into stable keys), `evidence.py` and `research/` (collectors and
+the Greenhouse, Lever and Ashby readers), `assessment.py` and `sufficiency.py` (the model's findings
+and the verdict computed in code), `fit.py`, `shortlist.py`, `pick.py` and `offers.py` (offering fit:
+a free word-overlap shortlist, a model pick when it finds none, and ideas for a company with no area
+chosen), `relevance.py` (contacts matched to an opportunity), `recommend.py`, `suggest.py` (area
+suggestions, below), `quickcheck.py` (the opportunity step of a Quick Check; it never fails the
+check), `run_stage.py` (one light fit job per ranked company after a run, outside the pipeline's
+stages so it can never fail or slow a run) and `jobs.py`.
+
+**AI Recommended Areas.** `suggest.py` reads the evidence already on file for a company and saves
+areas it points to, each with a one-line reason. It makes one model call the first time; reopening
+the Brief makes none. An explicit "Refresh AI Recommendations" makes a fresh call and replaces the
+chips, and if that call fails or returns nothing new the old chips stay.
+
+## Quick Look (the app's "Quick Check")
+`modules/quicklook/` answers "is this company worth a look" from a name or website, without
+creating a company. `resolve.py` turns a name into a website candidate, or asks the person when it
+is ambiguous. `research.py` gathers news, jobs and web evidence, time-boxed and best-effort.
+`snapshot.py` has the model suggest which offerings fit, with quoted sources; code verifies each
+quote and computes the yes / maybe / no call. `service.py` writes a `company_snapshots` row, cached
+per domain and invalidated when Our Offerings changes (`offerings_hash`). Nothing reaches the
+Companies list until `POST /quick-look/save` turns the snapshot into a company. The page route is
+`/qualification/check` and the component is `QuickLookPage`.
+
+## "Not a Fit" and the Review Log
+A person can mark a company "not a fit" with a reason from a short fixed list and an optional note,
+singly or in bulk, and restore it later (`POST /companies/{id}/dismiss`, `/restore`,
+`/companies/dismiss`; `/companies/dismissal-check` lists outreach history a dismissal would hide).
+A dismissed company is excluded from every automatic path (`orchestrator/service.py::
+active_company_ids()` before qualification; bulk jobs; the Needs Review queue; reminders; dashboard
+figures; run results), and a later Market Discovery run that finds it again counts it as
+`skipped_dismissed` instead of reviving it. If it has logged outreach or sent drafts the server
+answers 409 until the person confirms. `modules/review/` writes every such decision, and every
+confirm or deletion of a flagged company or contact, to `review_decisions` with a snapshot of what
+the person saw. Field detail is in [`data-model.md`](data-model.md).
+
+## Usage Metering
+`modules/usage/` records one `api_usage` row per call to a model, search or context.dev request.
+`recorder.py` writes in its own short session and never raises, so a failed job still keeps its
+cost record. `context.py` carries who a call is for (job, run, company, opportunity), and
+`route_tag.py` names calls made inside a web request `api:<route>`, so little lands under
+`unspecified`. `pricing.py` estimates cost from published prices (the Gemini price was checked
+against Google's page on 2026-11-12; the rolling model alias is not documented, so pin
+`GEMINI_MODEL` to a named model to remove that doubt). `GET /usage/summary` feeds the dashboard's
+Cost and health panel; `scripts/usage_report.py` shows cached and thinking tokens, failed calls by
+reason, and `--review` for cost per researched company. A spending ceiling is deferred until a paid
+key.
+
 ## How a Draft Is Written
 
 `draft/` builds the prompt from small, reviewable pieces. The email type (first touch, follow-up 1,
@@ -139,6 +213,34 @@ service proposes a short conversation. Follow-ups are given the earlier emails t
 The role framing (business or technical) changes vocabulary only. All of it sits under the
 existing guardrails: only verified facts may be cited, nothing is invented, and the model picks
 exactly one offering per email.
+
+After generation, `draft/claims.py` reads the finished email and flags figures (percentages, money,
+multipliers, counts of years or clients) and past-work wording ("case study", "our clients", "we
+helped", "trusted by") that were not in what the draft was given. The flags are stored on the draft
+(`grounding_flags`) and shown as "Check before sending". It warns and never blocks, it is a
+heuristic that can miss a claim worded another way, and it is not re-run after a person edits.
+
+## AI Governance and Evals
+The rules for every place a model is used are in [`ai-governance.md`](ai-governance.md) (controls
+G1 to G10; decision record [ADR 0014](decisions/0014-ai-governance.md)). Two pieces are code:
+
+- `backend/governance_checks/` holds tests that need no keys and no network. They fail when a new
+  prompt-building file does not fence outside text (G2), a second place builds a Gemini client (G6),
+  a new AI-written table lacks `model_used` and `prompt_version` (G9), the "not a fit" reasons on
+  the screen and the server differ (G4), or a prompt version has no current eval report (G5). Four
+  more test the eval harness itself with fakes.
+- `backend/evals/` is the eval harness: nine tasks (Quick Look, qualification, drafts, offering
+  extraction, recommendations, opportunity assessment, offering fit, contact relevance, role
+  relevance) with 37 hand-written cases (injection, grounding, a few accuracy checks), graders,
+  committed reports in `evals/reports/`, and a runner (`python -m evals.run`, a dry run by default,
+  `--yes` to call real models, `--repeat`). Four tasks have reports; five wait for a first run with
+  real models, listed in `AWAITING_FIRST_REPORT`, and that list may only shrink. Accuracy against
+  real labelled companies needs labels from the team and is not measured yet.
+
+**CI** (`.github/workflows/ci.yml`) runs on push to main and on pull requests: `ruff`, `mypy` and
+`pytest` for the backend, and lint, `tsc` and the test command for the frontend. Be aware that
+`backend/tests/` and the frontend test files are git-ignored (commit `1ce0b15`), so CI effectively
+runs only `governance_checks`. A pull request template carries an AI-changes checklist.
 
 ## Principles the Design Follows
 
@@ -157,7 +259,10 @@ exactly one offering per email.
 - **Dedup**: company (domain) and contact (email) dedup is core to data quality, enforced in
   `companies`/`contacts`.
 - **Observability**: structured logging, job progress and result summaries, and per-company
-  pipeline status so a stuck record is debuggable.
+  pipeline status so a stuck record is debuggable. A run keeps a short trail of its last real
+  progress events (`TRAIL_LENGTH = 5` in `orchestrator/service.py`) so the run screen names the
+  company being worked on instead of showing "Starting…", and the finish summary reports what was
+  found, what fit, whose people were sorted and what is ready.
 - **Cost and rate control**: retries with backoff and rate limiting at provider boundaries; credit
   ceilings per run for context.dev; a cap on automatic drafting per run.
 - **Security and PII**: contact details are personal data even in a B2B context; provider keys
@@ -176,10 +281,13 @@ exactly one offering per email.
 | 1 | Ingestion (CSV upload), core `Company`/`Contact`/`ContactChannel`, `jobs` | Done |
 | 2 | Enrichment (in-house scraper) + Market Discovery | Done |
 | 3 | Product catalog + AI recommendation layer (Gemini) | Done; the catalog is now "Our Offerings" and website-imported |
-| 4 | Credits and usage tracking | Ledger in place |
+| 4 | Credits and usage tracking | Ledger in place; per-call cost and token metering done (`modules/usage`), spending ceiling deferred |
 | 5 | Contact verification | Not started |
 | 6 | Reach Out (drafting, tracker, cadence) | Done for email, sending is manual |
 | 7 | SaaS readiness (sign-in, tenant isolation, spend caps) | Deferred |
+
+The AI governance programme has its own phase numbers (0 to 7, tracked in `ai-governance.md`) that
+are separate from the table above.
 
 For the feature-level roadmap and what is shipped versus planned, see
 [`docs/roadmap.md`](roadmap.md).

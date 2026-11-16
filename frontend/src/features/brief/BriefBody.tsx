@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 
 import type { CompanyOpportunity } from "@/api/types";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { BestOffering } from "@/features/brief/BestOffering";
 import { BriefSection } from "@/features/brief/BriefSection";
 import {
@@ -97,7 +96,7 @@ export function BriefBody({
   if (overall) {
     return (
       <div>
-        <h2 className="mb-4 text-xl font-bold">
+        <h2 className="mb-3 text-lg font-bold">
           {companyName ? `${companyName}: ` : ""}the company as a whole
         </h2>
         {notices}
@@ -107,18 +106,6 @@ export function BriefBody({
           onFind={onFindOffers}
           onBriefAround={onBriefAround}
         />
-        <Card className="mb-6">
-          <CardContent>
-            <h2 className="text-lg font-bold">Go deeper on one area</h2>
-            <p className="mb-3 text-sm text-muted-foreground">
-              Add an area above, or use a suggested one, to see what they are
-              doing there, the connection map and what to say.
-            </p>
-            <Button variant="outline" disabled={suggesting} onClick={onSuggest}>
-              {suggesting ? "Looking…" : "Suggest areas from the evidence"}
-            </Button>
-          </CardContent>
-        </Card>
       </div>
     );
   }
@@ -255,7 +242,7 @@ export function BriefBody({
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-xl font-bold">
+        <h2 className="text-lg font-bold">
           {companyName ? `${companyName}: ` : ""}
           {titleCaseArea(opportunity.area_label)}
         </h2>

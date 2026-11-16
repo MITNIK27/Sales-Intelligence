@@ -23,6 +23,7 @@ import { TablePagination } from "@/components/TablePagination";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { countWords, plural } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { DraftFlags } from "@/features/drafts/DraftFlags";
 import { cn } from "@/lib/utils";
@@ -321,6 +322,9 @@ function DraftCard({
                 rows={9}
                 aria-label="Draft body"
               />
+              <p className="text-xs text-muted-foreground">
+                {countWords(body)} {plural(countWords(body), "word")}
+              </p>
             </div>
           )}
 

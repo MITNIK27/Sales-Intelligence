@@ -1,4 +1,5 @@
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, Search, X } from "lucide-react";
+import { useState } from "react";
 
 import {
   Popover,
@@ -6,6 +7,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+
+// Lists longer than this get a search box.
+const SEARCH_FROM = 8;
 
 export type FilterOption = { id: string; label: string; group?: string };
 
@@ -32,6 +36,7 @@ export function FilterButton({
   // False when the chosen options are shown elsewhere (as chips): the button then shows a count.
   showChoice?: boolean;
 }) {
+  const [query, setQuery] = useState("");
   const chosen = options.filter((o) => selected.includes(o.id));
   const summary =
     chosen.length === 0
@@ -39,7 +44,14 @@ export function FilterButton({
       : chosen.length === 1
         ? chosen[0].label
         : `${chosen.length} selected`;
-  const groups = [...new Set(options.map((o) => o.group ?? ""))];
+  // A long list gets a search box. The checked rows stay in the list, only the rows that do not
+  // match the words typed are hidden.
+  const searchable = options.length > SEARCH_FROM;
+  const needle = query.trim().toLowerCase();
+  const visible = needle
+    ? options.filter((o) => o.label.toLowerCase().includes(needle))
+    : options;
+  const groups = [...new Set(visible.map((o) => o.group ?? ""))];
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -72,6 +84,22 @@ export function FilterButton({
         </button>
       </PopoverTrigger>
       <PopoverContent align="start">
+        {searchable && (
+          <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+            <Search
+              className="size-4 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Search ${label.toLowerCase()}`}
+              aria-label={`Search ${label.toLowerCase()}`}
+              className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        )}
         <div className="flex max-h-72 flex-col gap-1 overflow-y-auto p-2">
           {groups.map((group) => (
             <div key={group || "all"} className="flex flex-col">
@@ -80,7 +108,7 @@ export function FilterButton({
                   {group}
                 </p>
               )}
-              {options
+              {visible
                 .filter((o) => (o.group ?? "") === group)
                 .map((o) => {
                   const on = selected.includes(o.id);

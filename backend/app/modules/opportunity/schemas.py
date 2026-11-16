@@ -32,6 +32,8 @@ class OpportunityOut(BaseModel):
     origin: str
     status: str
     suggestion_reason: str | None
+    suggestion_source: str | None = None
+    suggestion_rank: int | None = None
     industry_context: str | None
     created_at: datetime
     assessment: AssessmentOut | None = None
@@ -42,12 +44,17 @@ class OpportunityOut(BaseModel):
 class AssessRequest(BaseModel):
     # A fresh look even when the evidence has not changed since the last assessment.
     force: bool = False
+    # Offerings to judge as soon as the research is done (the ones a search was about).
+    product_ids: list[uuid.UUID] = []
 
 
 class SuggestRequest(BaseModel):
     # An explicit second look: ask the model again and replace the suggestions, instead of
     # returning the ones already made.
     refresh: bool = False
+    # Offerings the person has selected on the Brief. Areas near them are suggested after the ones
+    # the company was searched for in Market Discovery, which the server finds on its own.
+    offering_ids: list[uuid.UUID] = []
 
 
 class AssessStarted(BaseModel):

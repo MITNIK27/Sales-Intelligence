@@ -14,10 +14,12 @@ is sent automatically.
 Start with [`docs/project-overview.md`](docs/project-overview.md) for what the product does and how
 it is used. Then [`docs/architecture.md`](docs/architecture.md) for the system design,
 [`docs/data-model.md`](docs/data-model.md) for the entities, [`docs/roadmap.md`](docs/roadmap.md)
-for what is built and what is planned, and [`docs/decisions/`](docs/decisions/) for the reasoning
-behind the non-obvious choices.
+for what is built and what is planned, [`docs/ai-governance.md`](docs/ai-governance.md) for the
+rules wherever a language model is used, and [`docs/decisions/`](docs/decisions/) for the reasoning
+behind the non-obvious choices. [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) is the long, single-file
+deep-context brief (the pipeline stage by stage, how it decides, current configuration).
 
-_Documentation last updated: 2026-10-30._
+_Documentation last updated: 2026-11-16._
 
 ## Status
 
@@ -32,15 +34,25 @@ Built and in use:
 - **Our Offerings**: the services and products InfoBeans sells, imported from the company website
   as proposals a person approves, with a "What was checked" coverage view. Hand-added entries are
   kept and marked Manual.
-- **Quick Check**: type a company name or website, optionally a focus area, and get a qualification
-  verdict with evidence.
+- **Quick Check**: type a company name or website, optionally a focus area, and get a short answer
+  with evidence, the offerings that might fit, and a yes, maybe or no call. Nothing is saved as a company until
+  you save it.
+- **Company Brief**: per company and business area, a map from evidence to engagement, with
+  verified, inferred and unsupported links drawn differently, and **AI Recommended Areas** chips
+  suggested from the evidence on file.
+- **Not a fit**: mark a company out, with a reason, singly or in bulk, and Undo. It is then left out
+  of every automatic step and does not come back from later searches.
 - **Role categories** and per-run target roles, **Verify Contacts** (confirm or discard before
   drafting), **Drafts** that depend on the email type (first touch, follow-ups 1 to 3) and on
-  whether the offering is a product or a service, **Follow-ups** with send-window scheduling, and a
-  read-only **leadership dashboard**.
+  whether the offering is a product or a service, with a **Check before sending** note for figures
+  or past-work claims the email was not given, **Follow-ups** with send-window scheduling, and a
+  read-only **leadership dashboard** with a cost and health panel.
+- **AI governance**: control checks that run without keys (`backend/governance_checks/`), a
+  hand-written eval set and reports (`backend/evals/`), prompt and model versions on every
+  AI-written row, and per-call cost metering (`backend/scripts/usage_report.py`).
 
-Not built yet: contact verification (email and phone checks), sending through Gmail, and reporting
-on template performance. See [`docs/roadmap.md`](docs/roadmap.md).
+Not built yet: contact verification (email and phone checks), sending through Gmail, sign-in and
+access control, and reporting on template performance. See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Stack
 
@@ -83,15 +95,24 @@ cd ../frontend && npm install && npm run dev   # frontend
 ### Tests and checks
 
 ```bash
-cd backend && python -m pytest tests -q && python -m ruff check app tests
+cd backend && python -m pytest governance_checks -q && python -m ruff check . && python -m mypy app evals governance_checks
 cd frontend && npx tsc -b && npx eslint src && npx vitest run
 ```
+
+`governance_checks` need no keys or network and are what CI runs. `backend/tests/` and the frontend
+test files are git-ignored (they exist on a developer's machine only), so run them locally with
+`python -m pytest tests -q`. Evals call real models only with `python -m evals.run --yes`; the
+default is a dry run.
 
 ## Repository Layout
 
 ```
 backend/    FastAPI application (modular monolith, see docs/architecture.md)
+  evals/              hand-written eval cases, graders, runner and committed reports
+  governance_checks/  key-free tests that enforce the AI governance controls
+  scripts/            usage report, offerings audit, data clean-up and other tools
 frontend/   React/TypeScript app
-docs/       Overview, architecture, data model, roadmap, and decision records
+docs/       Overview, architecture, data model, roadmap, AI governance, decision records, marketing
 infra/      Local dev infrastructure (docker-compose)
+design-kit/ InfoBeans brand standards, theme and component patterns for the UI
 ```

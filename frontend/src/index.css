@@ -88,7 +88,7 @@
     --destructive: #ea1b3d;
     --border: #e6e6ed;
     --input: #82828c;               /* AA-tuned control border: 3.8:1 on white */
-    --ring: #ea1b3d;                /* brand focus ring */
+    --ring: #1d5fd1;                /* focus ring: blue, so focus never looks like an error */
     /* Status */
     --success: #0d8244;
     --success-foreground: #edfff5;

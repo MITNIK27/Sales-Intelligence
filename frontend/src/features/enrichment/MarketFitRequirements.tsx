@@ -2,6 +2,7 @@ import { Plus, X } from "lucide-react";
 import { useState } from "react";
 
 import { Checkbox } from "@/components/Checkbox";
+import { Segmented } from "@/components/Segmented";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -44,58 +45,85 @@ export function MarketFitRequirements({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h3 className="text-sm font-semibold">Criteria for this search</h3>
-        <p className="text-xs text-muted-foreground">
-          Optional. Type what you want checked for every company; each company
-          also keeps these on its page. Switch on “Must have” to drop a company
-          that clearly fails it. With nothing ticked, companies are ranked by
-          how well our offerings fit and none are dropped.
-        </p>
-      </div>
-
       <div className="flex flex-col gap-2">
-        <h4 className="text-sm font-medium">Criteria</h4>
-        <ul className="flex flex-col gap-2">
+        {value.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No checks yet. Add one below, for example "Operates a commercial
+            fleet".
+          </p>
+        )}
+        <ul className="flex flex-col gap-3">
           {value.map((req) => (
             <li
               key={req.id}
-              className="flex items-start gap-2 rounded-md border border-border p-2"
+              className={`flex items-start gap-3 border border-border bg-background p-3 transition-opacity ${req.include ? "" : "opacity-60"}`}
             >
-              <span className="mt-1">
+              <span className="mt-7">
                 <Checkbox
                   checked={req.include}
-                  onChange={() => patch(req.id, { include: !req.include })}
+                  onChange={() =>
+                    patch(
+                      req.id,
+                      req.include
+                        ? { include: false, mustHave: false }
+                        : { include: true },
+                    )
+                  }
                   label={`Use "${req.name}"`}
                 />
               </span>
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <Input
-                  value={req.name}
-                  onChange={(e) => patch(req.id, { name: e.target.value })}
-                  className="h-8"
-                />
-                <Input
-                  value={req.description}
-                  onChange={(e) =>
-                    patch(req.id, { description: e.target.value })
-                  }
-                  className="h-8 text-xs"
-                  placeholder="What exactly must be true?"
-                />
+              <div className="flex min-w-0 flex-1 flex-col gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    Check
+                  </span>
+                  <Input
+                    value={req.name}
+                    onChange={(e) => patch(req.id, { name: e.target.value })}
+                    className="h-9 bg-card font-semibold"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold text-muted-foreground">
+                    Details
+                  </span>
+                  <Input
+                    value={req.description}
+                    onChange={(e) =>
+                      patch(req.id, { description: e.target.value })
+                    }
+                    className="h-9 bg-card text-sm"
+                    placeholder="What exactly must be true?"
+                  />
+                </label>
               </div>
-              <label className="mt-1 flex cursor-pointer items-center gap-2 text-sm">
-                <Checkbox
-                  checked={req.mustHave}
-                  onChange={() => patch(req.id, { mustHave: !req.mustHave })}
-                  label={`Must have: ${req.name}`}
+              <div className="flex shrink-0 flex-col gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  How strict
+                </span>
+                <Segmented
+                  label={`How strict: ${req.name}`}
+                  disabled={!req.include}
+                  value={req.mustHave ? "must" : "nice"}
+                  onChange={(id) => patch(req.id, { mustHave: id === "must" })}
+                  options={[
+                    { id: "nice", label: "Nice to have" },
+                    { id: "must", label: "Must have" },
+                  ]}
                 />
-                Must have
-              </label>
+                <span className="max-w-56 text-xs text-muted-foreground">
+                  {!req.include
+                    ? "Tick the check to set this."
+                    : req.mustHave
+                      ? "Drops companies that clearly fail it."
+                      : "Only helps rank. Never drops a company."}
+                </span>
+              </div>
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
+                className="mt-6"
                 aria-label={`Remove "${req.name}"`}
                 onClick={() => onChange(value.filter((r) => r.id !== req.id))}
               >
@@ -109,7 +137,7 @@ export function MarketFitRequirements({
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Add a criterion, e.g. Operates a commercial fleet"
+            placeholder="Add a check, e.g. Operates a commercial fleet"
             className="h-8"
           />
           <Input

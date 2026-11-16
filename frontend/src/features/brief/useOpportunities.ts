@@ -21,6 +21,8 @@ export function useOpportunities(companyId: string | null) {
   const [error, setError] = useState<string | null>(null);
   const [researching, setResearching] = useState<Set<string>>(new Set());
   const [suggesting, setSuggesting] = useState(false);
+  // What the last look for areas did, in a sentence ("nothing new", "started with what you searched").
+  const [suggestNotice, setSuggestNotice] = useState<string | null>(null);
   const [findingOffers, setFindingOffers] = useState(false);
   const timers = useRef<Set<number>>(new Set());
 
@@ -54,11 +56,19 @@ export function useOpportunities(companyId: string | null) {
     });
   }
 
-  async function research(opportunityId: string, force = false) {
+  async function research(
+    opportunityId: string,
+    force = false,
+    productIds: string[] = [],
+  ) {
     setError(null);
     setResearching((current) => new Set(current).add(opportunityId));
     try {
-      const { job_id } = await startAssessment(opportunityId, force);
+      const { job_id } = await startAssessment(
+        opportunityId,
+        force,
+        productIds,
+      );
       const timer = window.setInterval(async () => {
         try {
           const job = await fetchJob(job_id);
@@ -83,13 +93,17 @@ export function useOpportunities(companyId: string | null) {
   }
 
   // Start looking into an area the person typed; returns it so the screen can select it.
-  async function addArea(label: string): Promise<CompanyOpportunity | null> {
+  // `productIds` are the offerings the area is being researched for, judged as soon as it is done.
+  async function addArea(
+    label: string,
+    productIds: string[] = [],
+  ): Promise<CompanyOpportunity | null> {
     if (!companyId) return null;
     setError(null);
     try {
       const created = await createOpportunity(companyId, label);
       await reload();
-      research(created.id);
+      research(created.id, false, productIds);
       return created;
     } catch (err) {
       setError(err instanceof Error ? err.message : "could not add that area");
@@ -109,15 +123,20 @@ export function useOpportunities(companyId: string | null) {
   }
 
   // Ask for other areas the evidence points to; they arrive as suggested areas.
-  async function suggest(refresh = false) {
+  async function suggest(refresh = false, offeringIds: string[] = []) {
     if (!companyId || suggesting) return;
     setSuggesting(true);
     setError(null);
+    setSuggestNotice(null);
     try {
-      const { job_id } = await suggestAreas(companyId, refresh);
+      const { job_id } = await suggestAreas(companyId, refresh, offeringIds);
       const job = await waitForJob(job_id, () => false);
       if (job?.status === "failed")
         setError(job.error ?? "could not look for other areas");
+      else {
+        const notice = (job?.result as { notice?: string } | null)?.notice;
+        setSuggestNotice(notice ?? null);
+      }
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "could not start");
@@ -155,6 +174,7 @@ export function useOpportunities(companyId: string | null) {
     error,
     researching,
     suggesting,
+    suggestNotice,
     findingOffers,
     findOffers,
     research,

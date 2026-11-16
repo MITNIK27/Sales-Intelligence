@@ -1,4 +1,4 @@
-import type { BuyingRole, ContactRelevance } from "@/api/types";
+import type { ContactRelevance } from "@/api/types";
 import type { Tiering } from "@/features/brief/tiers";
 
 // What the People tab needs to show each person's part in the buying decision on the person's own
@@ -11,13 +11,11 @@ export type CommitteeData = {
   orderedIds: string[];
   // The best person to approach first.
   startHereId: string | null;
-  onOverride: (contactId: string, role: BuyingRole | "model") => void;
 };
 
 export function committeeFrom(
   contacts: ContactRelevance[],
   tiering: Tiering,
-  onOverride: CommitteeData["onOverride"],
 ): CommitteeData {
   return {
     roles: Object.fromEntries(contacts.map((c) => [c.contact_id, c])),
@@ -26,7 +24,6 @@ export function committeeFrom(
       ...tiering.others.map((p) => p.contact_id),
     ],
     startHereId: tiering.approachFirst,
-    onOverride,
   };
 }
 

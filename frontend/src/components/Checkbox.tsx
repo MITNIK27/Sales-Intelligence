@@ -24,7 +24,7 @@ export function Checkbox({
       checked={checked}
       onChange={onChange}
       aria-label={label}
-      className="size-4 cursor-pointer accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="size-5 cursor-pointer accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     />
   );
 }

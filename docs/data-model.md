@@ -1,6 +1,6 @@
 # Data Model
 
-_Last updated: 2026-10-30._
+_Last updated: 2026-11-16._
 
 ## Entities
 
@@ -81,6 +81,21 @@ Deduplicated by domain (primary) within an organization.
 
 - `id`, `organization_id` (FK), `name`, `domain`, `industry`, `employee_count_range`,
   `description`, `source_ingestion_run_id` (FK), `created_at`, `updated_at`
+- `dismissed_at`, `dismissed_reason`, `dismissed_note` (all nullable): the "Not a fit" mark.
+  `dismissed_reason` is one of a fixed list (`wrong_industry`, `wrong_size`, `wrong_location`,
+  `not_a_real_company`, `already_a_customer`, `other`), shared with the frontend and checked by
+  `governance_checks/test_not_a_fit_reasons_match.py`. `dismissed_at` set means dismissed.
+- `discovery_evidence` (JSON, nullable): what Market Discovery saw when it proposed the company (the
+  source snippet, the extraction model's own reasoning and the market that was asked for), kept so
+  a later review can tell why the search got it wrong.
+
+A dismissed company is hidden from lists by default (`GET /companies?dismissed=hide|include|only`),
+left out of the discovery reuse index and out of every automatic job (auto pipeline, bulk
+qualification, bulk scrape, contact verification, the Needs Review queue, follow-up reminders,
+dashboard figures, run results). Finding it again in a later Market Discovery run does not revive
+it (the run counts it as `skipped_dismissed`). Drafting and role classification for it are refused
+until it is restored. Existing outreach is never touched. If a company has logged outreach or sent
+drafts the server refuses to dismiss it (409) until the person confirms.
 
 ### Contact
 A person at a Company. Deduplicated by (company_id, email) once an email is known.
@@ -114,7 +129,7 @@ copy (that's a separate Reach Out concern).
 
 - `id`, `organization_id` (FK), `company_id` (FK), `contact_id` (FK, nullable),
   `product_id` (FK), `pitch_summary`, `why_this_company`, `talking_points` (JSONB/text),
-  `model_used`, `company_opportunity_id` (FK, nullable), `opportunity_assessment_id` (FK,
+  `model_used`, `prompt_version` (nullable), `company_opportunity_id` (FK, nullable), `opportunity_assessment_id` (FK,
   nullable), `created_at`
 
 A recommendation written for an opportunity records it and the assessment version it was grounded
@@ -160,7 +175,7 @@ mistaken for a general one.
   (`qualified` | `not_qualified` | `could_not_determine`), `criteria_results` (JSONB — per-entry
   `{criterion_id, criterion_name, is_disqualifying, verdict, reasoning, evidence_ref,
   evidence_quote}`), `priority_score` (float, nullable), `score_breakdown` (JSONB, nullable),
-  `focus` (nullable), `model_used`, `created_at`
+  `focus` (nullable), `model_used`, `prompt_version` (nullable), `created_at`
 
 ### RoleCategory
 An org-defined function a `Contact` can be classified against (e.g. "Vendor / IT Procurement") —
@@ -191,7 +206,7 @@ edit to a `RoleCategory` never rewrites past classification history. See
 - `id`, `organization_id` (FK), `company_id` (FK, denormalized from `contact_id` for cheap
   per-company queries), `contact_id` (FK), `matched_category_id` (FK, nullable),
   `matched_category_name` (nullable), `is_primary_target`, `matched_category_framing_style`
-  (nullable), `priority`, `reasoning`, `model_used`, `created_at`
+  (nullable), `priority`, `reasoning`, `model_used`, `prompt_version` (nullable), `created_at`
 
 ### OutreachActivity
 A logged outreach attempt or response (Phase C). Append-only, same spirit as
@@ -227,7 +242,15 @@ the draft generator actually chose to pitch for this specific company/contact, n
   `recommendation_id` (FK, nullable), `company_opportunity_id` (FK, nullable), `draft_type` (`first_touch` | `follow_up` (the first
   follow-up) | `follow_up_2` | `follow_up_3`), `channel`
   (`email` — LinkedIn deferred), `subject` (nullable, email only), `body`, `status`
-  (`draft` | `sent` | `discarded`), `model_used`, `created_at`, `updated_at`
+  (`draft` | `sent` | `discarded`), `model_used`, `prompt_version` (nullable),
+  `grounding_flags` (JSON list, nullable), `created_at`, `updated_at`
+
+`grounding_flags` holds what `draft/claims.py` found in the finished email: figures (percentages,
+money, multipliers, counts of years or clients) and past-work wording ("case study", "our clients",
+"we helped", "trusted by") that were not in what the draft was given (company description,
+offering, recommendation, research signals, earlier emails), at most five. The app shows them as
+"Check before sending". They warn and never block, are worked out when the draft is generated (not
+after a person edits it), and are empty on drafts written before the check existed.
 
 ### CompanyOpportunity
 A company seen through one business area, for example "cloud migration"; `area_key` `general` is the
@@ -307,8 +330,49 @@ calls record tokens but no cost because no price was found. Read it with
 
 - `id`, `created_at`, `organization_id`, `job_id`, `run_id`, `company_id`, `opportunity_id`
   (all nullable), `provider` (`gemini` | `groq` | `serper` | `contextdev`), `kind` (`llm` |
-  `search` | `credits`), `model`, `task` (the job type, or `unspecified`), `status` (`ok` |
-  `error`), `tokens_in`, `tokens_out`, `units` (queries or credits), `latency_ms`, `est_cost_usd`
+  `search` | `credits`), `model`, `task` (the job type, `api:<route>` for a call made inside a web
+  request, or `unspecified`), `status` (`ok` | `error`), `tokens_in`, `tokens_out`, `units`
+  (queries or credits), `latency_ms`, `est_cost_usd`
+- `cached_tokens`, `thinking_tokens` (nullable): read from the Gemini reply. Cached tokens stay
+  inside `tokens_in` and thinking tokens stay inside `tokens_out`, so cost estimates do not move.
+  They show whether Gemini's automatic caching is working. Rows from before are empty.
+- `error` (nullable): why a failed call failed, the provider's own message, shortened, with
+  key-like text removed. `scripts/usage_report.py` lists failed calls by reason.
+
+### CompanySnapshot (table `company_snapshots`)
+The cached answer of a Quick Look (the app's "Quick Check"): what a company does, which of our
+offerings it might fit, the sources, and a yes / maybe / no call. One row per organization and
+domain (unique `uq_snapshots_org_domain`). It is **not** a company: nothing reaches the Companies
+list until a person saves it (`POST /quick-look/save`). The model proposes offerings, code verifies
+that each quoted source text exists and computes the call. `offerings_hash` fingerprints the
+offerings it was judged against, so changing Our Offerings makes the snapshot stale.
+
+- `id`, `organization_id` (FK), `domain`, `name`, `summary` (JSON), `sources` (JSON list),
+  `offerings_hash`, `model_used`, `prompt_version`, `created_at`
+
+### ReviewDecision (table `review_decisions`)
+Append-only record of what a person decided about something the system flagged (control G4 in
+[`ai-governance.md`](ai-governance.md)). Written by `modules/review/` when a flagged company or
+contact is confirmed, a contact is deleted, or a company is marked "not a fit" or restored.
+`snapshot` is what the person saw at the time (never names or emails); `flag_reason` is the
+system's own reason for flagging. This is the data a future Market Discovery judge and the
+accuracy evals will learn from.
+
+- `id`, `organization_id`, `subject_type` (`company` | `contact`), `subject_id`, `company_id`
+  (nullable), `decision` (`confirmed` | `deleted` | `not_a_fit` | `restored`), `was_flagged`,
+  `flag_reason` (nullable), `reason_code` (nullable, the "not a fit" reasons above), `note`
+  (nullable, typed by a person, up to 500 characters), `snapshot` (JSON, nullable), `created_at`
+
+Ids here are plain columns with no foreign keys, like `ApiUsage`, so the log outlives a test-data
+wipe.
+
+### AI-written rows: model and prompt version
+Every table a model writes to records `model_used` and `prompt_version` (control G9, enforced by
+`governance_checks/test_ai_rows_record_model_and_prompt.py`): drafts, qualification results, role
+relevance results, recommendations, opportunity assessments, offering matches, contact relevance,
+company snapshots and offering proposals. Rows written before 2026-11-04 have them empty on
+purpose, and offering proposals made from a 404 check (removals) stay empty because no model wrote
+them.
 
 ### CreditTransaction
 Ledger entry for a credit-consuming action. Balance is always derived from summing the ledger —
@@ -358,6 +422,9 @@ Product 1──* Draft
 Recommendation 1──* Draft            (nullable — grounding, not required)
 Organization 1──* CreditTransaction
 Organization 1──* Job
+Organization 1──* CompanySnapshot    (one per domain; not a Company until saved)
+ReviewDecision *──1 Company/Contact  (by id only, no foreign key; append-only log)
+ApiUsage       *──1 Job/Run/Company  (by id only, no foreign key; append-only log)
 ```
 
 This is deliberately not yet a full ER diagram with cardinalities/constraints — that will firm

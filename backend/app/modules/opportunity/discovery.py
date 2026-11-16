@@ -17,14 +17,14 @@ from app.modules.opportunity.evidence import (
     format_evidence,
     verify_citation,
 )
-from app.modules.opportunity.llm_models import AreaSuggestionsOut
+from app.modules.opportunity.llm_models import AreaJudgementsOut, AreaSuggestionsOut
 from app.modules.opportunity.models import (
     GENERAL_AREA_KEY,
     ORIGIN_SUGGESTED,
     STATUS_SUGGESTED,
     CompanyOpportunity,
 )
-from app.modules.opportunity.prompts import build_area_prompt
+from app.modules.opportunity.prompts import build_area_judgement_prompt, build_area_prompt
 from app.modules.opportunity.service import get_or_create_opportunity
 from app.modules.products.models import STATUS_ACTIVE, Product
 
@@ -37,6 +37,10 @@ class SuggestedArea:
     reason: str
     quote: str
     evidence_url: str | None
+    # Filled in by `judge_areas`: the offering that serves the area best and how well the evidence
+    # supports it ("clear", "partial"), empty when it was not judged.
+    offering: str = ""
+    support: str = ""
 
 
 async def offering_areas(session: AsyncSession, organization_id: object) -> list[str]:
@@ -68,12 +72,16 @@ async def suggest_areas(
     records: list[EnrichmentRecord],
     areas_we_cover: list[str],
     industry: str | None = None,
+    focus: list[str] | None = None,
+    widen: bool = False,
 ) -> list[SuggestedArea]:
     items = build_evidence_pack(company, records)
     if not items:
         return []
     answer = await llm.generate(
-        build_area_prompt(company, industry, format_evidence(items), areas_we_cover),
+        build_area_prompt(
+            company, industry, format_evidence(items), areas_we_cover, focus=focus, widen=widen
+        ),
         AreaSuggestionsOut,
     )
     by_label = {item.label: item for item in items}
@@ -116,3 +124,75 @@ async def save_suggestions(
         )
         saved.append(opportunity)
     return saved
+
+
+async def judge_areas(
+    llm: StructuredLLM,
+    company: Company,
+    areas: list[SuggestedArea],
+    offerings: list[tuple[str, list[str]]],
+    focus: list[str],
+) -> list[SuggestedArea]:
+    """A second look at proposed areas, in one call: which offering serves each, and how well the
+    evidence supports it. An area judged "none" is dropped. The model only labels; what is kept
+    and in what order is decided by the caller from these labels. If the model leaves an area out
+    it is kept unjudged rather than lost, since its quote was already verified."""
+    if not areas:
+        return []
+    answer = await llm.generate(
+        build_area_judgement_prompt(
+            company, [(a.label, a.reason, a.quote) for a in areas], offerings, focus
+        ),
+        AreaJudgementsOut,
+    )
+    names = {name.strip().lower(): name for name, _ in offerings}
+    by_key = {normalize_area_key(j.label): j for j in answer.areas}
+    judged: list[SuggestedArea] = []
+    for area in areas:
+        verdict = by_key.get(normalize_area_key(area.label))
+        if verdict is None:
+            judged.append(area)
+            continue
+        support = verdict.support.strip().lower()
+        if support == "none":
+            continue
+        offering = names.get(verdict.offering.strip().lower(), "")
+        judged.append(
+            SuggestedArea(
+                label=area.label,
+                reason=area.reason,
+                quote=area.quote,
+                evidence_url=area.evidence_url,
+                offering=offering,
+                support=support if support in ("clear", "partial") and offering else "",
+            )
+        )
+    return judged
+
+
+async def offering_catalogue(
+    session: AsyncSession, organization_id: object
+) -> list[tuple[str, list[str]]]:
+    """Every active offering with its area tags, for judging which one an area is best served by."""
+    products = (
+        (
+            await session.execute(
+                select(Product)
+                .where(Product.organization_id == organization_id, Product.status == STATUS_ACTIVE)
+                .order_by(Product.name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        (
+            p.name,
+            [
+                t.strip()
+                for t in ((p.buyer_profile or {}).get("area_tags") or [])
+                if isinstance(t, str) and t.strip()
+            ],
+        )
+        for p in products
+    ]

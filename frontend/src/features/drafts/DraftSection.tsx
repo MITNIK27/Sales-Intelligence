@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DraftFlags } from "@/features/drafts/DraftFlags";
+import { countWords, plural } from "@/lib/format";
 
 export function DraftSection({
   contact,
@@ -175,6 +176,11 @@ export function DraftSection({
 
   return (
     <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3">
+      {blockedByReview && !draft && !contact.needs_review && (
+        <p className="border-l-2 border-chip-warning-fg pl-3 text-sm text-chip-warning-fg">
+          Confirm the flagged company first, then you can generate a draft.
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <OfferingPicker
           products={products}
@@ -236,12 +242,6 @@ export function DraftSection({
       {generateError && (
         <p className="text-sm text-destructive">{generateError}</p>
       )}
-      {blockedByReview && !draft && (
-        <p className="text-sm text-muted-foreground">
-          Confirm the flagged company or contact above before generating a
-          draft.
-        </p>
-      )}
 
       {draft && (
         <div className="flex flex-col gap-2 rounded-md border border-border p-3">
@@ -264,6 +264,9 @@ export function DraftSection({
             rows={6}
             aria-label="Draft body"
           />
+          <p className="text-xs text-muted-foreground">
+            {countWords(body)} {plural(countWords(body), "word")}
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"

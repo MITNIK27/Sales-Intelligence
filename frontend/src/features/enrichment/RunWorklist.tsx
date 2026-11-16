@@ -1,11 +1,12 @@
 import {
   AlertTriangle,
+  ArrowRight,
   Check,
   ChevronRight,
   Copy,
   ExternalLink,
 } from "lucide-react";
-import { WebsiteLink } from "@/components/WebsiteLink";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -20,7 +21,9 @@ import type {
   ScoreBreakdown,
   WorklistRow,
 } from "@/api/types";
-import { Button } from "@/components/ui/button";
+import { StatusTag } from "@/components/StatusTag";
+import { ContactTrust } from "@/features/contacts/ContactTrust";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -30,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { countWords, plural } from "@/lib/format";
 
 const LIVE_REFRESH_MS = 3000;
 
@@ -144,9 +148,9 @@ export function RunWorklist({
       >
         {openRow && (
           <DialogContent className="overflow-hidden">
-            <div className="flex items-start gap-3 border-b border-border p-5 pr-14">
+            <div className="flex flex-wrap items-start gap-x-3 gap-y-3 border-b border-border p-5 pr-14">
               <CompanyLogo name={openRow.name} domain={openRow.domain} />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <DialogTitle>{openRow.name}</DialogTitle>
                 <DialogDescription>
                   {[
@@ -157,6 +161,29 @@ export function RunWorklist({
                     .filter(Boolean)
                     .join(" · ") || "Company details"}
                 </DialogDescription>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {openRow.domain && (
+                  <a
+                    href={`https://${openRow.domain}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={buttonVariants({
+                      variant: "outline",
+                      size: "sm",
+                    })}
+                  >
+                    {openRow.domain}
+                    <ExternalLink className="size-3.5" aria-hidden="true" />
+                  </a>
+                )}
+                <Link
+                  to={`/companies/${openRow.company_id}?run=${runId}`}
+                  className={buttonVariants({ size: "sm" })}
+                >
+                  Open company page
+                  <ArrowRight className="size-3.5" aria-hidden="true" />
+                </Link>
               </div>
             </div>
             <div className="overflow-y-auto p-5">
@@ -323,11 +350,10 @@ function ReadyCard({
   );
 }
 
-// What was shown on the long card before: why it qualified, the evidence, how the score was made
-// and each candidate with the draft button.
+// What a company's window shows, in the order a rep reads it: what the company is, how it matched
+// the search, how it scored, then the people to contact. Each part is its own block with a heading.
 function ReadyDetail({
   row,
-  runId,
   productId,
   onChanged,
 }: {
@@ -338,73 +364,87 @@ function ReadyDetail({
 }) {
   const contactCount = row.candidates.length;
   const draftCount = row.candidates.filter((c) => c.draft).length;
-
   return (
-    <div>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div>
-          {row.description && (
-            <p className="line-clamp-3 text-xs text-muted-foreground">
-              {row.description}
-              {row.provenance?.description?.source && (
-                <SourceChip source={row.provenance.description.source} />
-              )}
-            </p>
-          )}
-          <p className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-muted-foreground">
-            {row.domain && (
-              <WebsiteLink domain={row.domain} className="text-sm" />
-            )}
-            {row.industry && (
-              <FactWithSource
-                label={row.industry}
-                source={row.provenance?.industry?.source}
-              />
-            )}
-            {row.employee_count_range && (
-              <FactWithSource
-                label={`${row.employee_count_range} employees`}
-                source={row.provenance?.employee_count_range?.source}
-              />
-            )}
-            <span className="text-xs">data: {row.data_source}</span>
-          </p>
-        </div>
-        <Link
-          to={`/companies/${row.company_id}?run=${runId}`}
-          className="text-sm font-medium text-primary-text hover:underline"
-        >
-          Open company page →
-        </Link>
-      </div>
-
-      {row.why && (
-        <p className="mt-2 text-sm">
-          <span className="font-semibold">Why it qualified: </span>
-          {row.why}
-        </p>
+    <div className="flex flex-col gap-6">
+      {row.description && (
+        <Block title="About the company">
+          <p className="text-sm leading-relaxed">{row.description}</p>
+        </Block>
       )}
 
-      <CriteriaEvidence criteria={row.criteria} confidence={row.confidence} />
-      <ScoreDetails breakdown={row.score_breakdown} />
+      <Block
+        title="How it matched your search"
+        aside={
+          row.confidence != null
+            ? `Confidence ${Math.round(row.confidence * 100)}%`
+            : undefined
+        }
+      >
+        {row.criteria.length > 0 ? (
+          <ul className="flex flex-col divide-y divide-border border border-border">
+            {row.criteria.map((c) => (
+              <CriterionRow key={`${c.scope}-${c.name}`} criterion={c} />
+            ))}
+          </ul>
+        ) : row.why ? (
+          <p className="text-sm leading-relaxed">{row.why}</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No checks were set for this search.
+          </p>
+        )}
+      </Block>
 
-      <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Contacts · {contactCount} candidate{contactCount === 1 ? "" : "s"} ·{" "}
-        {draftCount} draft
-        {draftCount === 1 ? "" : "s"}
-      </p>
-      <div className="mt-1 flex flex-col divide-y divide-border border-t border-border">
-        {row.candidates.map((candidate) => (
-          <CandidateRow
-            key={candidate.contact_id}
-            companyId={row.company_id}
-            candidate={candidate}
-            productId={productId}
-            onChanged={onChanged}
-          />
-        ))}
-      </div>
+      <ScoreDetails
+        breakdown={row.score_breakdown}
+        score={row.priority_score}
+      />
+
+      <Block
+        title="People to contact"
+        aside={`${contactCount} found · ${draftCount} draft${draftCount === 1 ? "" : "s"}`}
+      >
+        {!productId && (
+          <p className="text-xs text-muted-foreground">
+            Choose an offering at the top of this page to write drafts.
+          </p>
+        )}
+        <div className="flex flex-col gap-3">
+          {row.candidates.map((candidate) => (
+            <CandidateRow
+              key={candidate.contact_id}
+              companyId={row.company_id}
+              candidate={candidate}
+              productId={productId}
+              onChanged={onChanged}
+            />
+          ))}
+        </div>
+      </Block>
     </div>
+  );
+}
+
+// One titled block of the window, with an optional note on the right of its heading.
+function Block({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-l-4 border-primary pl-3">
+        <h3 className="text-base font-bold leading-tight">{title}</h3>
+        {aside && (
+          <span className="text-sm text-muted-foreground">{aside}</span>
+        )}
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -457,41 +497,43 @@ function CandidateRow({
   }
 
   return (
-    <div className="py-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="text-sm">
-          <p className="font-medium">
+    <div className="border border-border bg-card p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-sm font-semibold">
             {candidate.full_name ?? "Unnamed"}
-            {candidate.role_title ? (
-              <span className="font-normal"> — {candidate.role_title}</span>
-            ) : null}
           </p>
-          <p className="text-muted-foreground">
-            {candidate.category ?? "Primary target"}
-            {candidate.needs_review
-              ? " · found via search, not yet confirmed"
-              : ""}
-            {candidate.confidence != null
-              ? ` · ${Math.round(candidate.confidence * 100)}% sure they work here`
-              : ""}
+          {candidate.role_title && (
+            <p className="break-words text-xs">{candidate.role_title}</p>
+          )}
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-0.5">
+            {candidate.category && (
+              <span className="text-xs text-muted-foreground">
+                {candidate.category}
+              </span>
+            )}
+            <ContactTrust
+              needsReview={candidate.needs_review}
+              confidence={candidate.confidence}
+            />
           </p>
-          <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <p className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-0.5 text-xs">
             {candidate.linkedin_url ? (
               <a
                 href={candidate.linkedin_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-primary-text hover:underline"
+                className="inline-flex items-center gap-1 font-medium text-primary-text hover:underline"
               >
-                LinkedIn profile <ExternalLink className="size-3" />
+                LinkedIn profile <ExternalLink className="size-3.5" />
               </a>
             ) : (
-              <span className="text-muted-foreground">LinkedIn not found</span>
+              <span className="text-muted-foreground">No LinkedIn found</span>
             )}
             {candidate.email ? (
               <span>{candidate.email}</span>
             ) : (
-              <span className="text-muted-foreground">Email not found</span>
+              <span className="text-muted-foreground">No email found</span>
             )}
           </p>
         </div>
@@ -499,27 +541,21 @@ function CandidateRow({
         {draft ? (
           <Button
             type="button"
-            size="sm"
             variant="outline"
             onClick={() => setOpen((v) => !v)}
           >
             {open ? "Hide draft" : "Review draft"}
           </Button>
-        ) : (
+        ) : productId ? (
           <Button
             type="button"
-            size="sm"
             onClick={chooseAndDraft}
-            disabled={working || !productId}
-            title={
-              !productId
-                ? "Choose an offering above before writing a draft"
-                : "Confirms this person and writes a first email"
-            }
+            disabled={working}
+            title="Confirms this person and writes a first email"
           >
             {working ? "Writing…" : "Write draft"}
           </Button>
-        )}
+        ) : null}
       </div>
 
       {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
@@ -599,6 +635,9 @@ function DraftEditor({
         rows={8}
         aria-label="Draft body"
       />
+      <p className="text-xs text-muted-foreground">
+        {countWords(body)} {plural(countWords(body), "word")}
+      </p>
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save edits"}
@@ -616,73 +655,58 @@ function DraftEditor({
   );
 }
 
-const STATUS_STYLE: Record<
+const CRITERION_STATUS: Record<
   WorklistCriterion["status"],
-  { mark: string; className: string }
+  { label: string; tone: "good" | "bad" | "watch" }
 > = {
-  PASS: { mark: "✓ PASS", className: "text-green-700" },
-  FAIL: { mark: "✗ FAIL", className: "text-destructive" },
-  UNKNOWN: { mark: "? UNKNOWN", className: "text-amber-700" },
+  PASS: { label: "Met", tone: "good" },
+  FAIL: { label: "Not met", tone: "bad" },
+  UNKNOWN: { label: "Could not confirm", tone: "watch" },
 };
 
-// Each requirement with its verdict and the evidence behind it. UNKNOWN is shown as such — it is
-// never silently counted as a pass.
-function CriteriaEvidence({
-  criteria,
-  confidence,
-}: {
-  criteria: WorklistCriterion[];
-  confidence: number | null;
-}) {
-  if (criteria.length === 0) return null;
-  const confidenceLabel =
-    confidence != null ? ` · confidence ${Math.round(confidence * 100)}%` : "";
+// One check with its answer and the evidence behind it. "Could not confirm" is shown as such: it is
+// never silently counted as met.
+function CriterionRow({ criterion: c }: { criterion: WorklistCriterion }) {
+  const status = CRITERION_STATUS[c.status];
+  const note = c.evidence_quote ? `“${c.evidence_quote}”` : c.reasoning;
   return (
-    <details className="mt-2 text-sm">
-      <summary className="cursor-pointer text-muted-foreground">
-        Evidence — {criteria.length} checks{confidenceLabel}
-      </summary>
-      <ul className="mt-2 flex flex-col gap-2">
-        {criteria.map((c) => (
-          <li key={`${c.scope}-${c.name}`}>
+    <li className="flex flex-col gap-0.5 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-semibold">{c.name}</span>
+          {c.hard && (
             <span
-              className={`font-semibold ${STATUS_STYLE[c.status].className}`}
-            >
-              {STATUS_STYLE[c.status].mark}
-            </span>{" "}
-            {c.name}
-            {c.hard && (
-              <span className="text-xs text-muted-foreground"> (hard)</span>
-            )}
-            {c.evidence_quote && (
-              <p className="ml-4 text-xs text-muted-foreground">
-                “{c.evidence_quote}”{c.source && ` — ${c.source}`}
-                {c.url && (
-                  <>
-                    {" "}
-                    <a
-                      href={c.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline"
-                    >
-                      link
-                    </a>
-                  </>
-                )}
-                {c.confidence != null &&
-                  ` · ${Math.round(c.confidence * 100)}%`}
-              </p>
-            )}
-            {!c.evidence_quote && c.reasoning && (
-              <p className="ml-4 text-xs text-muted-foreground">
-                {c.reasoning}
-              </p>
-            )}
-          </li>
-        ))}
-      </ul>
-    </details>
+              role="img"
+              aria-label="Must have in the search"
+              title="Must have in the search"
+              className="size-2.5 shrink-0 cursor-help rounded-full bg-muted-foreground"
+            />
+          )}
+        </span>
+        <StatusTag tone={status.tone} className="text-xs">
+          {status.label}
+        </StatusTag>
+      </div>
+      {note && (
+        <p className="break-words text-xs text-muted-foreground">
+          {note}
+          {c.evidence_quote && c.source && ` (${c.source})`}
+          {c.url && (
+            <>
+              {" "}
+              <a
+                href={c.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary-text underline"
+              >
+                Source
+              </a>
+            </>
+          )}
+        </p>
+      )}
+    </li>
   );
 }
 
@@ -696,60 +720,50 @@ const COMPONENT_LABELS: Record<string, string> = {
   contact_availability: "Contact availability",
 };
 
-// How the Priority Score was made up, so a rep can see why one company outranks another.
-function ScoreDetails({ breakdown }: { breakdown: ScoreBreakdown | null }) {
+// "1 hard requirement(s)" reads as "1 hard requirement": the plural is decided by the number, and
+// the first letter is a capital.
+export function tidyNote(note: string): string {
+  const count = Number(note.match(/^\s*(\d+(?:\.\d+)?)\b/)?.[1]);
+  const plural = Number.isFinite(count) && count === 1 ? "" : "s";
+  const text = note.replace(/\(s\)/g, plural).trim();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// How the Priority Score was made up, so a rep can see why one company outranks another: each part
+// as a small tile with its points, no bars to read.
+function ScoreDetails({
+  breakdown,
+  score,
+}: {
+  breakdown: ScoreBreakdown | null;
+  score: number | null;
+}) {
   if (!breakdown?.components) return null;
   return (
-    <details className="mt-1 text-sm">
-      <summary className="cursor-pointer text-muted-foreground">
-        How the score was made
-      </summary>
-      <table className="mt-2 w-full text-xs">
-        <tbody>
-          {Object.entries(breakdown.components).map(([key, c]) => (
-            <tr key={key} className="border-t border-border">
-              <td className="py-1 pr-2">{COMPONENT_LABELS[key] ?? key}</td>
-              <td className="py-1 pr-2 text-muted-foreground">{c.note}</td>
-              <td className="py-1 text-right tabular-nums">
-                {c.points} / {c.weight}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </details>
-  );
-}
-
-const SOURCE_LABELS: Record<string, string> = {
-  "contextdev:brand": "context.dev",
-  "contextdev:scrape": "context.dev",
-  contextdev: "context.dev",
-  "scraper:companysite": "website",
-};
-
-function sourceLabel(source: string): string {
-  return (
-    SOURCE_LABELS[source] ??
-    (source.startsWith("contextdev") ? "context.dev" : "website")
-  );
-}
-
-// Where a fact came from, so a rep can weigh it: a structured vendor record vs. text read off the
-// company's own site.
-function SourceChip({ source }: { source: string }) {
-  return (
-    <span className="ml-1 rounded bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">
-      {sourceLabel(source)}
-    </span>
-  );
-}
-
-function FactWithSource({ label, source }: { label: string; source?: string }) {
-  return (
-    <span>
-      {label}
-      {source && <SourceChip source={source} />}
-    </span>
+    <Block
+      title="Priority score"
+      aside={score != null ? `${Math.round(score)} out of 100` : undefined}
+    >
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {Object.entries(breakdown.components).map(([key, c]) => (
+          <li key={key} className="border border-border px-3 py-2">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm font-semibold">
+                {COMPONENT_LABELS[key] ?? key}
+              </span>
+              <span className="text-sm tabular-nums">
+                <span className="font-bold">{c.points}</span>
+                <span className="text-muted-foreground"> / {c.weight}</span>
+              </span>
+            </div>
+            {c.note && (
+              <p className="text-xs text-muted-foreground">
+                {tidyNote(c.note)}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </Block>
   );
 }

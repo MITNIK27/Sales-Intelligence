@@ -27,3 +27,13 @@ class AreaOut(BaseModel):
 
 class AreaSuggestionsOut(BaseModel):
     areas: list[AreaOut] = []
+
+
+class AreaJudgementOut(BaseModel):
+    label: str  # the candidate area, exactly as given
+    offering: str = ""  # the name of the offering that area is best served by, or empty for none
+    support: str = ""  # clear | partial | none: how well the evidence supports it for that offering
+
+
+class AreaJudgementsOut(BaseModel):
+    areas: list[AreaJudgementOut] = []

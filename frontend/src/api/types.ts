@@ -115,6 +115,8 @@ export type Contact = {
   timezone: string | null;
   needs_review: boolean;
   needs_review_reason: string | null;
+  // How sure the search was that they work here (0..1); null for people added by hand.
+  confidence?: number | null;
   channels: ContactChannel[];
 };
 
@@ -519,11 +521,55 @@ export type CompanyOpportunity = {
   origin: string;
   status: "suggested" | "active" | "archived";
   suggestion_reason: string | null;
+  // Why a suggested area is listed: searched for in Market Discovery, the evidence points to it, or
+  // it is a next best area. `suggestion_rank` is its place in the list (lower is first).
+  suggestion_source?: "searched" | "evidence" | "next_best" | null;
+  suggestion_rank?: number | null;
   industry_context: string | null;
   created_at: string;
   assessment: OpportunityAssessment | null;
   research?: Record<string, ResearchEntry> | null;
 };
+
+// What a company was searched for in Market Discovery and how each offering searched for fits,
+// kept on file so the Brief can show it without running anything.
+export type SearchContextOffering = {
+  product_id: string;
+  name: string;
+  kind: string;
+  area_label: string;
+  area_id: string | null;
+  area_researched: boolean;
+  state: "judged" | "working" | "not_checked";
+  band: FitBand | null;
+  band_label: string | null;
+  score: number | null;
+  reasoning: string | null;
+  evidence: {
+    quote: string;
+    kind?: string;
+    date?: string | null;
+    url?: string | null;
+    content_hash?: string;
+  }[];
+};
+
+export type SearchContextRun = {
+  run_id: string;
+  label: string;
+  created_at: string;
+  searched: {
+    industry_keywords: string[];
+    location: string | null;
+    employee_size_range: string | null;
+  };
+  criteria: string[];
+  offerings: SearchContextOffering[];
+  // "chosen" on the form, or "keywords": matched from the words that were searched.
+  offerings_found_by: "chosen" | "keywords";
+};
+
+export type SearchContext = { runs: SearchContextRun[] };
 
 export type FitBand = "strong" | "potential" | "weak" | "insufficient_evidence";
 

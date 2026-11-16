@@ -18,17 +18,24 @@ export function Segmented<T extends string>({
   value,
   onChange,
   label,
+  disabled = false,
 }: {
   options: SegmentOption<T>[];
   value: T | null;
   onChange: (id: T) => void;
   label: string;
+  // Greyed out and not clickable, for example while the thing it sets is switched off.
+  disabled?: boolean;
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="inline-flex flex-wrap border border-border bg-card"
+      aria-disabled={disabled}
+      className={cn(
+        "inline-flex flex-wrap border border-border bg-card",
+        disabled && "opacity-50",
+      )}
     >
       {options.map((option, i) => {
         const on = option.id === value;
@@ -38,9 +45,10 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={on}
+            disabled={disabled}
             onClick={() => onChange(option.id)}
             className={cn(
-              "inline-flex h-10 items-center gap-1.5 px-3 text-sm transition-colors",
+              "inline-flex h-10 items-center gap-1.5 px-3 text-sm transition-colors disabled:cursor-not-allowed",
               "focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary",
               i > 0 && "border-l border-border",
               on

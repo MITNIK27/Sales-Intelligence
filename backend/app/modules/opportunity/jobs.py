@@ -27,7 +27,7 @@ from app.modules.opportunity.research.collect import collect_area_evidence
 from app.modules.opportunity.research.sources import build_research_sources
 from app.modules.opportunity.service import evidence_records_for, get_opportunity
 from app.modules.opportunity.shortlist import SHORTLIST_SIZE
-from app.modules.opportunity.suggest import suggest_for_company
+from app.modules.opportunity.suggest import suggest_with_notice
 from app.modules.products.service import get_product
 from app.modules.usage.context import usage_scope
 
@@ -88,6 +88,7 @@ async def process_assess_opportunity_job(
                         company,
                         opportunity,
                         records,
+                        chosen_ids={uuid.UUID(p) for p in payload.get("product_ids") or []},
                         with_contacts=False,
                         max_unchosen=SHORTLIST_SIZE,
                         force=force,
@@ -214,12 +215,21 @@ async def process_suggest_areas_job(
         await progress_callback(0, 1, detail="Looking for other areas")
     settings = get_settings()
     llm = build_structured_llm(settings, order=settings.opportunity_llm_order)
-    suggested = await suggest_for_company(
-        session, llm, company, refresh=bool((job.payload or {}).get("refresh"))
+    payload = job.payload or {}
+    result = await suggest_with_notice(
+        session,
+        llm,
+        company,
+        refresh=bool(payload.get("refresh")),
+        selected_ids=[uuid.UUID(p) for p in payload.get("offering_ids") or []],
     )
     if progress_callback:
         await progress_callback(1, 1, detail="Done")
-    return {"company_id": str(company.id), "suggested": len(suggested)}
+    return {
+        "company_id": str(company.id),
+        "suggested": len(result.areas),
+        "notice": result.notice,
+    }
 
 
 JOB_TYPE_COMPANY_OFFERS = "company_offers"

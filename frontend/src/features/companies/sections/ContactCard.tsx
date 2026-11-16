@@ -1,4 +1,4 @@
-import { ExternalLink, Info, Mail, Phone, Trash2 } from "lucide-react";
+import { AlertCircle, ExternalLink, Mail, Phone, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import type {
@@ -10,10 +10,10 @@ import type {
   Product,
   RoleRelevanceResult,
 } from "@/api/types";
-import { SimpleSelect } from "@/components/SimpleSelect";
 import { StatusTag } from "@/components/StatusTag";
-import { ROLE_LABEL, ROLE_ORDER } from "@/features/brief/opportunityLabels";
-import { NeedsReviewBadge, RolePriorityBadge } from "@/components/StatusBadge";
+import { ROLE_LABEL } from "@/features/brief/opportunityLabels";
+import { RolePriorityBadge } from "@/components/StatusBadge";
+import { ContactTrust } from "@/features/contacts/ContactTrust";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -32,7 +32,6 @@ import { cn } from "@/lib/utils";
 export type CommitteeInfo = {
   role: ContactRelevance | undefined;
   startHere: boolean;
-  onOverride: (contactId: string, role: BuyingRole | "model") => void;
 };
 
 const CHIP: Record<BuyingRole | "unjudged", string> = {
@@ -56,33 +55,6 @@ function RoleChip({ role }: { role: ContactRelevance | undefined }) {
     >
       {role?.role ? ROLE_LABEL[role.role] : "Role not judged yet"}
     </span>
-  );
-}
-
-function RoleControl({
-  contactId,
-  name,
-  role,
-  onOverride,
-}: {
-  contactId: string;
-  name: string;
-  role: ContactRelevance | undefined;
-  onOverride: CommitteeInfo["onOverride"];
-}) {
-  const human = role?.source === "human";
-  return (
-    <SimpleSelect
-      label={`Role for ${name}`}
-      placeholder="Change role"
-      value={human ? (role?.role ?? "") : ""}
-      options={[
-        ...(human ? [{ value: "model", label: "Use the suggested role" }] : []),
-        ...ROLE_ORDER.map((r) => ({ value: r, label: ROLE_LABEL[r] })),
-      ]}
-      onChange={(v) => onOverride(contactId, v as BuyingRole | "model")}
-      className="h-10 w-44"
-    />
   );
 }
 
@@ -182,9 +154,7 @@ export function ContactCard({
   const otherChannels = contact.channels.filter((c) => c !== linkedin);
 
   return (
-    <Card
-      className={cn("gap-4", committee?.startHere && "ring-2 ring-primary")}
-    >
+    <Card className={cn("gap-4", committee?.startHere && "ring-2 ring-ring")}>
       <div className="flex items-start gap-4 px-6">
         <div
           aria-hidden
@@ -193,7 +163,27 @@ export function ContactCard({
           {initialsOf(contact.full_name)}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-base font-bold leading-tight">{name}</h3>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h3 className="text-base font-bold leading-tight">{name}</h3>
+            {linkedinLink && (
+              <Button
+                asChild
+                size="sm"
+                variant="outline"
+                className="text-primary-text"
+              >
+                <a
+                  href={linkedinLink.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  LinkedIn
+                  <ExternalLink className="size-3.5" aria-hidden />
+                  <span className="sr-only"> (opens in a new tab)</span>
+                </a>
+              </Button>
+            )}
+          </div>
           {contact.role_title && (
             <p className="text-sm text-muted-foreground">
               {contact.role_title}
@@ -210,8 +200,11 @@ export function ContactCard({
             {part?.needs_review && part.source !== "human" && (
               <StatusTag tone="watch">Please check the role</StatusTag>
             )}
-            {contact.needs_review && (
-              <NeedsReviewBadge reason={contact.needs_review_reason} />
+            {(contact.needs_review || contact.confidence != null) && (
+              <ContactTrust
+                needsReview={contact.needs_review}
+                confidence={contact.confidence}
+              />
             )}
             {contact.status !== "not_contacted" && (
               <StatusTag tone="neutral">
@@ -239,31 +232,22 @@ export function ContactCard({
           </div>
           {why && <p className="mt-2 text-sm text-muted-foreground">{why}</p>}
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          {linkedinLink && (
-            <Button asChild size="sm" variant="outline">
-              <a
-                href={linkedinLink.href}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                LinkedIn
-                <ExternalLink className="size-4" aria-hidden />
-                <span className="sr-only"> (opens in a new tab)</span>
-              </a>
-            </Button>
-          )}
-          {contact.needs_review && (
-            <Button
-              type="button"
-              className="text-sm font-semibold"
-              onClick={confirm}
-              disabled={confirming}
-            >
-              {confirming ? "Confirming…" : "Confirm contact"}
-            </Button>
-          )}
-        </div>
+        <Button
+          type="button"
+          variant="destructive"
+          size="sm"
+          className="shrink-0"
+          title="Remove this contact"
+          aria-label={`Remove ${name}`}
+          onClick={() => {
+            if (window.confirm(`Remove ${name}?`)) {
+              onRemove(contact.id);
+            }
+          }}
+        >
+          <Trash2 aria-hidden />
+          Remove
+        </Button>
       </div>
 
       {(otherChannels.length > 0 || (linkedin && !linkedinLink)) && (
@@ -278,7 +262,27 @@ export function ContactCard({
       )}
 
       <div className="flex flex-col gap-3 border-t border-border px-6 pt-4">
+        {contact.needs_review && (
+          <div
+            role="note"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-chip-warning-bg px-3 py-1.5 text-sm text-chip-warning-fg"
+          >
+            <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+            <span className="flex-1">
+              Confirm this contact before writing a draft.
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              onClick={confirm}
+              disabled={confirming}
+            >
+              {confirming ? "Confirming…" : "Confirm contact"}
+            </Button>
+          </div>
+        )}
         <ContactOutreachPanel
+          startOpen={committee?.startHere}
           contact={contact}
           companyId={company.id}
           companyNeedsReview={company.needs_review}
@@ -286,50 +290,6 @@ export function ContactCard({
           researched={researched}
           onContactUpdated={onOutreachLogged}
         />
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {committee ? (
-            <div className="flex items-center gap-2">
-              <RoleControl
-                contactId={contact.id}
-                name={name}
-                role={part}
-                onOverride={committee.onOverride}
-              />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="About buying roles"
-                    className="inline-flex size-8 items-center justify-center rounded-full border border-foreground/25 bg-card text-muted-foreground hover:border-primary hover:text-foreground"
-                  >
-                    <Info className="size-4" aria-hidden />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent className="block max-w-xs whitespace-normal text-left">
-                  Buying roles are guessed from job titles only. They show who
-                  would decide, influence or use our lead offering, so you know
-                  who to contact first. It is optional, and you can change any
-                  role yourself.
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          ) : (
-            <span />
-          )}
-          <Button
-            type="button"
-            variant="destructive"
-            className="text-sm font-semibold"
-            onClick={() => {
-              if (window.confirm(`Remove ${name}?`)) {
-                onRemove(contact.id);
-              }
-            }}
-          >
-            <Trash2 aria-hidden />
-            Remove contact
-          </Button>
-        </div>
       </div>
     </Card>
   );

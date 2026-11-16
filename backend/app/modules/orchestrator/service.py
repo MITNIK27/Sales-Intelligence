@@ -39,7 +39,8 @@ from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvi
 from app.modules.ingestion.market_discovery import _run_market_discovery
 from app.modules.ingestion.models import IngestionRun
 from app.modules.jobs.models import Job
-from app.modules.opportunity.run_stage import queue_run_fit
+from app.modules.opportunity.focus import offerings_for_keywords
+from app.modules.opportunity.run_stage import queue_run_area_research, queue_run_fit
 from app.modules.orchestrator.ranking_step import rank_judged_companies
 from app.modules.qualification.qualification_generator import (
     GeminiQualificationGenerator,
@@ -213,16 +214,37 @@ async def _run_auto_pipeline(
         ][: settings.auto_pipeline_max_companies_to_draft],
     }
     # Light fit stage: queue (never wait for) a judgment of the run's offerings per ranked company.
+    # The offerings the Brief is about: the ones chosen for drafting, else the ones the searched
+    # words point to. Drafting itself still uses only what was chosen.
+    search_product_ids = [uuid.UUID(p) for p in (payload.get("product_ids") or [])] or (
+        await offerings_for_keywords(
+            session,
+            job.organization_id,
+            (parsed.get("industry_keywords") or {}).get("value") or [],
+        )
+    )
     fit_queued = await queue_run_fit(
         session,
         job.organization_id,
         uuid.UUID(payload["ingestion_run_id"]),
         ranked_ids,
-        [uuid.UUID(p) for p in (payload.get("product_ids") or [])],
+        search_product_ids,
         settings.auto_pipeline_max_companies_to_draft,
     )
     await session.commit()
     ranking_result["offering_fit_queued"] = fit_queued
+    # Research the offerings the run was about, so each company's Brief opens with an answer.
+    area_research_queued = await queue_run_area_research(
+        session,
+        job.organization_id,
+        uuid.UUID(payload["ingestion_run_id"]),
+        ranked_ids,
+        search_product_ids,
+        settings.run_area_research_company_limit,
+        settings.run_area_research_offering_limit,
+    )
+    await session.commit()
+    ranking_result["area_research_queued"] = area_research_queued
 
     qualified_company_ids = ranked_ids
     capped = qualified_company_ids[: settings.auto_pipeline_max_companies_to_draft]

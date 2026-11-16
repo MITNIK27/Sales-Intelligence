@@ -11,8 +11,12 @@ from app.modules.ai_recommendation.gemini_client import (
     GeminiMarketDescriptionParser,
     MarketDescriptionParser,
 )
-from app.modules.companies.models import ENRICHMENT_STATUS_ENRICHED, ENRICHMENT_STATUS_FAILED
-from app.modules.companies.service import get_or_create_company, search_company_index
+from app.modules.companies.models import (
+    ENRICHMENT_STATUS_ENRICHED,
+    ENRICHMENT_STATUS_FAILED,
+    Company,
+)
+from app.modules.companies.service import get_or_create_company
 from app.modules.discovery_agent.agent import (
     CompanyDiscoveryAgentProtocol,
     DiscoveryAgentError,
@@ -36,7 +40,6 @@ from app.modules.enrichment.service import _enrich_company
 from app.modules.ingestion.membership import (
     RELATION_CREATED,
     RELATION_MATCHED,
-    RELATION_REUSED,
     link_company_to_run,
 )
 from app.modules.ingestion.models import (
@@ -177,25 +180,20 @@ async def _run_market_discovery(
     await session.flush()
 
     parsed_fields = run.parsed_fields or {}
-    industry_keywords = (parsed_fields.get("industry_keywords") or {}).get("value") or []
     criteria = _to_market_criteria(parsed_fields)
 
-    # Compounding index: reuse companies this org already discovered/enriched before paying for
-    # a live discovery run. Reduces (or, once enough is known, eliminates) the agent call for
-    # queries that overlap with past ones.
-    reused_companies = await search_company_index(
-        session, job.organization_id, industry_keywords, limit=CANDIDATE_LIMIT
-    )
-    reused_domains = {c.domain for c in reused_companies if c.domain}
-    for reused in reused_companies:
-        await link_company_to_run(session, job.organization_id, run.id, reused.id, RELATION_REUSED)
-    remaining_limit = CANDIDATE_LIMIT - len(reused_companies)
+    # Discovery always searches the whole web. It used to fill the quota from companies already
+    # in the index first (a loose keyword match), so a run could end up showing only companies
+    # the person already had. A found company that is already known is matched by domain below
+    # and linked to the run, not duplicated or enriched again.
+    reused_companies: list[Company] = []
+    reused_domains: set[str] = set()
 
     candidates: list[Any] = []
     discovery_stats: dict[str, Any] = {}
-    if remaining_limit > 0:
+    if CANDIDATE_LIMIT > 0:
         try:
-            result = await discovery_agent.discover(criteria, limit=remaining_limit)
+            result = await discovery_agent.discover(criteria, limit=CANDIDATE_LIMIT)
         except DiscoveryAgentError as exc:
             # No silent fallback: a broken discovery run must fail loudly, not quietly return
             # zero (or worse, noisy) candidates — same principle as `start_market_discovery_parse`.

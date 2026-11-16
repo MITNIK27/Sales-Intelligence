@@ -15,6 +15,7 @@ import { DismissedBanner } from "@/features/companies/notAFit/DismissedBanner";
 import { QuickCheckSaid } from "@/features/companies/notAFit/QuickCheckSaid";
 import { useBuyingRoles } from "@/features/brief/useBuyingRoles";
 import { useRunOfferings } from "@/features/brief/useRunOfferings";
+import { useSearchContext } from "@/features/brief/useSearchContext";
 import { COMPANY_TABS, tabFromParams } from "@/features/companies/lib/tabs";
 import { buildPipelineSteps } from "@/features/companies/lib/pipelineSteps";
 import { CompanyHeader } from "@/features/companies/sections/CompanyHeader";
@@ -42,7 +43,18 @@ export function CompanyDetailPage() {
   const { companyId } = useParams<{ companyId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = tabFromParams(searchParams);
-  const runOfferings = useRunOfferings(searchParams.get("run"));
+  // The offerings the company was searched for: from the run in the address when there is one,
+  // otherwise from the company's own latest run, so it works however the company was opened.
+  const urlOfferings = useRunOfferings(searchParams.get("run"));
+  const { context: searchContext } = useSearchContext(companyId ?? null);
+  const runOfferings =
+    urlOfferings.length > 0
+      ? urlOfferings
+      : (searchContext?.runs[0]?.offerings ?? []).map((o) => ({
+          id: o.product_id,
+          name: o.name,
+          kind: o.kind,
+        }));
   const [rolesVersion, setRolesVersion] = useState(0);
   const buyingRoles = useBuyingRoles(
     companyId ?? "",
@@ -132,6 +144,14 @@ export function CompanyDetailPage() {
       </div>
       <Tabs
         label="Company sections"
+        trailing={
+          company.industry ? (
+            <>
+              Industry:{" "}
+              <span className="text-foreground">{company.industry}</span>
+            </>
+          ) : undefined
+        }
         tabs={COMPANY_TABS}
         active={tab}
         onChange={(id) =>
@@ -176,6 +196,7 @@ export function CompanyDetailPage() {
           companyName={company.name}
           runOfferingIds={runOfferings.map((o) => o.id)}
           alwaysShow
+          showIndustry={false}
           onDataChanged={() => {
             data.reloadCompany();
             data.reloadRecommendations();

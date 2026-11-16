@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import type { Contact, Draft, Product } from "@/api/types";
 import type { SuggestedOffering } from "@/features/companies/lib/suggestedOfferings";
-import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { ContactTracking } from "@/features/contacts/ContactTracking";
 import { DraftSection } from "@/features/drafts/DraftSection";
 import {
@@ -31,6 +31,7 @@ export function ContactOutreachPanel({
   companyNeedsReview,
   products,
   researched,
+  startOpen = false,
   onContactUpdated,
 }: {
   contact: Contact;
@@ -38,9 +39,11 @@ export function ContactOutreachPanel({
   companyNeedsReview: boolean;
   products: Product[];
   researched: SuggestedOffering[];
+  // Open on the draft tab when the card first shows (used for the person to start with).
+  startOpen?: boolean;
   onContactUpdated: (contact: Contact) => void;
 }) {
-  const [open, setOpen] = useState<Action | null>(null);
+  const [open, setOpen] = useState<Action | null>(startOpen ? "draft" : null);
   const [prefilledDraft, setPrefilledDraft] = useState<PrefilledDraft | null>(
     null,
   );
@@ -57,23 +60,29 @@ export function ContactOutreachPanel({
   return (
     <div>
       <div
-        role="group"
+        role="tablist"
         aria-label="Actions for this person"
-        className="flex flex-wrap gap-2"
+        className="flex flex-wrap gap-x-1 border-b border-border"
       >
         {ACTIONS.map((a) => (
-          <Button
+          <button
             key={a.id}
             type="button"
-            variant="action"
-            aria-expanded={open === a.id}
+            role="tab"
+            aria-selected={open === a.id}
             onClick={() => setOpen(open === a.id ? null : a.id)}
+            className={cn(
+              "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
+              open === a.id
+                ? "border-ring text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
           >
             {a.label}
-          </Button>
+          </button>
         ))}
       </div>
-      <div hidden={open !== "draft"}>
+      <div role="tabpanel" hidden={open !== "draft"}>
         <DraftSection
           contact={contact}
           companyId={companyId}
@@ -83,7 +92,7 @@ export function ContactOutreachPanel({
           onLogAsSent={handleLogAsSent}
         />
       </div>
-      <div hidden={open !== "log"}>
+      <div role="tabpanel" hidden={open !== "log"}>
         <LogOutreachActivity
           contact={contact}
           onLogged={onContactUpdated}
@@ -91,7 +100,7 @@ export function ContactOutreachPanel({
           onDraftSent={() => setPrefilledDraft(null)}
         />
       </div>
-      <div hidden={open !== "follow_up"}>
+      <div role="tabpanel" hidden={open !== "follow_up"}>
         <ContactTracking contact={contact} />
       </div>
     </div>

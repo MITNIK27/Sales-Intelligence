@@ -41,12 +41,18 @@ export function groupOpportunities(items: CompanyOpportunity[]): {
   return {
     general,
     active: areas.filter((o) => o.status === "active"),
-    suggested: areas.filter((o) => o.status === "suggested"),
+    suggested: areas
+      .filter((o) => o.status === "suggested")
+      .sort(
+        (a, b) =>
+          (a.suggestion_rank ?? Number.MAX_SAFE_INTEGER) -
+          (b.suggestion_rank ?? Number.MAX_SAFE_INTEGER),
+      ),
   };
 }
 
-// The opportunity the brief is about: the one asked for, else the first active area, the
-// whole-company view, or a suggested area. The company page's Brief and People tabs both use this,
+// The opportunity the brief is about: the one asked for, else the whole-company view (where the
+// search result and the recommended areas are), the first active area, or a suggested area. The company page's Brief and People tabs both use this,
 // so they always describe the same opportunity.
 export function pickOpportunity(
   items: CompanyOpportunity[],
@@ -56,8 +62,8 @@ export function pickOpportunity(
   const areas = [...(general ? [general] : []), ...active, ...suggested];
   return (
     areas.find((o) => o.id === wantedId) ??
-    active[0] ??
     general ??
+    active[0] ??
     suggested[0] ??
     null
   );

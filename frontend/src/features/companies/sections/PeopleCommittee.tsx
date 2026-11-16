@@ -119,14 +119,7 @@ function Ranked({
       </>
     ),
   };
-  return (
-    <>
-      {children(
-        committeeFrom(contacts, tierPeople(contacts), detail.override),
-        tools,
-      )}
-    </>
-  );
+  return <>{children(committeeFrom(contacts, tierPeople(contacts)), tools)}</>;
 }
 
 // Ranking people by their part in the buying decision, offered as two buttons in the People

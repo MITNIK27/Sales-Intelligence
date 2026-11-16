@@ -6,6 +6,7 @@ import type {
   JobStatus,
   OfferingFit,
   Recommendation,
+  SearchContext,
 } from "@/api/types";
 
 export const fetchOpportunities = (companyId: string) =>
@@ -37,10 +38,21 @@ export const fetchRunOfferings = (runId: string) =>
 
 // `refresh` asks the model again and replaces the suggestions; without it, areas already suggested
 // are returned and no model call is made.
-export const suggestAreas = (companyId: string, refresh = false) =>
+// `offeringIds` are the offerings selected on the Brief; the ones the company was searched for in
+// Market Discovery are found by the server.
+export const suggestAreas = (
+  companyId: string,
+  refresh = false,
+  offeringIds: string[] = [],
+) =>
   apiPost<{ job_id: string }>(`/companies/${companyId}/opportunities/suggest`, {
     refresh,
+    offering_ids: offeringIds,
   });
+
+// What the company was searched for in Market Discovery and what was found for each offering.
+export const fetchSearchContext = (companyId: string) =>
+  apiGet<SearchContext>(`/companies/${companyId}/search-context`);
 
 // Research what we could offer the company as a whole: its news, hiring and work in the areas we
 // sell in, then every offering judged against it. Runs in the background.
@@ -49,9 +61,14 @@ export const researchOffers = (companyId: string, force = false) =>
     force,
   });
 
-export const startAssessment = (opportunityId: string, force = false) =>
+export const startAssessment = (
+  opportunityId: string,
+  force = false,
+  productIds: string[] = [],
+) =>
   apiPost<{ job_id: string }>(`/opportunities/${opportunityId}/assess`, {
     force,
+    product_ids: productIds,
   });
 
 export const fetchJob = (jobId: string) => apiGet<JobStatus>(`/jobs/${jobId}`);

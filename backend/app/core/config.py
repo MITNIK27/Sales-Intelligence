@@ -195,6 +195,12 @@ class Settings(BaseSettings):
     # prompt exhausting it. Discovery and qualification themselves still process everything
     # found; only these two later, more Gemini-call-heavy stages are capped.
     auto_pipeline_max_companies_to_draft: int = 5
+    # After ranking, the offerings a run was about are researched for real (area evidence, findings,
+    # fit) so the Brief opens with an answer. Each company and offering is several model and search
+    # calls, so both are capped: the top companies by score, and the first few offerings of the run.
+    # Companies past the cap show "not checked yet" with a button instead.
+    run_area_research_company_limit: int = 5
+    run_area_research_offering_limit: int = 3
 
     # Phase C — Tracker & Cadence Mechanics (outreach/cadence.py). How many business days after a
     # "sent" outreach activity the next follow-up gets auto-scheduled, when not overridden.

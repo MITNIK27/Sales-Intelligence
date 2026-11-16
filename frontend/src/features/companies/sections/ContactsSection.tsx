@@ -155,7 +155,6 @@ export function ContactsSection({
                     ? {
                         role: committee.roles[contact.id],
                         startHere: committee.startHereId === contact.id,
-                        onOverride: committee.onOverride,
                       }
                     : undefined
                 }

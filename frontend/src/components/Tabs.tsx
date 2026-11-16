@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { cn } from "@/lib/utils";
 
 export type TabItem<T extends string> = { id: T; label: string };
@@ -9,11 +11,14 @@ export function Tabs<T extends string>({
   active,
   onChange,
   label,
+  trailing,
 }: {
   tabs: TabItem<T>[];
   active: T;
   onChange: (id: T) => void;
   label: string;
+  // Plain information shown at the right end of the bar, for example a fact about the page's subject.
+  trailing?: ReactNode;
 }) {
   return (
     <div
@@ -38,6 +43,11 @@ export function Tabs<T extends string>({
           {tab.label}
         </button>
       ))}
+      {trailing && (
+        <span className="ml-auto self-center pl-4 text-sm text-muted-foreground">
+          {trailing}
+        </span>
+      )}
     </div>
   );
 }
