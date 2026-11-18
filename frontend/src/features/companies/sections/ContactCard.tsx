@@ -1,4 +1,4 @@
-import { AlertCircle, ExternalLink, Mail, Phone, Trash2 } from "lucide-react";
+import { ExternalLink, Mail, Phone, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import type {
@@ -12,6 +12,7 @@ import type {
 } from "@/api/types";
 import { StatusTag } from "@/components/StatusTag";
 import { ROLE_LABEL } from "@/features/brief/opportunityLabels";
+import { Checkbox } from "@/components/Checkbox";
 import { RolePriorityBadge } from "@/components/StatusBadge";
 import { ContactTrust } from "@/features/contacts/ContactTrust";
 import { Button } from "@/components/ui/button";
@@ -118,6 +119,7 @@ export function ContactCard({
   onConfirm,
   onRemove,
   onOutreachLogged,
+  selection,
 }: {
   contact: Contact;
   company: CompanyDetail;
@@ -131,6 +133,8 @@ export function ContactCard({
   onConfirm: (contactId: string) => Promise<void>;
   onRemove: (contactId: string) => void;
   onOutreachLogged: (updated: Contact) => void;
+  // For a person waiting to be confirmed: whether they are ticked for "Confirm selected".
+  selection?: { checked: boolean; onToggle: () => void };
 }) {
   const [confirming, setConfirming] = useState(false);
 
@@ -156,6 +160,15 @@ export function ContactCard({
   return (
     <Card className={cn("gap-4", committee?.startHere && "ring-2 ring-ring")}>
       <div className="flex items-start gap-4 px-6">
+        {contact.needs_review && selection && (
+          <span className="mt-3">
+            <Checkbox
+              checked={selection.checked}
+              onChange={selection.onToggle}
+              label={`Select ${contact.full_name ?? "this person"}`}
+            />
+          </span>
+        )}
         <div
           aria-hidden
           className="flex size-11 shrink-0 items-center justify-center bg-muted text-sm font-bold text-foreground"
@@ -232,22 +245,34 @@ export function ContactCard({
           </div>
           {why && <p className="mt-2 text-sm text-muted-foreground">{why}</p>}
         </div>
-        <Button
-          type="button"
-          variant="destructive"
-          size="sm"
-          className="shrink-0"
-          title="Remove this contact"
-          aria-label={`Remove ${name}`}
-          onClick={() => {
-            if (window.confirm(`Remove ${name}?`)) {
-              onRemove(contact.id);
-            }
-          }}
-        >
-          <Trash2 aria-hidden />
-          Remove
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          {contact.needs_review && (
+            <Button
+              type="button"
+              size="sm"
+              onClick={confirm}
+              disabled={confirming}
+              title="Confirm that this person works here"
+            >
+              {confirming ? "Confirming…" : "Confirm contact"}
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            title="Remove this contact"
+            aria-label={`Remove ${name}`}
+            onClick={() => {
+              if (window.confirm(`Remove ${name}?`)) {
+                onRemove(contact.id);
+              }
+            }}
+          >
+            <Trash2 aria-hidden />
+            Remove
+          </Button>
+        </div>
       </div>
 
       {(otherChannels.length > 0 || (linkedin && !linkedinLink)) && (
@@ -261,36 +286,19 @@ export function ContactCard({
         </ul>
       )}
 
-      <div className="flex flex-col gap-3 border-t border-border px-6 pt-4">
-        {contact.needs_review && (
-          <div
-            role="note"
-            className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-chip-warning-bg px-3 py-1.5 text-sm text-chip-warning-fg"
-          >
-            <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
-            <span className="flex-1">
-              Confirm this contact before writing a draft.
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              onClick={confirm}
-              disabled={confirming}
-            >
-              {confirming ? "Confirming…" : "Confirm contact"}
-            </Button>
-          </div>
-        )}
-        <ContactOutreachPanel
-          startOpen={committee?.startHere}
-          contact={contact}
-          companyId={company.id}
-          companyNeedsReview={company.needs_review}
-          products={products}
-          researched={researched}
-          onContactUpdated={onOutreachLogged}
-        />
-      </div>
+      {!contact.needs_review && (
+        <div className="flex flex-col gap-3 border-t border-border px-6 pt-4">
+          <ContactOutreachPanel
+            startOpen={committee?.startHere}
+            contact={contact}
+            companyId={company.id}
+            companyNeedsReview={company.needs_review}
+            products={products}
+            researched={researched}
+            onContactUpdated={onOutreachLogged}
+          />
+        </div>
+      )}
     </Card>
   );
 }

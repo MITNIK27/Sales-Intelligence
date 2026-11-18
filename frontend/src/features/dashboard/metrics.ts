@@ -30,7 +30,7 @@ export function requirementShares(
 
 // Short wording for the "Next steps" rows; unknown keys fall back to the server's own label.
 const ATTENTION_LABELS: Record<string, string> = {
-  ready_to_contact: "Ready to contact",
+  ready_to_contact: "Companies to review",
   drafts_to_review: "Drafts to review",
   follow_ups_due: "Follow-ups due",
   needs_closer_look: "Need a closer look",

@@ -15,6 +15,7 @@ KNOWN_TASKS = (
     "quicklook",
     "qualification",
     "draft",
+    "draft_refine",
     "offering_extraction",
     "recommendation",
     "opportunity_assessment",

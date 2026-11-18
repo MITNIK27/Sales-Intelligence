@@ -42,3 +42,6 @@ Claude outputs/
 frontend/tsconfig.tsbuildinfo
 
 backup.sql
+
+# Separate project kept alongside this one, not part of this repository
+agent-pdf-extractor/

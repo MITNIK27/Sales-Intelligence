@@ -28,6 +28,7 @@ APP = Path(__file__).resolve().parent.parent / "app"
 MEASURED = {
     "modules/offerings/extractor.py": "offering_extraction",
     "modules/draft/prompts.py": "draft",
+    "modules/draft/refine.py": "draft_refine",
     "modules/qualification/prompts.py": "qualification",
     "modules/quicklook/prompts.py": "quicklook",
     "modules/ai_recommendation/recommendation_generator.py": "recommendation",
@@ -45,6 +46,7 @@ UNMEASURED: dict[str, str] = {}
 # Tasks that exist and have cases but whose first report has not been committed yet. Run
 # `python -m evals.run --task <task> --yes`, commit the report, and take the task off this list.
 AWAITING_FIRST_REPORT = {
+    "draft_refine": "run it once with real models and commit the report",
     "recommendation": "run it once with real models and commit the report",
     "opportunity_assessment": "run it once with real models and commit the report",
     "offering_fit": "run it once with real models and commit the report",

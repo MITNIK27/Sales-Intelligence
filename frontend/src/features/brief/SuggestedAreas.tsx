@@ -62,11 +62,12 @@ export function SuggestedAreas({
               ? "Refresh AI recommendations"
               : "AI recommended areas"}
         </Button>
-        <p className="text-sm text-muted-foreground">
-          {suggested.length > 0
-            ? "Pick one to research it, choose an area from the list above, or add your own."
-            : "Starts with what you searched for, then areas where this company shows activity and we can help."}
-        </p>
+        {suggested.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Starts with what you searched for, then areas where this company
+            shows activity and we can help.
+          </p>
+        )}
       </div>
       {notice && !suggesting && (
         <p

@@ -29,6 +29,7 @@ from app.modules.draft.prompts import (
     framing_instruction,
     offering_guidance,
 )
+from app.modules.draft.refine import RefineResult, build_refine_prompt
 from app.modules.llm.untrusted import with_untrusted_notice, wrap_untrusted
 from app.modules.products.models import Product
 
@@ -107,6 +108,20 @@ class DraftGenerator(ABC):
         previous_emails: list[tuple[str | None, str]] | None = None,
     ) -> DraftResult: ...
 
+    async def refine(
+        self,
+        company: Company,
+        contact: Contact,
+        product: Product,
+        recommendation: Recommendation | None,
+        framing_style: str,
+        subject: str | None,
+        body: str,
+        instruction: str,
+    ) -> RefineResult:
+        """Rewrite `body` as the rep asked. A generator that cannot says so, not silently echoes."""
+        raise NotImplementedError(f"{type(self).__name__} cannot rewrite drafts")
+
 
 class GeminiDraftGenerator(DraftGenerator):
     def __init__(self, settings: Settings) -> None:
@@ -166,4 +181,41 @@ class GeminiDraftGenerator(DraftGenerator):
                 f"Gemini returned chosen_option={parsed.chosen_option}, outside the given "
                 f"1-{len(products)} range of product options"
             )
+        return parsed
+
+    async def refine(
+        self,
+        company: Company,
+        contact: Contact,
+        product: Product,
+        recommendation: Recommendation | None,
+        framing_style: str,
+        subject: str | None,
+        body: str,
+        instruction: str,
+    ) -> RefineResult:
+        if not self._settings.gemini_api_key:
+            raise GeminiClientError("GEMINI_API_KEY is not configured")
+        grounding_section, _ = _format_grounding(recommendation)
+        prompt = build_refine_prompt(
+            company=company,
+            contact_first_name=first_name(contact.full_name),
+            contact_role=contact.role_title,
+            product=product,
+            grounding_section=grounding_section,
+            framing_style=framing_style,
+            current_subject=subject,
+            current_body=body,
+            instruction=instruction,
+        )
+        parsed = await generate_structured(
+            api_key=self._settings.gemini_api_key,
+            model=self._settings.gemini_model,
+            prompt=prompt,
+            schema=RefineResult,
+            temperature=None,
+            max_output_tokens=MAX_OUTPUT_TOKENS,
+        )
+        if not parsed.body.strip():
+            raise GeminiClientError("the rewrite came back empty")
         return parsed

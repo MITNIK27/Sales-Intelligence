@@ -63,6 +63,23 @@ export function SearchContextCard({
     }
   }
 
+  if (latest.offerings.length === 0)
+    return (
+      <p
+        aria-label="From your Market Discovery search"
+        className="mb-4 border-l-2 border-border pl-3 text-sm text-muted-foreground"
+      >
+        <span className="font-semibold text-foreground">
+          From your Market Discovery search:
+        </span>{" "}
+        you searched for {searchedLine(latest)}
+        {date(latest.created_at) ? ` on ${date(latest.created_at)}` : ""}.
+        {latest.criteria.length > 0
+          ? ` Criteria: ${latest.criteria.join("; ")}.`
+          : ""}
+      </p>
+    );
+
   return (
     <Card className="mb-4" aria-label="From your Market Discovery search">
       <CardContent className="flex flex-col gap-3">

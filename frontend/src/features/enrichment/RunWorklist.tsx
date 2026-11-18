@@ -23,6 +23,7 @@ import type {
 } from "@/api/types";
 import { StatusTag } from "@/components/StatusTag";
 import { ContactTrust } from "@/features/contacts/ContactTrust";
+import { DraftAssistant } from "@/features/drafts/DraftAssistant";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { Card, CardContent } from "@/components/ui/card";
@@ -342,7 +343,11 @@ function ReadyCard({
           </button>
           {/* Its own click must not open the card. */}
           <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-            <NotAFitButton companyIds={[row.company_id]} onDone={onChanged} />
+            <NotAFitButton
+              companyIds={[row.company_id]}
+              compact
+              onDone={onChanged}
+            />
           </div>
         </div>
       </CardContent>
@@ -638,6 +643,16 @@ function DraftEditor({
       <p className="text-xs text-muted-foreground">
         {countWords(body)} {plural(countWords(body), "word")}
       </p>
+      <DraftAssistant
+        draftId={draft.draft_id}
+        subject={subject}
+        body={body}
+        onRewritten={(d) => {
+          setSubject(d.subject ?? "");
+          setBody(d.body);
+          setSaved(false);
+        }}
+      />
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" onClick={save} disabled={saving}>
           {saving ? "Saving…" : "Save edits"}

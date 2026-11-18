@@ -24,6 +24,7 @@ export function useOpportunities(companyId: string | null) {
   // What the last look for areas did, in a sentence ("nothing new", "started with what you searched").
   const [suggestNotice, setSuggestNotice] = useState<string | null>(null);
   const [findingOffers, setFindingOffers] = useState(false);
+  const [offersNotice, setOffersNotice] = useState<string | null>(null);
   const timers = useRef<Set<number>>(new Set());
 
   const reload = useCallback(async () => {
@@ -150,6 +151,7 @@ export function useOpportunities(companyId: string | null) {
   async function findOffers(): Promise<string | null> {
     if (!companyId) return null;
     setFindingOffers(true);
+    setOffersNotice(null);
     setError(null);
     try {
       const { job_id } = await researchOffers(companyId);
@@ -159,7 +161,18 @@ export function useOpportunities(companyId: string | null) {
         return null;
       }
       await reload();
-      const result = job?.result as { opportunity_id?: string } | null;
+      const result = job?.result as {
+        opportunity_id?: string;
+        offerings_judged?: number;
+        outcome?: { message?: string } | null;
+      } | null;
+      // Say why when the research ran but nothing was judged, instead of showing an empty card.
+      setOffersNotice(
+        result?.outcome?.message ??
+          (result?.offerings_judged === 0
+            ? "The research finished but found nothing to judge our offerings against."
+            : null),
+      );
       return result?.opportunity_id ?? null;
     } catch (err) {
       setError(err instanceof Error ? err.message : "could not start");
@@ -176,6 +189,7 @@ export function useOpportunities(companyId: string | null) {
     suggesting,
     suggestNotice,
     findingOffers,
+    offersNotice,
     findOffers,
     research,
     reload,

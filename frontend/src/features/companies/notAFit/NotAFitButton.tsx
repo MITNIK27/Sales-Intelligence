@@ -33,10 +33,14 @@ import {
 export function NotAFitButton({
   companyIds,
   label = "Not a fit",
+  compact = false,
   onDone,
 }: {
   companyIds: string[];
   label?: string;
+  // A small icon on a card that is already full of information, so a row of cards does not read
+  // as a row of "not a fit" labels. The words show on hover.
+  compact?: boolean;
   // Called after something was changed, so the page can reload.
   onDone: () => void;
 }) {
@@ -120,10 +124,23 @@ export function NotAFitButton({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="action">
-          <Ban className="size-4" aria-hidden="true" />
-          {label}
-        </Button>
+        {compact ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            title="Not a fit"
+            aria-label="Mark as not a fit"
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <Ban className="size-4" aria-hidden="true" />
+          </Button>
+        ) : (
+          <Button type="button" variant="action">
+            <Ban className="size-4" aria-hidden="true" />
+            {label}
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent className="w-96 p-4" align="end">
         <form

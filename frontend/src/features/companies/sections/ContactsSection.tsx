@@ -10,6 +10,7 @@ import type {
   RoleRelevanceResult,
 } from "@/api/types";
 import { EmptyState } from "@/components/EmptyState";
+import { Checkbox } from "@/components/Checkbox";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -22,6 +23,7 @@ import { ContactCard } from "@/features/companies/sections/ContactCard";
 import type { PeopleTools } from "@/features/companies/sections/PeopleCommittee";
 import {
   sortByCommittee,
+  splitByConfirmation,
   type CommitteeData,
 } from "@/features/companies/lib/committee";
 
@@ -78,6 +80,50 @@ export function ContactsSection({
     await onClassify();
     setClassifying(false);
   }
+
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [confirmingMany, setConfirmingMany] = useState(false);
+  const { confirmed, notConfirmed } = splitByConfirmation(
+    sortByCommittee(company.contacts, committee),
+  );
+  // Only people still waiting count as ticked; someone confirmed on their own drops out.
+  const tickedIds = notConfirmed
+    .filter((c) => ticked.has(c.id))
+    .map((c) => c.id);
+  const allTicked =
+    notConfirmed.length > 0 && tickedIds.length === notConfirmed.length;
+
+  function toggle(id: string) {
+    setTicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function confirmTicked() {
+    setConfirmingMany(true);
+    try {
+      for (const id of tickedIds) await onConfirmContact(id);
+      setTicked(new Set());
+    } finally {
+      setConfirmingMany(false);
+    }
+  }
+
+  const groups = [
+    {
+      title: "Confirmed",
+      note: "Ready for a draft or outreach.",
+      people: confirmed,
+    },
+    {
+      title: "Not confirmed yet",
+      note: "Check that each person works here, then confirm. Drafts and outreach unlock once they are confirmed.",
+      people: notConfirmed,
+    },
+  ].filter((g) => g.people.length > 0);
 
   return (
     <>
@@ -142,28 +188,84 @@ export function ContactsSection({
         </Card>
       ) : (
         <TooltipProvider>
-          <div className="flex flex-col gap-4">
-            {sortByCommittee(company.contacts, committee).map((contact) => (
-              <ContactCard
-                key={contact.id}
-                contact={contact}
-                company={company}
-                roleRelevance={roleRelevanceByContact[contact.id]}
-                buyingRole={buyingRoles[contact.id]}
-                committee={
-                  committee
-                    ? {
-                        role: committee.roles[contact.id],
-                        startHere: committee.startHereId === contact.id,
+          <div className="flex flex-col gap-6">
+            {groups.map((group) => (
+              <section key={group.title} aria-label={group.title}>
+                <div className="mb-3 flex flex-wrap items-baseline gap-x-3 border-l-4 border-primary pl-3">
+                  <h3 className="text-base font-bold">
+                    {group.title}{" "}
+                    <span className="font-normal text-muted-foreground">
+                      ({group.people.length})
+                    </span>
+                  </h3>
+                  <p className="text-sm text-muted-foreground">{group.note}</p>
+                </div>
+                {group.title === "Not confirmed yet" && (
+                  <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 border border-border bg-card px-4 py-2">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                      <Checkbox
+                        checked={allTicked}
+                        indeterminate={tickedIds.length > 0}
+                        onChange={() =>
+                          setTicked(
+                            allTicked
+                              ? new Set()
+                              : new Set(notConfirmed.map((c) => c.id)),
+                          )
+                        }
+                        label="Select all people waiting to be confirmed"
+                      />
+                      Select all
+                    </label>
+                    <span className="text-sm text-muted-foreground">
+                      {tickedIds.length} selected
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="ml-auto"
+                      disabled={tickedIds.length === 0 || confirmingMany}
+                      onClick={() => void confirmTicked()}
+                    >
+                      {confirmingMany
+                        ? "Confirming…"
+                        : `Confirm selected (${tickedIds.length})`}
+                    </Button>
+                  </div>
+                )}
+                <div className="flex flex-col gap-4">
+                  {group.people.map((contact) => (
+                    <ContactCard
+                      key={contact.id}
+                      contact={contact}
+                      company={company}
+                      roleRelevance={roleRelevanceByContact[contact.id]}
+                      buyingRole={buyingRoles[contact.id]}
+                      committee={
+                        committee
+                          ? {
+                              role: committee.roles[contact.id],
+                              startHere: committee.startHereId === contact.id,
+                            }
+                          : undefined
                       }
-                    : undefined
-                }
-                products={products ?? []}
-                researched={researched}
-                onConfirm={onConfirmContact}
-                onRemove={onRemoveContact}
-                onOutreachLogged={onOutreachLogged}
-              />
+                      products={products ?? []}
+                      researched={researched}
+                      onConfirm={onConfirmContact}
+                      onRemove={onRemoveContact}
+                      onOutreachLogged={onOutreachLogged}
+                      selection={
+                        contact.needs_review
+                          ? {
+                              checked: ticked.has(contact.id),
+                              onToggle: () => toggle(contact.id),
+                            }
+                          : undefined
+                      }
+                    />
+                  ))}
+                </div>
+              </section>
             ))}
           </div>
         </TooltipProvider>

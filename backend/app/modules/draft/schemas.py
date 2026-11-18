@@ -5,6 +5,8 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.modules.draft.models import DRAFT_TYPES
 
+MAX_INSTRUCTION_CHARS = 600
+
 
 class DraftGenerateRequest(BaseModel):
     contact_id: uuid.UUID
@@ -26,6 +28,32 @@ class DraftUpdateRequest(BaseModel):
     body: str | None = None
 
 
+class RefineRequest(BaseModel):
+    """Rewrite this draft the way the rep describes. `subject` and `body` are the text as the rep
+    has it on screen (hand edits included), so that is what gets rewritten."""
+
+    instruction: str
+    subject: str | None = None
+    body: str
+
+    @field_validator("instruction")
+    @classmethod
+    def tidy_instruction(cls, v: str) -> str:
+        v = " ".join(v.split())
+        if len(v) < 2:
+            raise ValueError("describe the change in a few words")
+        if len(v) > MAX_INSTRUCTION_CHARS:
+            raise ValueError(f"keep the request under {MAX_INSTRUCTION_CHARS} characters")
+        return v
+
+    @field_validator("body")
+    @classmethod
+    def body_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("the draft is empty")
+        return v
+
+
 class DraftOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -41,6 +69,9 @@ class DraftOut(BaseModel):
     status: str
     model_used: str
     grounding_flags: list[str] | None = None
+    # What the rep last asked for, and how many earlier versions can be restored.
+    instruction: str | None = None
+    revision_count: int = 0
     created_at: datetime
     updated_at: datetime
 

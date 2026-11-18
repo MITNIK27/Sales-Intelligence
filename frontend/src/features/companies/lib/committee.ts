@@ -41,3 +41,15 @@ export function sortByCommittee<T extends { id: string }>(
     .sort((a, b) => a.key - b.key)
     .map(({ c }) => c);
 }
+
+// People a person has confirmed, then people still waiting to be confirmed, each in the order they
+// came in. The two are never mixed in one list: a confirmed person is ready to write to, the others
+// need a check first, and a list that interleaves them makes that hard to see.
+export function splitByConfirmation<T extends { needs_review: boolean }>(
+  contacts: T[],
+): { confirmed: T[]; notConfirmed: T[] } {
+  return {
+    confirmed: contacts.filter((c) => !c.needs_review),
+    notConfirmed: contacts.filter((c) => c.needs_review),
+  };
+}

@@ -898,6 +898,9 @@ export type Draft = {
   status: DraftStatus;
   model_used: string;
   grounding_flags?: string[] | null;
+  // What the rep last asked for when rewriting it, and how many earlier versions Undo can restore.
+  instruction?: string | null;
+  revision_count?: number;
   created_at: string;
   updated_at: string;
 };

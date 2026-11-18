@@ -68,13 +68,13 @@ export type RunOutcome = {
   needAttention: number | null;
 };
 
-// "We found 12 companies, and 4 are ready for you to contact."
+// "We found 12 companies, and 4 are ready for you to review."
 export function outcomeHeadline(outcome: RunOutcome): string {
   const { found, ready } = outcome;
   const companies = `${found} ${found === 1 ? "company" : "companies"}`;
   if (ready === null) return `We found ${companies}.`;
   if (found === 0) return "We did not find any companies this time.";
   if (ready === 0)
-    return `We found ${companies}, but none are ready to contact yet.`;
-  return `We found ${companies}, and ${ready} ${ready === 1 ? "is" : "are"} ready for you to contact.`;
+    return `We found ${companies}, but none are ready for you to review yet.`;
+  return `We found ${companies}, and ${ready} ${ready === 1 ? "is" : "are"} ready for you to review.`;
 }

@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from sqlalchemy import JSON, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -61,3 +62,12 @@ class Draft(Base, TimestampMixin, UpdatedAtMixin):
     company_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("company_opportunities.id"), index=True
     )
+    # What the rep last asked for when rewriting this draft ("make it shorter"), and the versions
+    # that were replaced, newest last: [{instruction, subject, body, grounding_flags, model_used,
+    # prompt_version, saved_at}]. Kept so a rewrite can be undone and the history is auditable.
+    instruction: Mapped[str | None] = mapped_column(String(600))
+    revisions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+
+    @property
+    def revision_count(self) -> int:
+        return len(self.revisions or [])

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.companies.models import Company
 from app.modules.llm.structured import StructuredLLM
 from app.modules.opportunity.analysis import AnalysisResult, active_offerings, analyse_opportunity
+from app.modules.opportunity.assessment import assess_opportunity
 from app.modules.opportunity.discovery import offering_areas
 from app.modules.opportunity.models import ORIGIN_MANUAL, CompanyOpportunity
 from app.modules.opportunity.research.collect import collect_area_evidence
@@ -46,6 +47,9 @@ async def research_company_offers(
             session, company, general, sources, now=now, force=force, area=area
         )
         records = await evidence_records_for(session, general)
+        # The company as a whole, written up from what was found (news, hiring, web) with each
+        # finding quoted; this is what the Overall view opens with, before any offering is named.
+        await assess_opportunity(session, llm, company, general, records, force=force)
         catalog = await active_offerings(session, company.organization_id)
         analysis = await analyse_opportunity(
             session,

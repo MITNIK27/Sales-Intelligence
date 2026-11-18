@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { DraftAssistant } from "@/features/drafts/DraftAssistant";
 import { DraftFlags } from "@/features/drafts/DraftFlags";
 import { countWords, plural } from "@/lib/format";
 
@@ -267,6 +268,20 @@ export function DraftSection({
           <p className="text-xs text-muted-foreground">
             {countWords(body)} {plural(countWords(body), "word")}
           </p>
+          <DraftAssistant
+            draftId={draft.id}
+            subject={subject}
+            body={body}
+            initialRevisions={draft.revision_count ?? 0}
+            disabled={blockedByReview}
+            disabledReason="Confirm this contact first, then you can change the draft."
+            onRewritten={(d) => {
+              setDraft(d);
+              setSubject(d.subject ?? "");
+              setBody(d.body);
+              setSaved(false);
+            }}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"

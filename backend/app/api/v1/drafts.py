@@ -13,16 +13,21 @@ from app.modules.draft.schemas import (
     DraftListOut,
     DraftOut,
     DraftUpdateRequest,
+    RefineRequest,
 )
 from app.modules.draft.service import (
     CompanyNotFoundError,
     ContactNotFoundError,
+    DraftNotEditableError,
     NeedsReviewError,
+    NothingToUndoError,
     ProductNotFoundError,
     discard_draft,
     generate_draft,
     list_all_drafts,
     list_drafts,
+    refine_draft,
+    undo_draft,
     update_draft,
 )
 
@@ -105,6 +110,49 @@ async def discard_draft_endpoint(
     draft_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> DraftOut:
     draft = await discard_draft(session, DEFAULT_ORGANIZATION_ID, draft_id)
+    if draft is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    await session.commit()
+    return DraftOut.model_validate(draft)
+
+
+@draft_router.post("/{draft_id}/refine", response_model=DraftOut)
+async def refine_draft_endpoint(
+    draft_id: uuid.UUID, body: RefineRequest, session: AsyncSession = Depends(get_db)
+) -> DraftOut:
+    """Rewrite the draft the way the rep describes. The previous version is kept for Undo."""
+    generator = GeminiDraftGenerator(get_settings())
+    try:
+        draft = await refine_draft(
+            session,
+            DEFAULT_ORGANIZATION_ID,
+            draft_id,
+            body.instruction,
+            body.subject,
+            body.body,
+            generator,
+        )
+    except (CompanyNotFoundError, ContactNotFoundError, ProductNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (NeedsReviewError, DraftNotEditableError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except GeminiClientError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if draft is None:
+        raise HTTPException(status_code=404, detail="draft not found")
+    await session.commit()
+    return DraftOut.model_validate(draft)
+
+
+@draft_router.post("/{draft_id}/undo", response_model=DraftOut)
+async def undo_draft_endpoint(
+    draft_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> DraftOut:
+    """Go back to the version before the last rewrite."""
+    try:
+        draft = await undo_draft(session, DEFAULT_ORGANIZATION_ID, draft_id)
+    except (DraftNotEditableError, NothingToUndoError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if draft is None:
         raise HTTPException(status_code=404, detail="draft not found")
     await session.commit()

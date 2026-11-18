@@ -114,8 +114,9 @@ def band_and_score(
 
     - strong: at least two pieces of verified evidence, the offering belongs to the area, and the
       opportunity itself is supported or emerging.
-    - potential: some verified evidence, or the offering belongs to the area and the opportunity
-      is not without evidence.
+    - potential: at least one piece of verified evidence. Belonging to the area (a matching tag or
+      name) adds to the score but is never evidence on its own, so an offering the evidence does
+      not support cannot read "Possible fit".
     - weak: everything else that has some evidence behind the opportunity.
     - insufficient evidence: nothing verified and the opportunity has no evidence either."""
     score = (
@@ -129,7 +130,7 @@ def band_and_score(
         return BAND_INSUFFICIENT, score
     if verified_evidence >= 2 and aligned and verdict in (VERDICT_SUPPORTED, VERDICT_EMERGING):
         return BAND_STRONG, score
-    if verified_evidence >= 1 or (aligned and has_activity):
+    if verified_evidence >= 1:
         return BAND_POTENTIAL, score
     return BAND_WEAK, score
 
@@ -188,13 +189,29 @@ For each offering return its label, one or two sentences of reasoning, and up to
 {_MAX_CITATIONS} citations (evidence label and verbatim quote)."""
 
 
+def _band_follows_rules(match: OpportunityOfferingMatch) -> bool:
+    """False for a match stored under an older band rule (for example a "Possible fit" with no
+    verified evidence); those are judged again instead of being shown."""
+    f = match.factors or {}
+    try:
+        band, _ = band_and_score(
+            int(f["verified_evidence"]),
+            bool(f["area_alignment"]),
+            int(f["keyword_hits"]),
+            f.get("assessment_verdict"),
+        )
+    except (KeyError, TypeError, ValueError):
+        return True
+    return band == match.band
+
+
 def _cache_valid(
     match: OpportunityOfferingMatch,
     assessment: OpportunityAssessment | None,
     product: Product,
     set_hash: str,
 ) -> bool:
-    return (
+    return _band_follows_rules(match) and (
         match.assessment_id == (assessment.id if assessment else None)
         and match.profile_hash == product.profile_hash
         and match.evidence_set_hash == set_hash
@@ -289,10 +306,6 @@ async def judge_offering_fit(
         aligned = area_alignment(product, opportunity.area_key, opportunity.area_label)
         hits = keyword_hits(product, all_text)
         band, score = band_and_score(len(verified), aligned, hits, verdict)
-        if answer is None and items and band in (BAND_STRONG, BAND_POTENTIAL):
-            # The model gave no reason for this offering, so nothing backs a good band: it must
-            # not read "Possible fit" under a sentence saying no need was shown.
-            band = BAND_WEAK
         match = OpportunityOfferingMatch(
             organization_id=opportunity.organization_id,
             company_opportunity_id=opportunity.id,
@@ -310,7 +323,7 @@ async def judge_offering_fit(
             reasoning=(answer.reasoning.strip()[:_MAX_REASONING] if answer else "")
             or (NO_EVIDENCE_REASON if not items else NOT_ANSWERED_REASON),
             evidence=[stored_citation(item, quote) for item, quote in verified.values()],
-            needs_review=dropped > 0 or (band == BAND_POTENTIAL and not verified),
+            needs_review=dropped > 0,
             profile_hash=product.profile_hash,
             evidence_set_hash=set_hash,
             prompt_version=FIT_PROMPT_VERSION,

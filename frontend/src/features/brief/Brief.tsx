@@ -134,6 +134,38 @@ export function Brief({
     else await opps.startOverall();
   }
 
+  const overallTop = (
+    <>
+      {onOverallView &&
+        searchContext.context &&
+        searchContext.context.runs.length > 0 && (
+          <SearchContextCard
+            runs={searchContext.context.runs}
+            onResearch={async (o) => {
+              await addArea(o.area_label, [o.product_id]);
+              await searchContext.reload();
+            }}
+            onOpenArea={chooseArea}
+          />
+        )}
+    </>
+  );
+  const overallBottom = (
+    <>
+      {onOverallView && (
+        <SuggestedAreas
+          suggested={suggested}
+          suggesting={opps.suggesting}
+          notice={opps.suggestNotice}
+          onSuggest={(refresh) =>
+            void opps.suggest(refresh, filter.offeringIds)
+          }
+          onChoose={(label) => addArea(label)}
+        />
+      )}
+    </>
+  );
+
   return (
     <section aria-label="Company brief" className="mt-2">
       <BriefFilterBar
@@ -151,33 +183,16 @@ export function Brief({
         onSelectArea={chooseArea}
         onAddArea={addArea}
       />
-      {onOverallView &&
-        searchContext.context &&
-        searchContext.context.runs.length > 0 && (
-          <SearchContextCard
-            runs={searchContext.context.runs}
-            onResearch={async (o) => {
-              await addArea(o.area_label, [o.product_id]);
-              await searchContext.reload();
-            }}
-            onOpenArea={chooseArea}
-          />
-        )}
-      {onOverallView && (
-        <SuggestedAreas
-          suggested={suggested}
-          suggesting={opps.suggesting}
-          notice={opps.suggestNotice}
-          onSuggest={(refresh) =>
-            void opps.suggest(refresh, filter.offeringIds)
-          }
-          onChoose={(label) => addArea(label)}
-        />
-      )}
       {error && (
         <p role="alert" className="mb-4 text-sm text-destructive">
           {error}
         </p>
+      )}
+      {selected === null && (
+        <>
+          {overallTop}
+          {overallBottom}
+        </>
       )}
       {selected === null ? (
         <StartBriefCard
@@ -206,8 +221,11 @@ export function Brief({
           onOverall={lookOverall}
           onSuggest={() => void opps.suggest(false, filter.offeringIds)}
           findingOffers={opps.findingOffers}
+          offersNotice={opps.offersNotice}
           onFindOffers={findOffers}
           onBriefAround={briefAround}
+          overallTop={overallTop}
+          overallBottom={overallBottom}
           onChanged={() => {
             opps.reload();
             void searchContext.reload();

@@ -16,6 +16,7 @@ from app.modules.ai_recommendation.recommendation_generator import Recommendatio
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
 from app.modules.draft import prompts as draft_prompts
+from app.modules.draft import refine as draft_refine_module
 from app.modules.draft.draft_generator import DraftGenerator
 from app.modules.draft.evidence import DraftEvidence
 from app.modules.enrichment.models import EnrichmentRecord
@@ -277,6 +278,58 @@ def _draft_claims(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
 
 _DRAFT: dict[str, Handler] = {
     "no_unsupported_claims": _draft_claims,
+    "max_words": lambda v, c, o: check_at_most("max_words", len(o["body"].split()), v),
+    "no_leak": _no_leak,
+}
+
+
+# --- draft rewrite ------------------------------------------------------------------------------
+
+
+async def _run_draft_refine(case: Case, rt: Runtime) -> dict[str, Any]:
+    data = case.input
+    company = _company(data["company"])
+    contact = Contact(
+        full_name=data["contact"]["first_name"],
+        role_title=data["contact"].get("role_title"),
+        seniority=data["contact"].get("seniority"),
+    )
+    product = Product(
+        name=data["product"]["name"],
+        description=data["product"].get("description"),
+        kind=data["product"].get("kind", "service"),
+    )
+    result = await rt.draft.refine(
+        company,
+        contact,
+        product,
+        None,
+        data.get("framing_style", "business"),
+        data["draft"].get("subject"),
+        data["draft"]["body"],
+        data["instruction"],
+    )
+    return {"subject": result.subject, "body": result.body}
+
+
+def _refine_claims(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
+    """What the rewrite may draw on: the same sources as a first draft, plus the draft it started
+    from (its own earlier checked text) and whatever the rep typed in the request."""
+    if not wanted:
+        return Check("no_unsupported_claims", True)
+    data = case.input
+    allowed = [
+        *_draft_allowed(data),
+        data["draft"].get("subject"),
+        data["draft"]["body"],
+        data["instruction"],
+    ]
+    text = f"{out['subject'] or ''}\n{out['body']}"
+    return check_no_unsupported_claims("no_unsupported_claims", text, allowed)
+
+
+_DRAFT_REFINE: dict[str, Handler] = {
+    "no_unsupported_claims": _refine_claims,
     "max_words": lambda v, c, o: check_at_most("max_words", len(o["body"].split()), v),
     "no_leak": _no_leak,
 }
@@ -664,6 +717,13 @@ TASKS: dict[str, Task] = {
         ("company", "contact", "product"),
         _run_draft,
         _DRAFT,
+    ),
+    "draft_refine": Task(
+        "draft_refine",
+        draft_refine_module.REFINE_PROMPT_VERSION,
+        ("company", "contact", "product", "draft", "instruction"),
+        _run_draft_refine,
+        _DRAFT_REFINE,
     ),
     "offering_extraction": Task(
         "offering_extraction",

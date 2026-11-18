@@ -132,7 +132,7 @@ def build_headline(
         return "No searches yet — describe a market above to find your first prospects."
     subject = "This search" if scope == "search" else f"{plural(searches, 'search', 'searches')}"
     found = plural(kpis.companies, "company", "companies")
-    parts = [f"{ready} {'is' if ready == 1 else 'are'} ready for you to contact"]
+    parts = [f"{ready} {'is' if ready == 1 else 'are'} ready for you to review"]
     if kpis.rejected:
         was = "was" if kpis.rejected == 1 else "were"
         parts.append(f"{kpis.rejected} {was} rejected as a poor fit")
@@ -500,7 +500,7 @@ def _attention(
     items = [
         AttentionItem(
             key="ready_to_contact",
-            label="Companies ready — pick a person and write the draft",
+            label="Companies to review: confirm the people, then write a draft",
             count=len(ready),
             href=target,
         ),

@@ -16,6 +16,7 @@ COVERED = {
     "modules/ai_recommendation/recommendation_generator.py",
     "modules/discovery_agent/prompts.py",
     "modules/draft/draft_generator.py",
+    "modules/draft/refine.py",
     "modules/offerings/extractor.py",
     "modules/offerings/profile.py",
     "modules/offerings/triage.py",

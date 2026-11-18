@@ -8,13 +8,13 @@ import {
 
 const STEPS: { key: keyof Omit<Outcome, "needAttention">; label: string }[] = [
   { key: "found", label: "Companies found" },
-  { key: "fit", label: "Fit your criteria" },
-  { key: "sorted", label: "People sorted by role" },
-  { key: "ready", label: "Ready to contact" },
+  { key: "fit", label: "Companies that fit" },
+  { key: "sorted", label: "Companies with people found" },
+  { key: "ready", label: "Companies to review" },
 ];
 
 // How a finished search ended, told in one sentence and one strip that reads left to right:
-// found, fit, people sorted, ready. Then the one thing to do next.
+// companies found, fit, people found, to review. Then the one thing to do next.
 export function RunOutcome({
   outcome,
   cappedAt,
@@ -67,9 +67,8 @@ export function RunOutcome({
       </p>
       {cappedAt !== null && (
         <p className="text-sm text-muted-foreground">
-          Only the top {cappedAt} companies by score were taken through role
-          sorting, to protect usage limits. The rest are listed below under “not
-          shown”.
+          People were looked up for the top {cappedAt} companies by score only,
+          to protect usage limits. The rest are listed below under “not shown”.
         </p>
       )}
 
