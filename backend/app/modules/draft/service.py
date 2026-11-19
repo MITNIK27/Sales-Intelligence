@@ -368,7 +368,7 @@ async def refine_draft(
         new_subject = new_subject[:255]
     flags = find_unsupported_claims(
         f"{new_subject or ''}\n{result.body}",
-        [*_allowed_sources(company, product, recommendation, evidence), instruction],
+        _allowed_sources(company, product, recommendation, evidence),
     )
 
     revisions = list(draft.revisions or [])

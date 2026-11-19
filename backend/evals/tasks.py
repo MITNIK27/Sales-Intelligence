@@ -314,7 +314,8 @@ async def _run_draft_refine(case: Case, rt: Runtime) -> dict[str, Any]:
 
 def _refine_claims(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
     """What the rewrite may draw on: the same sources as a first draft, plus the draft it started
-    from (its own earlier checked text) and whatever the rep typed in the request."""
+    from (its own earlier checked text). The rep's request is not a source for figures or
+    past work."""
     if not wanted:
         return Check("no_unsupported_claims", True)
     data = case.input
@@ -322,7 +323,6 @@ def _refine_claims(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
         *_draft_allowed(data),
         data["draft"].get("subject"),
         data["draft"]["body"],
-        data["instruction"],
     ]
     text = f"{out['subject'] or ''}\n{out['body']}"
     return check_no_unsupported_claims("no_unsupported_claims", text, allowed)
