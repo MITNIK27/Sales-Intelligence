@@ -105,4 +105,7 @@ class FollowUpItem(BaseModel):
     status: str
     next_follow_up_at: datetime | None
     next_follow_up_channel: str | None
+    # Messages logged as sent to this person, and when the last one went out.
+    touches_sent: int = 0
+    last_sent_at: datetime | None = None
     company: CompanySummary

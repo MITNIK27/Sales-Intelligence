@@ -14,6 +14,20 @@ ACTIVITY_SENT = "sent"
 ACTIVITY_RESPONSE_RECEIVED = "response_received"
 ACTIVITY_TYPES = (ACTIVITY_SENT, ACTIVITY_RESPONSE_RECEIVED)
 
+# What a reply said, chosen by the rep (never worked out by a model). Only for a response.
+OUTCOME_INTERESTED = "interested"
+OUTCOME_NOT_NOW = "not_now"
+OUTCOME_NOT_INTERESTED = "not_interested"
+OUTCOME_REFERRED = "referred"
+OUTCOME_OUT_OF_OFFICE = "out_of_office"
+OUTREACH_OUTCOMES = (
+    OUTCOME_INTERESTED,
+    OUTCOME_NOT_NOW,
+    OUTCOME_NOT_INTERESTED,
+    OUTCOME_REFERRED,
+    OUTCOME_OUT_OF_OFFICE,
+)
+
 
 class OutreachActivity(Base, TimestampMixin):
     """A record of one outbound send or inbound response for a contact (Phase C). Append-only,
@@ -37,6 +51,8 @@ class OutreachActivity(Base, TimestampMixin):
     # reporting on this yet, deliberately deferred until there's real variant data to report on.
     template_variant: Mapped[str | None] = mapped_column(String(100))
     notes: Mapped[str | None] = mapped_column(String(500))
+    # What the reply said (OUTREACH_OUTCOMES); empty for a send and for older rows.
+    outcome: Mapped[str | None] = mapped_column(String(30))
 
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True

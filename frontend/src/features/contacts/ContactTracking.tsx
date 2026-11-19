@@ -36,7 +36,14 @@ function toDateInputValue(iso: string | null): string {
   return iso.slice(0, 10); // yyyy-mm-dd, good enough for a <input type="date">
 }
 
-export function ContactTracking({ contact }: { contact: Contact }) {
+export function ContactTracking({
+  contact,
+  onSaved,
+}: {
+  contact: Contact;
+  // The saved contact, so the rest of the card shows the new follow-up straight away.
+  onSaved?: (contact: Contact) => void;
+}) {
   const [status, setStatus] = useState<TrackingStatus>(contact.status);
   const [followUpDate, setFollowUpDate] = useState(
     toDateInputValue(contact.next_follow_up_at),
@@ -61,8 +68,12 @@ export function ContactTracking({ contact }: { contact: Contact }) {
         next_follow_up_channel: channel || null,
         timezone: timezone.trim() || null,
       };
-      await apiPatch(`/contacts/${contact.id}/tracking`, update);
+      const updated = await apiPatch<Contact>(
+        `/contacts/${contact.id}/tracking`,
+        update,
+      );
       setSaved(true);
+      onSaved?.(updated);
     } catch (err) {
       showToast({
         description: err instanceof Error ? err.message : "failed to save",

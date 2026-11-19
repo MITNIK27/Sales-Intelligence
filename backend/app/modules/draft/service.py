@@ -429,13 +429,31 @@ async def discard_draft(
     return draft
 
 
+class DraftNotLoggableError(Exception):
+    """The draft cannot be logged as sent: it is another contact's, or it is no longer a draft
+    (already sent or discarded), so logging it again would record one message twice."""
+
+
 async def mark_draft_sent(
-    session: AsyncSession, organization_id: uuid.UUID, draft_id: uuid.UUID
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    draft_id: uuid.UUID,
+    contact_id: uuid.UUID | None = None,
 ) -> Draft | None:
-    """Called from outreach/service.py when a rep logs an OutreachActivity against this draft."""
+    """Called from outreach/service.py when a rep logs an OutreachActivity against this draft.
+    With `contact_id`, the draft must be that contact's and still a draft."""
     draft = await _get_draft(session, organization_id, draft_id)
     if draft is None:
         return None
+    if contact_id is not None:
+        if draft.contact_id != contact_id:
+            raise DraftNotLoggableError("that draft was written for a different person")
+        if draft.status != DRAFT_STATUS_DRAFT:
+            raise DraftNotLoggableError(
+                "that draft is already logged as sent"
+                if draft.status == DRAFT_STATUS_SENT
+                else "that draft was discarded"
+            )
     draft.status = DRAFT_STATUS_SENT
     await session.flush()
     return draft

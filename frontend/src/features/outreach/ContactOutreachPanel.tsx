@@ -1,27 +1,29 @@
 import { useState } from "react";
 
 import type { Contact, Draft, Product } from "@/api/types";
-import type { SuggestedOffering } from "@/features/companies/lib/suggestedOfferings";
+import type { DraftOffering } from "@/features/companies/lib/draftOfferings";
 import { cn } from "@/lib/utils";
-import { ContactTracking } from "@/features/contacts/ContactTracking";
 import { DraftSection } from "@/features/drafts/DraftSection";
-import {
-  LogOutreachActivity,
-  type PrefilledDraft,
-} from "@/features/outreach/LogOutreachActivity";
+import { FollowUpPanel } from "@/features/outreach/FollowUpPanel";
+import { LogOutreachActivity } from "@/features/outreach/LogOutreachActivity";
+import { useOutreachHistory } from "@/features/outreach/useOutreachHistory";
 
-type Action = "draft" | "log" | "follow_up";
+export type OutreachAction = "draft" | "log" | "follow_up";
 
-const ACTIONS: { id: Action; label: string }[] = [
+const ACTIONS: { id: OutreachAction; label: string }[] = [
   { id: "draft", label: "Write a draft" },
   { id: "log", label: "Log outreach" },
   { id: "follow_up", label: "Follow-up" },
 ];
 
-/** Bundles a contact's tracking controls, draft generation (Phase B), and outreach logging
- * (Phase C) — colocated here rather than in CompanyDetailPage because the hand-off between them
- * (an approved draft pre-filling the "Log as Sent" form) is per-contact state that would
- * otherwise have to live in a company-wide map keyed by contact id.
+// The tab named in a link (`?open=draft`), or null for anything else.
+export function actionFromParam(value: string | null): OutreachAction | null {
+  return ACTIONS.some((a) => a.id === value) ? (value as OutreachAction) : null;
+}
+
+/** Bundles a contact's draft, outreach logging and follow-up, colocated here because they share
+ * per-contact state: the draft being worked on (the log offers it first, and logging it ends it)
+ * and what has been logged (the follow-up tab counts it).
  *
  * The three jobs are three buttons; one opens at a time, so a card is not a wall of form fields.
  * All three stay mounted while closed, so a draft being edited is not lost by looking elsewhere. */
@@ -30,31 +32,39 @@ export function ContactOutreachPanel({
   companyId,
   companyNeedsReview,
   products,
-  researched,
+  draftOptions,
   startOpen = false,
+  initialTab = null,
   onContactUpdated,
 }: {
   contact: Contact;
   companyId: string;
   companyNeedsReview: boolean;
   products: Product[];
-  researched: SuggestedOffering[];
+  draftOptions: DraftOffering[];
   // Open on the draft tab when the card first shows (used for the person to start with).
   startOpen?: boolean;
+  // Open on this tab when the card first shows (from a link); wins over `startOpen`.
+  initialTab?: OutreachAction | null;
   onContactUpdated: (contact: Contact) => void;
 }) {
-  const [open, setOpen] = useState<Action | null>(startOpen ? "draft" : null);
-  const [prefilledDraft, setPrefilledDraft] = useState<PrefilledDraft | null>(
-    null,
+  const [open, setOpen] = useState<OutreachAction | null>(
+    initialTab ?? (startOpen ? "draft" : null),
   );
+  const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
+  // Bumped when the draft was logged from the log tab, so the draft tab reloads and drops it.
+  const [draftReload, setDraftReload] = useState(0);
+  const [wanted, setWanted] = useState(open === "log" || open === "follow_up");
+  const { history, reload } = useOutreachHistory(contact.id, wanted);
 
-  function handleLogAsSent(draft: Draft) {
-    setPrefilledDraft({
-      draftId: draft.id,
-      channel: draft.channel,
-      templateVariant: draft.draft_type,
-    });
-    setOpen("log");
+  function show(next: OutreachAction | null) {
+    setOpen(next);
+    if (next === "log" || next === "follow_up") setWanted(true);
+  }
+
+  function afterLog(updated: Contact) {
+    onContactUpdated(updated);
+    void reload();
   }
 
   return (
@@ -70,7 +80,7 @@ export function ContactOutreachPanel({
             type="button"
             role="tab"
             aria-selected={open === a.id}
-            onClick={() => setOpen(open === a.id ? null : a.id)}
+            onClick={() => show(open === a.id ? null : a.id)}
             className={cn(
               "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
               open === a.id
@@ -88,20 +98,30 @@ export function ContactOutreachPanel({
           companyId={companyId}
           companyNeedsReview={companyNeedsReview}
           products={products}
-          researched={researched}
-          onLogAsSent={handleLogAsSent}
+          draftOptions={draftOptions}
+          reloadKey={draftReload}
+          onActiveDraft={setActiveDraft}
+          onSentLogged={afterLog}
+          onChangeDetails={() => show("log")}
         />
       </div>
       <div role="tabpanel" hidden={open !== "log"}>
         <LogOutreachActivity
           contact={contact}
+          draft={activeDraft}
+          history={history}
           onLogged={onContactUpdated}
-          prefilledDraft={prefilledDraft}
-          onDraftSent={() => setPrefilledDraft(null)}
+          onHistoryChanged={() => void reload()}
+          onDraftLogged={() => setDraftReload((n) => n + 1)}
         />
       </div>
       <div role="tabpanel" hidden={open !== "follow_up"}>
-        <ContactTracking contact={contact} />
+        <FollowUpPanel
+          contact={contact}
+          history={history}
+          onContactUpdated={onContactUpdated}
+          onWriteFollowUp={() => show("draft")}
+        />
       </div>
     </div>
   );

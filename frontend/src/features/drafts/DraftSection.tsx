@@ -8,12 +8,18 @@ import type {
   DraftGenerateRequest,
   DraftType,
   DraftUpdateRequest,
+  LogOutreachActivityResponse,
   Product,
 } from "@/api/types";
 import { Link } from "react-router-dom";
 
-import { OfferingPicker } from "@/components/OfferingPicker";
-import type { SuggestedOffering } from "@/features/companies/lib/suggestedOfferings";
+import { OfferingSearchPicker } from "@/components/OfferingSearchPicker";
+import {
+  DRAFT_SOURCE_HEADING,
+  isBestFit,
+  recommendedOffering,
+  type DraftOffering,
+} from "@/features/companies/lib/draftOfferings";
 import {
   DRAFT_TYPE_LABELS,
   suggestedDraftType,
@@ -29,24 +35,55 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { DraftAssistant } from "@/features/drafts/DraftAssistant";
 import { DraftFlags } from "@/features/drafts/DraftFlags";
+import { emailOf } from "@/features/outreach/compose";
+import { afterLogLine } from "@/features/outreach/outreachRules";
+import { SendFromMail } from "@/features/outreach/SendFromMail";
 import { countWords, plural } from "@/lib/format";
+
+// One line under the offering box saying why the chosen offering is on the list.
+function pickedReason(
+  options: DraftOffering[],
+  chosenId: string,
+  recommended: string,
+): string {
+  const chosen = options.find((o) => o.product.id === chosenId);
+  if (!chosen)
+    return "Not one of the offerings listed for this company: you picked it yourself.";
+  if (chosenId === recommended && isBestFit(options, chosenId))
+    return "Recommended from the Brief: the best fit for this company.";
+  if (chosen.source === "search")
+    return `${DRAFT_SOURCE_HEADING.search}: you searched for this one.`;
+  if (chosen.source === "brief")
+    return `${DRAFT_SOURCE_HEADING.brief}: you made a brief around this one.`;
+  return "From the Brief: a fit for this company.";
+}
 
 export function DraftSection({
   contact,
   companyId,
   companyNeedsReview,
   products,
-  researched,
-  onLogAsSent,
+  draftOptions,
+  reloadKey = 0,
+  onActiveDraft,
+  onSentLogged,
+  onChangeDetails,
 }: {
   contact: Contact;
   companyId: string;
   companyNeedsReview: boolean;
   products: Product[];
-  // The offerings already researched for this company in the Brief, best fit first. Drafts are
-  // written about these; the full list is only offered when nothing has been researched.
-  researched: SuggestedOffering[];
-  onLogAsSent: (draft: Draft) => void;
+  // What a draft for this company can be written about: what was searched in Market Discovery, what
+  // has a brief of its own, and what the Brief found a strong or possible fit for.
+  draftOptions: DraftOffering[];
+  // Changes when the draft was logged elsewhere (the log tab), so it is loaded again.
+  reloadKey?: number;
+  // The draft being worked on, or null; the log tab offers it first.
+  onActiveDraft?: (draft: Draft | null) => void;
+  // The draft was logged as sent from here; the contact as it is now.
+  onSentLogged: (contact: Contact) => void;
+  // Open the log tab, to set the date or add a note before logging.
+  onChangeDetails: () => void;
 }) {
   const blockedByReview = companyNeedsReview || contact.needs_review;
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -60,7 +97,9 @@ export function DraftSection({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [discarding, setDiscarding] = useState(false);
-  const [loggingAsSent, setLoggingAsSent] = useState(false);
+  const [loggingSent, setLoggingSent] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sentNote, setSentNote] = useState<string | null>(null);
 
   function loadLatestDraft() {
     return apiGet<Draft[]>(
@@ -83,10 +122,15 @@ export function DraftSection({
 
   useEffect(() => {
     loadLatestDraft();
-  }, [contact.id]);
+  }, [contact.id, reloadKey]);
 
-  // Start on the offering the research says fits best.
-  const recommended = researched[0]?.product.id ?? "";
+  useEffect(() => {
+    onActiveDraft?.(draft);
+  }, [draft, onActiveDraft]);
+
+  // Start on the best strong or possible fit; with none, on the first thing the rep searched or
+  // made a brief around.
+  const recommended = recommendedOffering(draftOptions);
   useEffect(() => {
     if (recommended) setSelectedProductId((current) => current || recommended);
   }, [recommended]);
@@ -141,20 +185,27 @@ export function DraftSection({
     }
   }
 
-  async function handleLogAsSent() {
-    setLoggingAsSent(true);
-    setGenerateError(null);
+  // The rep says they sent it. Pending edits are saved first, because the log points at this
+  // draft and the draft must hold the text that was really sent.
+  async function handleConfirmSent() {
+    if (!draft) return;
+    setLoggingSent(true);
+    setSendError(null);
     try {
-      // Persist any pending edits first -- the OutreachActivity this creates references the
-      // draft by id, so the draft row itself must reflect the final text before it's marked sent.
-      const saved = await saveEdits();
-      if (saved) onLogAsSent(saved);
-    } catch (err) {
-      setGenerateError(
-        err instanceof Error ? err.message : "failed to save edits before send",
+      await saveEdits();
+      const response = await apiPost<LogOutreachActivityResponse>(
+        `/contacts/${contact.id}/outreach-activities`,
+        { channel: "email", activity_type: "sent", draft_id: draft.id },
       );
+      setDraft(null);
+      setSubject("");
+      setBody("");
+      setSentNote(afterLogLine(response.contact));
+      onSentLogged(response.contact);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "could not log it");
     } finally {
-      setLoggingAsSent(false);
+      setLoggingSent(false);
     }
   }
 
@@ -183,10 +234,9 @@ export function DraftSection({
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <OfferingPicker
+        <OfferingSearchPicker
           products={products}
-          researched={researched}
-          onlyResearched
+          options={draftOptions}
           value={selectedProductId}
           onChange={setSelectedProductId}
           className="min-w-56"
@@ -221,23 +271,21 @@ export function DraftSection({
           {generating ? "Generating…" : "Generate Draft"}
         </Button>
       </div>
-      {researched.length > 0 ? (
+      {draftOptions.length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          {selectedProductId === recommended
-            ? "Recommended from the Brief: the best fit for this company."
-            : "Only offerings researched in the Brief are listed."}
+          {pickedReason(draftOptions, selectedProductId, recommended)}
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          No offering has been matched to this company in the Brief yet, so
-          every offering is listed.{" "}
+          Nothing has been searched, briefed or matched for this company yet.
+          Type to search all of our offerings, or{" "}
           <Link
             to={`/companies/${companyId}?tab=opportunity`}
             className="font-medium text-primary-text hover:underline"
           >
-            Open the Brief
+            open the Brief
           </Link>{" "}
-          to research an area and get a recommendation.
+          to research it.
         </p>
       )}
       {generateError && (
@@ -294,14 +342,6 @@ export function DraftSection({
             <Button
               type="button"
               size="sm"
-              onClick={handleLogAsSent}
-              disabled={loggingAsSent}
-            >
-              {loggingAsSent ? "Preparing…" : "Log as Sent"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
               variant="destructive"
               onClick={handleDiscard}
               disabled={discarding}
@@ -310,7 +350,21 @@ export function DraftSection({
             </Button>
             {saved && <span className="text-sm text-success">Saved</span>}
           </div>
+          <SendFromMail
+            to={emailOf(contact)}
+            subject={subject}
+            body={body}
+            busy={loggingSent}
+            error={sendError}
+            onConfirmSent={() => void handleConfirmSent()}
+            onChangeDetails={onChangeDetails}
+          />
         </div>
+      )}
+      {!draft && sentNote && (
+        <p role="status" className="text-sm text-success">
+          {sentNote}
+        </p>
       )}
     </div>
   );

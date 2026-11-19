@@ -140,6 +140,9 @@ export type FollowUpItem = {
   status: TrackingStatus;
   next_follow_up_at: string | null;
   next_follow_up_channel: FollowUpChannel | null;
+  // Messages logged as sent to this person, and when the last one went out.
+  touches_sent: number;
+  last_sent_at: string | null;
   company: CompanySummary;
 };
 
@@ -848,6 +851,18 @@ export const CHANNEL_LABELS: Record<"email" | "linkedin", string> = {
   linkedin: "LinkedIn",
 };
 
+// What a reply said, chosen by the rep.
+export type OutreachOutcome =
+  "interested" | "not_now" | "not_interested" | "referred" | "out_of_office";
+
+export const OUTREACH_OUTCOMES: OutreachOutcome[] = [
+  "interested",
+  "not_now",
+  "not_interested",
+  "referred",
+  "out_of_office",
+];
+
 export type OutreachActivity = {
   id: string;
   contact_id: string;
@@ -856,6 +871,7 @@ export type OutreachActivity = {
   activity_type: OutreachActivityType;
   template_variant: string | null;
   notes: string | null;
+  outcome: OutreachOutcome | null;
   occurred_at: string;
   created_at: string;
 };
@@ -867,6 +883,12 @@ export type LogOutreachActivityRequest = {
   notes?: string | null;
   urgent?: boolean;
   draft_id?: string | null;
+  // When it really happened; leave out for now.
+  occurred_at?: string | null;
+  // What a reply said (replies only).
+  outcome?: OutreachOutcome | null;
+  // For a reply that asks to wait: business days until the next follow-up.
+  follow_up_in_business_days?: number | null;
 };
 
 export type LogOutreachActivityResponse = {

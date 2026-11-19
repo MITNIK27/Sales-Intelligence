@@ -1,5 +1,5 @@
 import { ExternalLink, Mail, Phone, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type {
   BuyingRole,
@@ -23,9 +23,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { TRACKING_STATUS_LABELS } from "@/features/contacts/ContactTracking";
-import type { SuggestedOffering } from "@/features/companies/lib/suggestedOfferings";
+import type { DraftOffering } from "@/features/companies/lib/draftOfferings";
 import { channelLink } from "@/features/companies/lib/contactLinks";
-import { ContactOutreachPanel } from "@/features/outreach/ContactOutreachPanel";
+import {
+  ContactOutreachPanel,
+  type OutreachAction,
+} from "@/features/outreach/ContactOutreachPanel";
 import { cn } from "@/lib/utils";
 
 // A person's part in the buying decision, from the buying committee. It is shown on the person's
@@ -115,11 +118,12 @@ export function ContactCard({
   buyingRole,
   committee,
   products,
-  researched,
+  draftOptions,
   onConfirm,
   onRemove,
   onOutreachLogged,
   selection,
+  focus,
 }: {
   contact: Contact;
   company: CompanyDetail;
@@ -129,14 +133,26 @@ export function ContactCard({
   // with, and a way to change the part.
   committee?: CommitteeInfo;
   products: Product[];
-  researched: SuggestedOffering[];
+  draftOptions: DraftOffering[];
   onConfirm: (contactId: string) => Promise<void>;
   onRemove: (contactId: string) => void;
   onOutreachLogged: (updated: Contact) => void;
   // For a person waiting to be confirmed: whether they are ticked for "Confirm selected".
   selection?: { checked: boolean; onToggle: () => void };
+  // Set when a link points at this person (from the follow-ups list): the card scrolls into view
+  // and opens on the named tab.
+  focus?: { tab: OutreachAction | null };
 }) {
   const [confirming, setConfirming] = useState(false);
+  const cardId = `contact-${contact.id}`;
+  const focused = focus !== undefined;
+
+  useEffect(() => {
+    if (focused)
+      document
+        .getElementById(cardId)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [focused, cardId]);
 
   async function confirm() {
     setConfirming(true);
@@ -158,7 +174,13 @@ export function ContactCard({
   const otherChannels = contact.channels.filter((c) => c !== linkedin);
 
   return (
-    <Card className={cn("gap-4", committee?.startHere && "ring-2 ring-ring")}>
+    <Card
+      id={cardId}
+      className={cn(
+        "gap-4 scroll-mt-4",
+        (committee?.startHere || focused) && "ring-2 ring-ring",
+      )}
+    >
       <div className="flex items-start gap-4 px-6">
         {contact.needs_review && selection && (
           <span className="mt-3">
@@ -290,11 +312,12 @@ export function ContactCard({
         <div className="flex flex-col gap-3 border-t border-border px-6 pt-4">
           <ContactOutreachPanel
             startOpen={committee?.startHere}
+            initialTab={focus?.tab ?? null}
             contact={contact}
             companyId={company.id}
             companyNeedsReview={company.needs_review}
             products={products}
-            researched={researched}
+            draftOptions={draftOptions}
             onContactUpdated={onOutreachLogged}
           />
         </div>

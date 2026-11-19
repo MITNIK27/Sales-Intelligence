@@ -20,6 +20,7 @@ from app.modules.contacts.service import (
     update_contact_tracking,
 )
 from app.modules.enrichment.schemas import ScrapeJobStarted
+from app.modules.outreach.service import sent_summaries
 from app.modules.verification.providers.dns_smtp import DnsSmtpEmailVerificationProvider
 from app.modules.verification.providers.format_check import PatternPhoneVerificationProvider
 from app.modules.verification.service import start_bulk_verify, verify_channel
@@ -35,7 +36,13 @@ async def list_follow_ups_endpoint(
     session: AsyncSession = Depends(get_db),
 ) -> list[FollowUpItem]:
     contacts = await list_due_follow_ups(session, DEFAULT_ORGANIZATION_ID, datetime.now(UTC))
-    return [FollowUpItem.model_validate(c) for c in contacts]
+    sent = await sent_summaries(session, DEFAULT_ORGANIZATION_ID, [c.id for c in contacts])
+    items = []
+    for c in contacts:
+        item = FollowUpItem.model_validate(c)
+        item.touches_sent, item.last_sent_at = sent.get(c.id, (0, None))
+        items.append(item)
+    return items
 
 
 @router.patch("/{contact_id}/tracking", response_model=ContactOut)

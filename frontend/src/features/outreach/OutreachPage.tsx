@@ -16,8 +16,9 @@ const VIEWS: TabItem<View>[] = [
 
 const DESCRIPTION: Record<View, string> = {
   drafts:
-    "Every message the system has written for you. Review it, edit it, then copy it out and mark it sent, or discard it.",
-  "follow-ups": "People whose next follow-up date is today or in the past.",
+    "Every message the system has written for you. Review it, edit it, then send it from your Gmail and confirm, or discard it.",
+  "follow-ups":
+    "People whose next follow-up is due today or overdue. Write it, push it back, or stop following up.",
 };
 
 export function OutreachPage() {

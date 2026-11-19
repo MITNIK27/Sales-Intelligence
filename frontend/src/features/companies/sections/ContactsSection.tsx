@@ -1,6 +1,6 @@
 import { Users } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import type {
   CompanyDetail,
@@ -14,11 +14,8 @@ import { Checkbox } from "@/components/Checkbox";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useCompanyFits } from "@/features/companies/hooks/useSuggestedOfferings";
-import {
-  EVERY_BAND,
-  suggestedOfferings,
-} from "@/features/companies/lib/suggestedOfferings";
+import { actionFromParam } from "@/features/outreach/ContactOutreachPanel";
+import { useDraftOfferings } from "@/features/companies/hooks/useDraftOfferings";
 import { ContactCard } from "@/features/companies/sections/ContactCard";
 import type { PeopleTools } from "@/features/companies/sections/PeopleCommittee";
 import {
@@ -59,13 +56,13 @@ export function ContactsSection({
   onRemoveContact: (contactId: string) => void;
   onOutreachLogged: (updated: Contact) => void;
 }) {
-  // What the Brief has researched for this company, best fit first: drafts are written about these.
-  const researched = suggestedOfferings(
-    useCompanyFits(company.id),
-    products ?? [],
-    Infinity,
-    EVERY_BAND,
-  );
+  // What a draft for this company can be written about: what was searched, what has a brief of its
+  // own, and what the Brief found a fit for.
+  const draftOptions = useDraftOfferings(company.id, products ?? []);
+  // A link can point at one person (`?contact=<id>&open=draft`), from the follow-ups list.
+  const [params] = useSearchParams();
+  const focusId = params.get("contact");
+  const focusTab = actionFromParam(params.get("open"));
   const [searching, setSearching] = useState(false);
   const [classifying, setClassifying] = useState(false);
 
@@ -250,10 +247,13 @@ export function ContactsSection({
                           : undefined
                       }
                       products={products ?? []}
-                      researched={researched}
+                      draftOptions={draftOptions}
                       onConfirm={onConfirmContact}
                       onRemove={onRemoveContact}
                       onOutreachLogged={onOutreachLogged}
+                      focus={
+                        contact.id === focusId ? { tab: focusTab } : undefined
+                      }
                       selection={
                         contact.needs_review
                           ? {
