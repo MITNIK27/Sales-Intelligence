@@ -8,6 +8,7 @@ import { SimpleSelect } from "@/components/SimpleSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { titleCaseArea } from "@/features/brief/startBrief";
+import { suggestedBy } from "@/lib/app-meta";
 import type { FilterSource } from "@/features/brief/briefFilter";
 
 const MAX_SEGMENTS = 4;
@@ -90,11 +91,8 @@ export function BriefFilterBar({
   const areaOptions = areas.map((a) => ({
     id: a.id,
     label: a.area_key === "general" ? "Overall" : titleCaseArea(a.area_label),
-    hint: researching.has(a.id)
-      ? "researching…"
-      : a.status === "suggested"
-        ? "suggested"
-        : undefined,
+    hint: researching.has(a.id) ? "researching…" : undefined,
+    suggested: a.status === "suggested",
   }));
   const chosen = offeringOptions.filter((o) => offeringIds.includes(o.id));
   const shownChips = chosen.slice(0, MAX_CHIPS);
@@ -176,7 +174,10 @@ export function BriefFilterBar({
                 value={areaId ?? ""}
                 options={areaOptions.map((o) => ({
                   value: o.id,
-                  label: o.hint ? `${o.label} (${o.hint})` : o.label,
+                  label:
+                    o.hint || o.suggested
+                      ? `${o.label} (${o.hint ?? suggestedBy()})`
+                      : o.label,
                 }))}
                 onChange={onSelectArea}
                 placeholder="Choose an area"

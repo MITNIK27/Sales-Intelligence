@@ -1,5 +1,6 @@
-import { Check } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 
+import { suggestedBy } from "@/lib/app-meta";
 import { cn } from "@/lib/utils";
 
 export type SegmentOption<T extends string> = {
@@ -7,6 +8,9 @@ export type SegmentOption<T extends string> = {
   label: string;
   // Shown after the label, for example "suggested".
   hint?: string;
+  // Recommended by the AI rather than made by the person: shows the same sparkle as the AI
+  // recommendation button, with "Suggested by" the product name for screen readers and on hover.
+  suggested?: boolean;
 };
 
 // A pick-one control for a few choices. Every choice is a bordered button in one joined row, the
@@ -58,6 +62,20 @@ export function Segmented<T extends string>({
           >
             {on && <Check className="size-3.5" aria-hidden="true" />}
             {option.label}
+            {option.suggested && (
+              <>
+                <Sparkles
+                  className={cn(
+                    "size-3.5",
+                    on ? "text-primary-foreground/80" : "text-primary",
+                  )}
+                  aria-hidden="true"
+                >
+                  <title>{suggestedBy()}</title>
+                </Sparkles>
+                <span className="sr-only">({suggestedBy()})</span>
+              </>
+            )}
             {option.hint && (
               <span
                 className={cn(

@@ -3,6 +3,10 @@ import { Sparkles } from "lucide-react";
 import type { CompanyOpportunity } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { titleCaseArea } from "@/features/brief/startBrief";
+import {
+  recommendedAreasLabel,
+  refreshRecommendationsLabel,
+} from "@/lib/app-meta";
 
 type Source = NonNullable<CompanyOpportunity["suggestion_source"]> | "other";
 
@@ -59,8 +63,8 @@ export function SuggestedAreas({
           {suggesting
             ? "Looking…"
             : suggested.length > 0
-              ? "Refresh AI recommendations"
-              : "AI recommended areas"}
+              ? refreshRecommendationsLabel()
+              : recommendedAreasLabel()}
         </Button>
         {suggested.length === 0 && (
           <p className="text-sm text-muted-foreground">
