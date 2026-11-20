@@ -2,10 +2,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
+from app.db.types import JsonB
 
 # What an offering is. The table keeps its original name (`products`) so existing foreign keys
 # from drafts and recommendations stay untouched; "offering" is the user-facing word.
@@ -46,7 +47,7 @@ class Product(Base, TimestampMixin, UpdatedAtMixin):
     # written by hand. `profile_hash` fingerprints the profile (cache key for judgments made with
     # it); `profile_source_hash` fingerprints what it was generated from, to flag it as stale when
     # the offering's own description later changes.
-    buyer_profile: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    buyer_profile: Mapped[dict[str, Any] | None] = mapped_column(JsonB)
     profile_status: Mapped[str | None] = mapped_column(String(10))  # generated | edited
     profile_hash: Mapped[str | None] = mapped_column(String(64))
     profile_source_hash: Mapped[str | None] = mapped_column(String(64))

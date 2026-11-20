@@ -1,5 +1,8 @@
 services:
   postgres:
+    # The current database. Kept running, untouched, until Phase 8a's cut-over to the pgvector
+    # database below is verified; then the app's DATABASE_URL moves to port 5435 and this one is
+    # retired (its volume is kept as a fallback until you delete it yourself).
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: sales_intel
@@ -17,5 +20,29 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres-pgvector:
+    # Phase 8a: same Postgres major version (16) with the pgvector extension, pinned to an exact
+    # tag so every machine and CI run the same build. Debian-based, unlike the Alpine image above,
+    # so it gets its own fresh volume: data arrives by dump and restore, never by reusing the old
+    # data directory (text collation can differ between the two C libraries).
+    image: pgvector/pgvector:0.8.7-pg16
+    environment:
+      POSTGRES_USER: sales_intel
+      POSTGRES_PASSWORD: sales_intel
+      POSTGRES_DB: sales_intel
+    # pg_stat_statements must be preloaded before its extension can record query statistics.
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    ports:
+      # 5435: 5434 is commonly taken by another local project's Postgres on this machine.
+      - "5435:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sales_intel"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
+  pgvector_data:

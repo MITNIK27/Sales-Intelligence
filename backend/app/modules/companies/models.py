@@ -2,10 +2,11 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
+from app.db.types import JsonB
 
 # Enrichment lifecycle for a Company, driven by the Phase 2a scraper. `pending` is set the
 # moment a scrape job is enqueued (not when the worker picks it up) so the UI can show
@@ -46,7 +47,7 @@ class Company(Base, TimestampMixin, UpdatedAtMixin):
     employee_count_range: Mapped[str | None] = mapped_column(String(50))
     description: Mapped[str | None] = mapped_column(String)
     source_ingestion_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("ingestion_runs.id")
+        ForeignKey("ingestion_runs.id"), index=True
     )
 
     # --- Phase 2a: scraper enrichment tracking ---
@@ -64,16 +65,16 @@ class Company(Base, TimestampMixin, UpdatedAtMixin):
     # What Market Discovery saw when it proposed this company: the text it was found in, the
     # extraction model's own reasoning and the market asked for. Empty for companies that did
     # not come from a discovery run. Kept so a person's later decision can be compared with it.
-    discovery_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    discovery_evidence: Mapped[dict[str, Any] | None] = mapped_column(JsonB)
     last_enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enrichment_error: Mapped[str | None] = mapped_column(String)
     # Where each enriched field came from, set when enrichment fills it:
     # {"industry": {"source": "contextdev:brand", "confidence": 0.9, "fetched_at": "..."}, ...}.
-    field_provenance: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    field_provenance: Mapped[dict[str, object] | None] = mapped_column(JsonB)
     # What the person wants to know about this company, typed on its page or on the Market
     # Discovery search that found it: [{"name", "description", "must_have"}, ...].
     criteria: Mapped[list[dict[str, object]]] = mapped_column(
-        JSON, default=list, server_default=text("'[]'")
+        JsonB, default=list, server_default=text("'[]'")
     )
 
     contacts: Mapped[list["Contact"]] = relationship(back_populates="company")

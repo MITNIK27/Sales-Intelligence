@@ -1,10 +1,11 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
+from app.db.types import JsonB
 
 # `area_key` of the opportunity that means "no particular area": the company as a whole.
 GENERAL_AREA_KEY = "general"
@@ -57,7 +58,9 @@ class CompanyOpportunity(Base, TimestampMixin, UpdatedAtMixin):
     industry_context: Mapped[str | None] = mapped_column(String(255))
     # The Market Discovery run that first created it, if any. A company can appear in many runs;
     # run membership lives in `ingestion_run_companies`, not here.
-    created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ingestion_runs.id"))
+    created_by_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("ingestion_runs.id"), index=True
+    )
     # Why an area was suggested (one sentence), kept with the suggestion.
     suggestion_reason: Mapped[str | None] = mapped_column(String(500))
     # Where a suggestion came from (SUGGESTION_SOURCES), its place in the list (lower is first), and
@@ -68,7 +71,7 @@ class CompanyOpportunity(Base, TimestampMixin, UpdatedAtMixin):
     # What each collector (news, hiring, web) did last time: when, what it searched, how much it
     # found, any error, and for hiring the counts over time. It decides what is still fresh and is
     # the source of the plain "searched, found nothing" statements.
-    research_log: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    research_log: Mapped[dict[str, Any] | None] = mapped_column(JsonB)
 
 
 class OpportunityAssessment(Base, TimestampMixin):
@@ -97,9 +100,9 @@ class OpportunityAssessment(Base, TimestampMixin):
     verdict: Mapped[str] = mapped_column(String(24))
     summary: Mapped[str] = mapped_column(String)
     # [{kind, statement, evidence: {record_id|field, url, fetched_at, quote, content_hash}}]
-    findings: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    findings: Mapped[list[dict[str, Any]]] = mapped_column(JsonB)
     # What was looked for and not found, in the model's words, shown so a gap is never silent.
-    not_found: Mapped[list[str]] = mapped_column(JSON)
+    not_found: Mapped[list[str]] = mapped_column(JsonB)
     # Findings the model produced that failed verification and were therefore dropped.
     dropped_count: Mapped[int] = mapped_column(Integer, default=0)
     evidence_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -144,13 +147,13 @@ class OpportunityOfferingMatch(Base, TimestampMixin):
     )
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), index=True)
     assessment_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("opportunity_assessments.id")
+        ForeignKey("opportunity_assessments.id"), index=True
     )
     band: Mapped[str] = mapped_column(String(24))
     score: Mapped[int] = mapped_column(Integer)  # 0-100, from the factors
-    factors: Mapped[dict[str, Any]] = mapped_column(JSON)
+    factors: Mapped[dict[str, Any]] = mapped_column(JsonB)
     reasoning: Mapped[str] = mapped_column(String)
-    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSON)  # verified citations
+    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JsonB)  # verified citations
     needs_review: Mapped[bool] = mapped_column(default=False)
     profile_hash: Mapped[str | None] = mapped_column(String(64))
     evidence_set_hash: Mapped[str] = mapped_column(String(64))
@@ -173,7 +176,7 @@ class ContactOpportunityRelevance(Base, TimestampMixin):
         ForeignKey("company_opportunities.id"), index=True
     )
     contact_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contacts.id"), index=True)
-    product_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("products.id"), index=True)
     source: Mapped[str] = mapped_column(String(8))  # model | human
     role: Mapped[str] = mapped_column(String(16))  # ROLES, or "revert" on a human row
     function: Mapped[str | None] = mapped_column(String(120))  # the function the title implies
@@ -182,7 +185,7 @@ class ContactOpportunityRelevance(Base, TimestampMixin):
     needs_review: Mapped[bool] = mapped_column(default=False)
     note: Mapped[str | None] = mapped_column(String(500))  # why a person overrode it
     assessment_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("opportunity_assessments.id")
+        ForeignKey("opportunity_assessments.id"), index=True
     )
     profile_hash: Mapped[str | None] = mapped_column(String(64))
     contact_hash: Mapped[str | None] = mapped_column(String(64))

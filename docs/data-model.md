@@ -11,7 +11,13 @@ The owning org. Only one exists today (internal use), but every other entity is 
 - `id`, `name`, `created_at`
 
 ### User
-- `id`, `organization_id` (FK), `email`, `hashed_password`, `role`, `created_at`
+A person who signs in. Sign-in is Firebase Authentication (Phase 8): Firebase holds the credentials,
+this table holds the person, linked by `firebase_uid`. No password is stored. People are disabled,
+not deleted, so their decisions keep pointing at them. Not used by the app until sign-in is built.
+
+- `id`, `organization_id` (FK), `firebase_uid` (unique), `email` (unique), `display_name` (nullable),
+  `role` (`admin` | `manager` | `rep`), `status` (`active` | `disabled`), `last_sign_in_at`
+  (nullable), `created_at`, `updated_at`
 
 ### Product (shown in the app as "Our Offerings")
 The org's own catalog of what it sells, so the recommendation and drafting layers have something
@@ -176,6 +182,18 @@ mistaken for a general one.
   `{criterion_id, criterion_name, is_disqualifying, verdict, reasoning, evidence_ref,
   evidence_quote}`), `priority_score` (float, nullable), `score_breakdown` (JSONB, nullable),
   `focus` (nullable), `model_used`, `prompt_version` (nullable), `created_at`
+
+### QualificationCriterionResult (Phase 8a)
+The same per-criterion judgments as `criteria_results`, one row each, so they can be counted and
+filtered in SQL (the dashboard reads these). Written together with the JSON; the JSON column stays
+for one release and is then dropped. `criterion_id` is a copied value, not a foreign key, because
+criteria defined for a single search are never saved as rows.
+
+- `id`, `organization_id` (FK), `qualification_result_id` (FK, cascade delete), `position` (order
+  judged; unique per result), `criterion_id`, `criterion_name`, `is_disqualifying`, `scope`
+  (`org` | `run`), `verdict` (`met` | `not_met` | `could_not_determine`), `status`
+  (`PASS` | `FAIL` | `UNKNOWN`), `reasoning`, `evidence_ref`, `evidence_quote`, `confidence` (0-1,
+  nullable), `source`, `url`, `created_at`
 
 ### RoleCategory
 An org-defined function a `Contact` can be classified against (e.g. "Vendor / IT Procurement") —

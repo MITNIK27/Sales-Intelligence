@@ -42,7 +42,7 @@ class OutreachActivity(Base, TimestampMixin):
     contact_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contacts.id"), index=True)
     # Nullable — set only when this activity was logged from an approved Phase B Draft (vs. a
     # rep manually logging a send/response with free-typed channel/notes, which stays None).
-    draft_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("drafts.id"))
+    draft_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("drafts.id"), index=True)
 
     channel: Mapped[str] = mapped_column(String(20))  # OUTREACH_CHANNELS
     activity_type: Mapped[str] = mapped_column(String(30))  # ACTIVITY_TYPES

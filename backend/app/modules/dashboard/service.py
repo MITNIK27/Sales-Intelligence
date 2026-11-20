@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import get_settings
 from app.modules.companies.models import ENRICHMENT_STATUS_FAILED, Company
@@ -56,7 +57,7 @@ from app.modules.ingestion.models import (
 from app.modules.jobs.service import find_job_for_run
 from app.modules.outreach.models import OutreachActivity
 from app.modules.products.models import Product
-from app.modules.qualification.evidence import PASS, status_for_verdict
+from app.modules.qualification.evidence import PASS
 from app.modules.qualification.models import QualificationResult
 from app.modules.role_relevance.models import RoleCategory, RoleRelevanceResult
 
@@ -214,6 +215,7 @@ async def _load(session: AsyncSession, ids: set[uuid.UUID]) -> _Data:
         await session.execute(
             select(QualificationResult)
             .where(QualificationResult.company_id.in_(id_list))
+            .options(selectinload(QualificationResult.criteria))
             .order_by(QualificationResult.created_at.asc())
         )
     ).scalars():
@@ -299,11 +301,10 @@ def _requirements(data: _Data) -> list[RequirementResult]:
         result = data.latest.get(company_id)
         if result is None:
             continue
-        for entry in result.criteria_results or []:
-            name = str(entry.get("criterion_name") or "")
-            key = (name, str(entry.get("scope") or "org"), bool(entry.get("is_disqualifying")))
+        for criterion in result.criteria:
+            key = (criterion.criterion_name, criterion.scope, criterion.is_disqualifying)
             row = table.setdefault(key, {"meets": 0, "unknown": 0, "fails": 0, "drafts": 0})
-            status = str(entry.get("status") or status_for_verdict(str(entry.get("verdict"))))
+            status = criterion.status
             if status == PASS:
                 row["meets"] += 1
                 if live.get(company_id):
@@ -341,9 +342,9 @@ def _top_companies(data: _Data) -> list[TopCompany]:
         if result.overall_verdict == VERDICT_NEEDS_LOOK:
             reason = "Needs a closer look — a requirement could not be verified"
         else:
-            for entry in result.criteria_results or []:
-                if entry.get("status") == PASS and entry.get("reasoning"):
-                    reason = str(entry["reasoning"])
+            for criterion in result.criteria:
+                if criterion.status == PASS and criterion.reasoning:
+                    reason = criterion.reasoning
                     break
         top.append(
             TopCompany(

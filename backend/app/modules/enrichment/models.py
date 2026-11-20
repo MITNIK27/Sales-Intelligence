@@ -2,10 +2,11 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, new_uuid
+from app.db.types import JsonB
 
 ENTITY_TYPE_COMPANY = "company"
 ENTITY_TYPE_CONTACT = "contact"
@@ -25,7 +26,7 @@ class EnrichmentRecord(Base, TimestampMixin):
     entity_type: Mapped[str] = mapped_column(String(20), index=True)
     entity_id: Mapped[uuid.UUID] = mapped_column(index=True)
     source: Mapped[str] = mapped_column(String(100))
-    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JsonB)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     # Set when the record was gathered for one business area of a company (a focused search, say);
     # null means company-level and shared by every area. Area evidence has its own `source`

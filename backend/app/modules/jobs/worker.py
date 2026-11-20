@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db import models as _models  # noqa: F401 - registers all models with SQLAlchemy
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, use_role
 from app.modules.enrichment.service import JOB_TYPE_SCRAPE_COMPANY, process_scrape_company_job
 from app.modules.ingestion.market_discovery import (
     JOB_TYPE_MARKET_DISCOVERY,
@@ -152,4 +152,5 @@ async def run_worker(poll_interval_seconds: float = 2.0) -> None:
 
 if __name__ == "__main__":
     configure_logging()
+    use_role("worker")  # worker timeouts and name in pg_stat_activity, before the first query
     asyncio.run(run_worker())

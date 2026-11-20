@@ -1,9 +1,10 @@
 import uuid
 
-from sqlalchemy import JSON, ForeignKey, String, UniqueConstraint
+from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, new_uuid
+from app.db.types import JsonB
 
 
 class Recommendation(Base, TimestampMixin):
@@ -27,11 +28,11 @@ class Recommendation(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("companies.id"), index=True)
-    contact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("contacts.id"))
-    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("contacts.id"), index=True)
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), index=True)
     pitch_summary: Mapped[str] = mapped_column(String)
     why_this_company: Mapped[str] = mapped_column(String)
-    talking_points: Mapped[list[str]] = mapped_column(JSON)
+    talking_points: Mapped[list[str]] = mapped_column(JsonB)
     model_used: Mapped[str] = mapped_column(String(50))
     prompt_version: Mapped[str | None] = mapped_column(String(20))
     # The opportunity (business area) this was written for and the assessment version it was
@@ -40,5 +41,5 @@ class Recommendation(Base, TimestampMixin):
         ForeignKey("company_opportunities.id"), index=True
     )
     opportunity_assessment_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("opportunity_assessments.id")
+        ForeignKey("opportunity_assessments.id"), index=True
     )

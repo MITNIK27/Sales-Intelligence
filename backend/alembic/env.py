@@ -7,6 +7,7 @@ from alembic import context
 from app.core.config import get_settings
 from app.db import models as _models  # noqa: F401 - registers all models for autogenerate
 from app.db.base import Base
+from app.db.session import connect_args
 
 config = context.config
 
@@ -17,7 +18,8 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return get_settings().database_url
+    settings = get_settings()
+    return settings.migration_database_url or settings.database_url
 
 
 def run_migrations_offline() -> None:
@@ -38,7 +40,10 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = create_async_engine(get_url())
+    # No statement limit (a migration may rewrite a table), a short lock wait (fail fast rather
+    # than queue behind the running app), and named "<app>-migrations" in pg_stat_activity.
+    settings = get_settings().model_copy(update={"database_url": get_url()})
+    connectable = create_async_engine(get_url(), connect_args=connect_args(settings, "migrations"))
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()

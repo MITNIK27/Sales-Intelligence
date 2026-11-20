@@ -2,10 +2,11 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, new_uuid
+from app.db.types import JsonB
 
 CHANGE_NEW = "new"
 CHANGE_CHANGED = "changed"
@@ -54,7 +55,7 @@ class OfferingProposal(Base, TimestampMixin):
     # The start of the page the description was written from, so a reviewer can check it on the
     # spot, and any wording the grounding check could not find on the page.
     source_excerpt: Mapped[str | None] = mapped_column(String)
-    grounding_flags: Mapped[list[str] | None] = mapped_column(JSON)
+    grounding_flags: Mapped[list[str] | None] = mapped_column(JsonB)
     # Which model and prompt read the page; empty for removals (they come from a 404 check) and
     # for proposals made before this was kept.
     model_used: Mapped[str | None] = mapped_column(String(50))
@@ -82,4 +83,4 @@ class OfferingPage(Base, TimestampMixin):
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Set when a person asked for this page to be read as an offering despite the verdict.
     force_extract: Mapped[bool] = mapped_column(default=False, server_default="0")
-    extra: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    extra: Mapped[dict[str, Any] | None] = mapped_column(JsonB)

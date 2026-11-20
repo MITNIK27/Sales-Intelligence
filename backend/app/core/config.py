@@ -16,7 +16,33 @@ class Settings(BaseSettings):
     sql_echo: bool = False
     secret_key: str = "changeme"
 
-    database_url: str = "postgresql+asyncpg://sales_intel:sales_intel@localhost:5433/sales_intel"
+    database_url: str = "postgresql+asyncpg://sales_intel:sales_intel@localhost:5435/sales_intel"
+    # Alembic uses this when set (on a hosted database, the direct connection with the schema
+    # owner's role); otherwise it falls back to database_url.
+    migration_database_url: str | None = None
+    # Connection pool for each process (API and worker each have their own). Checked before use so
+    # a connection the server dropped is replaced instead of failing the request, and recycled
+    # well inside the idle limits of hosted databases.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout_seconds: int = 30
+    db_pool_recycle_seconds: int = 1800
+    db_connect_timeout_seconds: int = 10
+    # Server-side limits on a single SQL statement and on waiting for a lock (0 = no limit). The
+    # worker gets longer ones because its batch jobs run bigger statements; a model call is not a
+    # statement, so these never cut a slow LLM call short.
+    db_statement_timeout_ms: int = 30_000
+    db_lock_timeout_ms: int = 15_000
+    db_worker_statement_timeout_ms: int = 300_000
+    db_worker_lock_timeout_ms: int = 60_000
+    # A migration waits at most this long for a lock, so it fails fast instead of queueing behind
+    # (and blocking) the running app.
+    db_migration_lock_timeout_ms: int = 10_000
+    # Shown in pg_stat_activity as "<name>-api", "<name>-worker", "<name>-migrations".
+    db_application_name: str = "sales-intel"
+    # "disable" locally; "require" or "verify-full" (with db_ssl_root_cert) on a hosted database.
+    db_ssl_mode: Literal["disable", "require", "verify-full"] = "disable"
+    db_ssl_root_cert: str | None = None
 
     gemini_api_key: str | None = None
     # A rolling alias, not a pinned version — each pinned free-tier model gets its own separate

@@ -1,10 +1,11 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, String
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
+from app.db.types import JsonB
 
 DRAFT_TYPE_FIRST_TOUCH = "first_touch"
 # "follow_up" predates numbered follow-ups and keeps its meaning as the first one, so existing
@@ -43,10 +44,12 @@ class Draft(Base, TimestampMixin, UpdatedAtMixin):
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     company_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("companies.id"), index=True)
     contact_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contacts.id"), index=True)
-    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
+    product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"), index=True)
     # Nullable — grounding is a best-effort reuse of an existing Recommendation for this
     # (company, product) pair when one exists; a draft can still be generated without one.
-    recommendation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("recommendations.id"))
+    recommendation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("recommendations.id"), index=True
+    )
 
     draft_type: Mapped[str] = mapped_column(String(20))  # DRAFT_TYPES
     channel: Mapped[str] = mapped_column(String(20))  # DRAFT_CHANNELS
@@ -57,7 +60,7 @@ class Draft(Base, TimestampMixin, UpdatedAtMixin):
     prompt_version: Mapped[str | None] = mapped_column(String(20))
     # Figures or past-work claims the finished text makes that the research did not contain
     # (draft/claims.py). Empty when none, and on drafts written before this check existed.
-    grounding_flags: Mapped[list[str] | None] = mapped_column(JSON)
+    grounding_flags: Mapped[list[str] | None] = mapped_column(JsonB)
     # The opportunity (business area) this was written for; null for drafts made without one.
     company_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("company_opportunities.id"), index=True
@@ -66,7 +69,7 @@ class Draft(Base, TimestampMixin, UpdatedAtMixin):
     # that were replaced, newest last: [{instruction, subject, body, grounding_flags, model_used,
     # prompt_version, saved_at}]. Kept so a rewrite can be undone and the history is auditable.
     instruction: Mapped[str | None] = mapped_column(String(600))
-    revisions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON)
+    revisions: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
 
     @property
     def revision_count(self) -> int:

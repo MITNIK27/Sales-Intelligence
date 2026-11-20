@@ -1,13 +1,25 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime
+from sqlalchemy import DateTime, MetaData
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+# Predictable names for constraints and indexes created from now on (Phase 8a), so a migration can
+# name exactly what it creates or drops. Constraints made before this keep their existing names.
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
 
 
 class Base(DeclarativeBase):
     """Shared declarative base. Import all module models here so Alembic
     autogenerate can discover them via Base.metadata."""
+
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 class TimestampMixin:

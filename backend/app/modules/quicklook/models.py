@@ -1,10 +1,11 @@
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, ForeignKey, Index, String
+from sqlalchemy import ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UpdatedAtMixin, new_uuid
+from app.db.types import JsonB
 
 
 class CompanySnapshot(Base, TimestampMixin, UpdatedAtMixin):
@@ -20,8 +21,8 @@ class CompanySnapshot(Base, TimestampMixin, UpdatedAtMixin):
     organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
     domain: Mapped[str] = mapped_column(String(255))
     name: Mapped[str] = mapped_column(String(255))
-    summary: Mapped[dict[str, Any]] = mapped_column(JSON)
-    sources: Mapped[list[dict[str, Any]]] = mapped_column(JSON)
+    summary: Mapped[dict[str, Any]] = mapped_column(JsonB)
+    sources: Mapped[list[dict[str, Any]]] = mapped_column(JsonB)
     offerings_hash: Mapped[str] = mapped_column(String(64))
     # Which model and prompt wrote the summary; empty on snapshots made before this was kept.
     model_used: Mapped[str | None] = mapped_column(String(50))

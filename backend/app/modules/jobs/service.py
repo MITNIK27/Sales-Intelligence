@@ -18,27 +18,41 @@ STALE_JOB_THRESHOLD = timedelta(minutes=60)
 async def enqueue_job(
     session: AsyncSession, organization_id: uuid.UUID, job_type: str, payload: dict[str, Any]
 ) -> Job:
-    job = Job(organization_id=organization_id, job_type=job_type, payload=payload)
+    job = Job(
+        organization_id=organization_id,
+        job_type=job_type,
+        payload=payload,
+        ingestion_run_id=_run_id(payload),
+    )
     session.add(job)
     await session.flush()
     return job
 
 
+def _run_id(payload: dict[str, Any]) -> uuid.UUID | None:
+    try:
+        value = payload.get("ingestion_run_id")
+        return uuid.UUID(str(value)) if value else None
+    except ValueError:
+        return None
+
+
 async def find_job_for_run(
     session: AsyncSession, organization_id: uuid.UUID, job_type: str, run_id: uuid.UUID
 ) -> Job | None:
-    """The newest job of `job_type` whose payload points at `run_id`. Payloads are small and an
-    org has few jobs of one type, so matching in Python keeps this identical on Postgres and the
-    SQLite used in tests (no dialect-specific JSON path query)."""
+    """The newest job of `job_type` working on `run_id` (an indexed column, filled from the payload
+    when the job is queued)."""
     stmt = (
         select(Job)
-        .where(Job.organization_id == organization_id, Job.job_type == job_type)
+        .where(
+            Job.organization_id == organization_id,
+            Job.job_type == job_type,
+            Job.ingestion_run_id == run_id,
+        )
         .order_by(Job.created_at.desc())
+        .limit(1)
     )
-    for job in (await session.execute(stmt)).scalars():
-        if (job.payload or {}).get("ingestion_run_id") == str(run_id):
-            return job
-    return None
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def claim_next_pending_job(session: AsyncSession) -> Job | None:
