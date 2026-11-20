@@ -1,6 +1,7 @@
 """G6: model calls go through one place, so temperature, output cap, thinking and retries are set
 once. `generate_structured()` in the Gemini client module is that place; no other file may build
-a Gemini client, and that file must still be the one that does."""
+a Gemini client, and that file must still be the one that does. Pictures go through
+`describe_image()` in the same file, so they share the retries, the usage log and the output cap."""
 
 from pathlib import Path
 

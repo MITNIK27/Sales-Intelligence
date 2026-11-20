@@ -8,6 +8,8 @@ from app.core.logging import configure_logging
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db import models as _models  # noqa: F401 - registers all models with SQLAlchemy
 from app.db.session import SessionLocal, use_role
+from app.modules.documents.ingest import process_ingest_document_job
+from app.modules.documents.service import JOB_TYPE_INGEST_DOCUMENT, purge_stale_uploads
 from app.modules.enrichment.service import JOB_TYPE_SCRAPE_COMPANY, process_scrape_company_job
 from app.modules.ingestion.market_discovery import (
     JOB_TYPE_MARKET_DISCOVERY,
@@ -78,6 +80,7 @@ _HANDLERS = {
     JOB_TYPE_RECOMMEND_OPPORTUNITY: process_recommend_opportunity_job,
     JOB_TYPE_SUGGEST_AREAS: process_suggest_areas_job,
     JOB_TYPE_COMPANY_OFFERS: process_company_offers_job,
+    JOB_TYPE_INGEST_DOCUMENT: process_ingest_document_job,
 }
 
 
@@ -127,6 +130,16 @@ async def _queue_scheduled_jobs() -> None:
             await session.commit()
     except Exception:  # noqa: BLE001 - a scheduling hiccup must not take the worker down
         logger.warning("could not check whether the offerings sync is due", exc_info=True)
+    try:
+        async with SessionLocal() as session:
+            removed = await purge_stale_uploads(
+                session, get_settings().documents_staging_retention_hours
+            )
+            await session.commit()
+            if removed:
+                logger.info("removed %d old staged document upload(s)", removed)
+    except Exception:  # noqa: BLE001 - cleanup must not take the worker down either
+        logger.warning("could not clear old staged document uploads", exc_info=True)
 
 
 async def run_worker(poll_interval_seconds: float = 2.0) -> None:

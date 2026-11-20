@@ -87,3 +87,21 @@ export async function uploadCsv<T>(path: string, file: File): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+// Posts a form (a file plus any fields). The server's refusal is shown as written: a plain message,
+// or the `message` of a structured refusal such as "this file is already in the library".
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { method: "POST", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const detail = body?.detail;
+    throw new Error(
+      typeof detail === "string"
+        ? detail
+        : typeof detail?.message === "string"
+          ? detail.message
+          : plainFailure(res.status),
+    );
+  }
+  return res.json() as Promise<T>;
+}

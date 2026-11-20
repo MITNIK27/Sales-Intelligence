@@ -10,6 +10,7 @@ import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { CompaniesListPage } from "@/features/companies/CompaniesListPage";
 import { CompanyDetailPage } from "@/features/companies/CompanyDetailPage";
 import { OutreachPage } from "@/features/outreach/OutreachPage";
+import { DocumentsPage } from "@/features/documents/DocumentsPage";
 import { MarketDiscoveryPage } from "@/features/enrichment/MarketDiscoveryPage";
 import { UploadPage } from "@/features/ingestion/UploadPage";
 import { ProductFormPage } from "@/features/products/ProductFormPage";
@@ -41,6 +42,7 @@ export function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/searches/:runId" element={<SearchRedirect />} />
         <Route path="/upload" element={<UploadPage />} />
+        <Route path="/documents" element={<DocumentsPage />} />
         <Route path="/companies" element={<CompaniesListPage />} />
         <Route path="/companies/:companyId" element={<CompanyDetailPage />} />
         <Route path="/outreach" element={<OutreachPage />} />

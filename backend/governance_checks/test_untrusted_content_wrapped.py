@@ -15,6 +15,7 @@ APP = Path(__file__).resolve().parent.parent / "app"
 COVERED = {
     "modules/ai_recommendation/recommendation_generator.py",
     "modules/discovery_agent/prompts.py",
+    "modules/documents/vision.py",
     "modules/draft/draft_generator.py",
     "modules/draft/refine.py",
     "modules/offerings/extractor.py",

@@ -1134,3 +1134,96 @@ export type UsageSummary = {
   lines: UsageLine[];
   total_est_cost_usd: number;
 };
+
+// --- Documents (Phase 8b): decks, PDFs and notes about what we sell -------------------------------
+export type DocumentStatus = "queued" | "processing" | "ready" | "failed";
+export type DocumentMediaType = "pdf" | "pptx" | "docx" | "md" | "txt";
+
+export type DocumentsStatusInfo = {
+  enabled: boolean;
+  max_upload_mb: number;
+  accepted_extensions: string[];
+  // True when pictures and scanned pages will be described by a model.
+  vision_enabled: boolean;
+};
+
+export type LibraryDocument = {
+  id: string;
+  name: string;
+  original_filename: string;
+  media_type: DocumentMediaType;
+  size_bytes: number;
+  // The state of the newest version.
+  status: DocumentStatus;
+  error: string | null;
+  page_count: number | null;
+  chunk_count: number;
+  version: number;
+  version_count: number;
+  // Some version has been read and is the one search uses.
+  is_searchable: boolean;
+  offerings: { id: string; name: string }[];
+  assets: { described: number; skipped: number; failed: number };
+  // The uploaded file is still held, so it can be read again without uploading.
+  can_reprocess: boolean;
+  job_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DocumentVersionInfo = {
+  id: string;
+  version: number;
+  original_filename: string;
+  media_type: DocumentMediaType;
+  size_bytes: number;
+  status: DocumentStatus;
+  error: string | null;
+  page_count: number | null;
+  chunk_count: number;
+  is_current: boolean;
+  created_at: string;
+  processed_at: string | null;
+};
+
+export type DocumentEvent = {
+  step: string;
+  status: "ok" | "warning" | "error";
+  message: string;
+  duration_ms: number | null;
+  created_at: string;
+};
+
+export type DocumentDetailData = LibraryDocument & {
+  versions: DocumentVersionInfo[];
+  events: DocumentEvent[];
+};
+
+export type DocumentPageText = {
+  position: number;
+  locator: string;
+  heading_path: string | null;
+  text: string;
+};
+
+// A picture, chart, table or scanned page that a model described. These words were written by the
+// model named here, not by whoever wrote the document.
+export type DocumentAssetInfo = {
+  position: number;
+  locator: string;
+  kind: "image" | "table" | "scanned_page";
+  status: "described" | "skipped" | "failed";
+  description: string | null;
+  note: string | null;
+  provider: string | null;
+  model_used: string | null;
+  prompt_version: string | null;
+  est_cost_usd: number | null;
+};
+
+export type DocumentPagesData = {
+  version: number;
+  total: number;
+  pages: DocumentPageText[];
+  assets: DocumentAssetInfo[];
+};

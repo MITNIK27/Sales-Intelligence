@@ -19,6 +19,14 @@ dependencies = [
     "tenacity>=9.0",
     "dnspython>=2.6",
     "tzdata>=2024.2",
+    # Phase 8b: reading uploaded documents. PyMuPDF is pinned below 2.0, whose install pulls in a
+    # machine-learning stack (onnxruntime, numpy) this service does not want. PyMuPDF is AGPL-3.0
+    # or a paid Artifex licence; the licence is assumed cleared (docs/decisions, ADR 0015).
+    "PyMuPDF>=1.26,<1.29",
+    "python-pptx>=1.0",
+    "python-docx>=1.1",
+    # The SQLAlchemy type for Postgres' vector column (the extension itself is enabled by migration).
+    "pgvector>=0.3",
 ]
 
 [project.optional-dependencies]
@@ -56,6 +64,12 @@ select = ["E", "F", "I", "UP", "B"]
 python_version = "3.12"
 strict = true
 ignore_missing_imports = true
+
+# PyMuPDF ships without type information, so strict mode rejects every call into it. Only this
+# one module talks to it.
+[[tool.mypy.overrides]]
+module = "app.modules.documents.parsers.pdf"
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

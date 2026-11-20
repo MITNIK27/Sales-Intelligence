@@ -44,4 +44,5 @@ _READABLE_NAMES = {
     "LLMError",
     "NoCriteriaConfiguredError",
     "CompanyNotFoundError",
+    "DocumentReadError",
 }

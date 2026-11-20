@@ -235,6 +235,30 @@ class Settings(BaseSettings):
     # set — most won't, initially, so this is the fallback, not a hard per-contact requirement.
     default_timezone: str = "UTC"
 
+    # Phase 8b: the documents knowledge base (uploaded decks, PDFs, Word and Markdown files that
+    # describe what we sell). Off until it is released (8f); the API answers 404 while it is off.
+    documents_enabled: bool = False
+    # No original file is kept: the upload sits in a staging row only until the background job has
+    # read it, and a failed one is purged after this many hours (reprocess needs it until then).
+    documents_staging_retention_hours: int = 24
+    documents_max_upload_mb: int = 5
+    # A file past these is refused with a clear message instead of tying the worker up.
+    documents_max_pages: int = 300
+    documents_max_chunks: int = 3000
+    # A zip-based file (pptx, docx) may not unpack to more than this: a zip bomb is tiny on disk.
+    documents_max_unpacked_mb: int = 200
+    # Chunks: slide- and page-aware, about this long, with a little overlap when one is split.
+    documents_chunk_chars: int = 1000
+    documents_chunk_max_chars: int = 1400  # a slide or section up to this stays whole
+    documents_chunk_overlap_chars: int = 150
+    # Images, charts, unparseable tables and scanned pages can be described by a model (Gemini
+    # vision). Off by default: it spends Gemini quota. A document with no images needs nothing.
+    documents_vision_enabled: bool = False
+    documents_vision_max_images: int = 40  # per document; the rest are listed as skipped
+    documents_vision_concurrency: int = 3
+    documents_vision_min_px: int = 50  # smaller images are icons, not content
+    documents_vision_max_banner_ratio: float = 5.0  # wider than this x its height is a banner
+
 
 @lru_cache
 def get_settings() -> Settings:

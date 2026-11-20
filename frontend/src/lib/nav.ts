@@ -1,5 +1,6 @@
 import {
   Compass,
+  FileText,
   LayoutDashboard,
   Package,
   Send,
@@ -37,6 +38,7 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     items: [
       { to: "/products", label: OFFERINGS_LABEL, icon: Package },
       { to: "/role-categories", label: "Role Categories", icon: Target },
+      { to: "/documents", label: "Documents", icon: FileText },
     ],
   },
   {

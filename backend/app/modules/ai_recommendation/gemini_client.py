@@ -2,6 +2,7 @@
 consumer; Phase 3's pitch-recommendation layer will reuse it later."""
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
@@ -239,6 +240,67 @@ async def generate_structured[T: BaseModel](
                 f"{max_output_tokens} tokens"
             )
     raise GeminiInvalidResponseError("Gemini did not return a valid structured response")
+
+
+@dataclass(frozen=True)
+class VisionResult:
+    text: str
+    model: str
+    tokens_in: int | None
+    tokens_out: int | None
+
+
+async def describe_image(
+    *,
+    api_key: str,
+    model: str,
+    prompt: str,
+    png: bytes,
+    temperature: float | None,
+    max_output_tokens: int,
+) -> VisionResult:
+    """The one place the app sends a picture to Gemini (docs/ai-governance.md, G6), beside
+    `generate_structured` so it shares the retry, the usage log and the error handling. The answer
+    is plain text (a description, a Markdown table or a page transcription), not a schema.
+
+    A reply that was cut off at the output cap is an error, not a quietly shortened answer."""
+    client = genai.Client(api_key=api_key)
+    config_args: dict[str, Any] = {"max_output_tokens": max_output_tokens}
+    if temperature is not None:
+        config_args["temperature"] = temperature
+    try:
+        response = await generate_content_with_retry(
+            client,
+            model=model,
+            contents=[types.Part.from_bytes(data=png, mime_type="image/png"), prompt],
+            config=types.GenerateContentConfig(**config_args),
+        )
+    except GeminiClientError:
+        raise
+    except genai_errors.APIError as exc:
+        raise GeminiClientError(format_gemini_error(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a clear failure
+        raise GeminiClientError(f"Gemini request failed: {exc}") from exc
+
+    if _hit_output_limit(response):
+        raise GeminiInvalidResponseError(
+            f"Gemini's description was cut off at {max_output_tokens} tokens"
+        )
+    try:
+        text = (response.text or "").strip()
+    except Exception:  # noqa: BLE001 - no candidates (blocked or empty reply)
+        text = ""
+    if not text:
+        raise GeminiInvalidResponseError("Gemini returned no description for this picture")
+    usage = getattr(response, "usage_metadata", None)
+    thinking = getattr(usage, "thoughts_token_count", None) or 0
+    out = (getattr(usage, "candidates_token_count", None) or 0) + thinking
+    return VisionResult(
+        text=text,
+        model=model,
+        tokens_in=getattr(usage, "prompt_token_count", None),
+        tokens_out=out if usage is not None else None,
+    )
 
 
 _PROMPT_TEMPLATE = """You are parsing a sales rep's free-text description of a target market \

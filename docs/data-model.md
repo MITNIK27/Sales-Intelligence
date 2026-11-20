@@ -448,3 +448,25 @@ ApiUsage       *──1 Job/Run/Company  (by id only, no foreign key; append-onl
 This is deliberately not yet a full ER diagram with cardinalities/constraints — that will firm
 up as Phase 1 migrations are written. This document should be kept current as the schema
 evolves.
+
+## Documents (Phase 8b)
+The knowledge base: decks, PDFs, Word, Markdown and text files about what we sell. **No original file
+is kept.** An upload sits in `document_uploads` only until the background job has read it (a failed
+read is held for 24 hours so it can be run again); what remains is the text the file said.
+
+- `documents`: the library entry (`name`, optional `uploaded_by`, `organization_id`). The offerings it
+  is about are in `document_offerings` (none = general, like a company deck).
+- `document_versions`: one per upload. A changed deck becomes a new version; the old one keeps being
+  used until the new one is read, then it is archived (`is_current` false) but kept. At most one
+  current version per document (partial unique index). `status` is `queued` | `processing` | `ready`
+  | `failed`. `content_hash` (SHA-256) stops the same bytes being stored twice.
+- `document_pages`: everything a file said on one page, slide or section, in reading order.
+- `document_chunks`: the passages search finds (about 1000 characters, slide- and page-aware, split
+  at sentences, tables split by rows with the header repeated), each with its locator ("Slide 7") and
+  heading path for citation. `tsv` is a full-text column the database keeps itself; `embedding`
+  (`vector(768)`) and `embedding_model` are filled by Phase 8c.
+- `document_assets`: pictures, charts, unreadable tables and scanned pages that a model described
+  (Gemini vision, optional), or that were skipped or failed. These words are written by a model, so
+  each row records `provider`, `model_used`, `prompt_version`, tokens and estimated cost (G9).
+- `document_ingestion_events`: what happened while a version was read, with timings and errors.
+- `document_audit`: one line per upload, new version, re-read, rename and delete, with the document's name at the time. Not tied to the document by a foreign key, so it survives a delete (the ingestion events above do not). `user_id` is filled once login exists.

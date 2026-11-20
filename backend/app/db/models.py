@@ -7,6 +7,7 @@ from app.modules.ai_recommendation import models as ai_recommendation_models  # 
 from app.modules.auth import models as auth_models  # noqa: F401
 from app.modules.companies import models as companies_models  # noqa: F401
 from app.modules.contacts import models as contacts_models  # noqa: F401
+from app.modules.documents import models as documents_models  # noqa: F401
 from app.modules.draft import models as draft_models  # noqa: F401
 from app.modules.enrichment import models as enrichment_models  # noqa: F401
 from app.modules.ingestion import models as ingestion_models  # noqa: F401
