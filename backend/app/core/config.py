@@ -273,6 +273,21 @@ class Settings(BaseSettings):
     # off. Prompts with passages go to Gemini only (G1), never to a fallback vendor.
     documents_knowledge_passages: int = 5
     documents_knowledge_max_chars: int = 4000
+    # Phase 8e: after a document is read, Gemini summarises it and pulls out knowledge cards (short
+    # facts, each tied to the passage it came from). Off by default: it spends Gemini quota.
+    documents_cards_enabled: bool = False
+    # The text is sent in sections of about this many characters; a long file is capped at
+    # `documents_cards_max_sections` sections (the rest is still searchable as passages).
+    documents_cards_section_chars: int = 6000
+    documents_cards_max_sections: int = 15
+    documents_cards_max_per_section: int = 8
+    documents_cards_max_per_document: int = 60
+    # How many cards (best matches first) the flows see, ahead of the passages. 0 turns cards off
+    # in the prompts while still extracting them.
+    documents_knowledge_cards: int = 4
+    # A document tied to offerings may suggest a better description for them, as a proposal a
+    # person approves in the offering review. Never applied on its own.
+    documents_offering_proposals_enabled: bool = True
 
 
 @lru_cache

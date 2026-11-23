@@ -4,7 +4,10 @@ Reading must never fail because a model quota ran out, so embedding is its own j
 saved and searchable by words first, and vectors follow. The job is safe to repeat: it only does
 passages that have no vector yet (or one from a different model), saves after every batch, and an
 hourly check in the worker queues it again for anything left over, so a quota that ran out mends
-itself and documents read before this was switched on are caught up."""
+itself and documents read before this was switched on are caught up.
+
+The same job gives the version's knowledge cards (Phase 8e) their vectors, so they can be found by
+meaning too: the summarising job queues it again once the cards are saved."""
 
 import asyncio
 import logging
@@ -13,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Protocol
 
-from sqlalchemy import ColumnElement, and_, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, func, or_, select, union, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -30,6 +33,7 @@ from app.modules.documents.models import (
     STATUS_READY,
     DocumentChunk,
     DocumentVersion,
+    KnowledgeCard,
 )
 from app.modules.documents.service import record_event
 from app.modules.jobs.models import STATUS_DONE, STATUS_PENDING, STATUS_RUNNING, Job
@@ -80,11 +84,13 @@ def embeddings_available(settings: Settings) -> bool:
     return settings.documents_embeddings_enabled and bool(settings.gemini_api_key)
 
 
-def needs_vector(model: str) -> ColumnElement[bool]:
+def needs_vector(
+    model: str, table: type[DocumentChunk] | type[KnowledgeCard] = DocumentChunk
+) -> ColumnElement[bool]:
     return or_(
-        DocumentChunk.embedding.is_(None),
-        DocumentChunk.embedding_model.is_(None),
-        DocumentChunk.embedding_model != model,
+        table.embedding.is_(None),
+        table.embedding_model.is_(None),
+        table.embedding_model != model,
     )
 
 
@@ -116,13 +122,23 @@ async def process_embed_document_job(
         return {"skipped": "meaning search is switched off or has no Gemini key"}
 
     model = settings.documents_embedding_model
-    pending = (
+    passages = (
         await session.execute(
             select(DocumentChunk.id, DocumentChunk.text)
             .where(DocumentChunk.version_id == version_id, needs_vector(model))
             .order_by(DocumentChunk.ordinal)
         )
     ).all()
+    cards = (
+        await session.execute(
+            select(KnowledgeCard.id, KnowledgeCard.statement)
+            .where(KnowledgeCard.version_id == version_id, needs_vector(model, KnowledgeCard))
+            .order_by(KnowledgeCard.position)
+        )
+    ).all()
+    pending: list[tuple[Any, uuid.UUID, str]] = [
+        (DocumentChunk, item_id, text) for item_id, text in passages
+    ] + [(KnowledgeCard, item_id, text) for item_id, text in cards]
     if not pending:
         return {"embedded": 0, "left": 0}
 
@@ -136,13 +152,13 @@ async def process_embed_document_job(
             batch = pending[start : start + batch_size]
             result = await _embed_batch(
                 embedder,
-                [text for _, text in batch],
+                [text for _, _, text in batch],
                 settings.documents_embedding_rate_wait_seconds,
             )
-            for (chunk_id, _), vector in zip(batch, result.vectors, strict=True):
+            for (table, item_id, _), vector in zip(batch, result.vectors, strict=True):
                 await session.execute(
-                    update(DocumentChunk)
-                    .where(DocumentChunk.id == chunk_id)
+                    update(table)
+                    .where(table.id == item_id)
                     .values(embedding=vector, embedding_model=result.model)
                 )
             done += len(batch)
@@ -156,34 +172,38 @@ async def process_embed_document_job(
                 session,
                 version,
                 "embed",
-                f"Indexed {done} of {total} passages; {total - done} left ({exc})",
+                f"Indexed {done} of {total} passages and cards; {total - done} left ({exc})",
                 EVENT_WARNING,
             )
             await session.commit()
         raise
-    await record_event(
-        session, version, "embed", f"Indexed {done} passages for meaning search", EVENT_OK
-    )
+    what = f"{len(passages)} passages" if passages else ""
+    if cards:
+        what += (" and " if what else "") + f"{len(cards)} knowledge cards"
+    await record_event(session, version, "embed", f"Indexed {what} for meaning search", EVENT_OK)
     await session.commit()
     return {"embedded": done, "left": 0}
 
 
 async def queue_missing_embeddings(session: AsyncSession) -> int:
-    """Queues an embed job for each current version that has passages without a vector, unless one
-    is already waiting or running, or a recent attempt failed. Called by the worker every hour."""
+    """Queues an embed job for each current version that has passages or cards without a vector,
+    unless one is already waiting or running, or a recent attempt failed. Called by the worker
+    every hour."""
     settings = get_settings()
     if not embeddings_available(settings):
         return 0
+    model = settings.documents_embedding_model
+    current = and_(DocumentVersion.is_current, DocumentVersion.status == STATUS_READY)
     versions = (
         await session.execute(
-            select(DocumentVersion.id, DocumentVersion.organization_id)
-            .join(DocumentChunk, DocumentChunk.version_id == DocumentVersion.id)
-            .where(
-                DocumentVersion.is_current,
-                DocumentVersion.status == STATUS_READY,
-                needs_vector(settings.documents_embedding_model),
+            union(
+                select(DocumentVersion.id, DocumentVersion.organization_id)
+                .join(DocumentChunk, DocumentChunk.version_id == DocumentVersion.id)
+                .where(current, needs_vector(model)),
+                select(DocumentVersion.id, DocumentVersion.organization_id)
+                .join(KnowledgeCard, KnowledgeCard.version_id == DocumentVersion.id)
+                .where(current, needs_vector(model, KnowledgeCard)),
             )
-            .group_by(DocumentVersion.id, DocumentVersion.organization_id)
         )
     ).all()
     cutoff = datetime.now(UTC) - _RETRY_AFTER

@@ -29,6 +29,7 @@ from app.modules.offerings.models import (
     CHANGE_CHANGED,
     CHANGE_NEW,
     CHANGE_REMOVED,
+    LANE_DOCUMENT,
     LANE_EXTRA,
     LANE_MENU,
     LANE_POST,
@@ -246,7 +247,11 @@ async def run_sync(
     proposals = (
         (
             await session.execute(
-                select(OfferingProposal).where(OfferingProposal.organization_id == organization_id)
+                # Proposals drawn from our documents are not the website's to manage.
+                select(OfferingProposal).where(
+                    OfferingProposal.organization_id == organization_id,
+                    OfferingProposal.origin != LANE_DOCUMENT,
+                )
             )
         )
         .scalars()

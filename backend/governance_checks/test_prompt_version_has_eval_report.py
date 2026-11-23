@@ -35,6 +35,7 @@ MEASURED = {
     "modules/opportunity/prompts.py": "opportunity_assessment",
     "modules/opportunity/fit.py": "offering_fit",
     "modules/opportunity/area_prompts.py": "area_suggestion",
+    "modules/documents/card_prompts.py": "knowledge_cards",
     "modules/opportunity/relevance.py": "contact_relevance",
     "modules/role_relevance/prompts.py": "role_relevance",
 }
@@ -53,6 +54,7 @@ AWAITING_FIRST_REPORT = {
     "opportunity_assessment": "run it once with real models and commit the report",
     "contact_relevance": "run it once with real models and commit the report",
     "role_relevance": "run it once with real models and commit the report",
+    "knowledge_cards": "new in Phase 8e: run it once with real models and commit the report",
 }
 
 _VERSION = re.compile(r'^[A-Z_]*PROMPT_VERSION = "', re.MULTILINE)

@@ -68,13 +68,58 @@ class DocumentOut(BaseModel):
     can_reprocess: bool
     # Set on the response to an upload: the background job that is reading the file.
     job_id: uuid.UUID | None = None
+    # Phase 8e, for the version in use (else the newest): the model-written summary of the whole
+    # document, and how many knowledge cards it has that are not hidden.
+    summary: str | None = None
+    card_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class SummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    scope: str  # document | section
+    position: int
+    locator: str
+    text: str
+
+
+class KnowledgeCardOut(BaseModel):
+    """One knowledge card: a short fact a model pulled from the document, the passage it came
+    from, and who wrote it."""
+
+    id: uuid.UUID
+    kind: str
+    statement: str
+    quote: str
+    client: str | None
+    industry: str | None
+    offering: OfferingRef | None
+    confidence: str
+    hidden: bool
+    locator: str  # where its source passage is ("Slide 4")
+    chunk_id: uuid.UUID
+    model_used: str | None
+    prompt_version: str | None
 
 
 class DocumentDetail(DocumentOut):
     versions: list[VersionOut]
     events: list[EventOut]
+    # Phase 8e: the section summaries and every card (hidden ones too, marked), and who wrote them.
+    sections: list[SummaryOut] = []
+    cards: list[KnowledgeCardOut] = []
+    summary_model: str | None = None
+    summary_prompt_version: str | None = None
+    summary_cost_usd: float | None = None
+    summarised_at: datetime | None = None
+    # A summary can be asked for again (summaries are switched on and the version is read).
+    can_summarise: bool = False
+
+
+class CardUpdate(BaseModel):
+    hidden: bool
 
 
 class PageOut(BaseModel):
@@ -121,6 +166,8 @@ class DocumentsStatus(BaseModel):
     vision_enabled: bool
     # Passages are indexed by meaning as well as by words (needs the setting and a Gemini key).
     meaning_search_enabled: bool
+    # Documents are summarised and knowledge cards drawn from them (setting and Gemini key).
+    cards_enabled: bool = False
 
 
 class SearchHitOut(BaseModel):

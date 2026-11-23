@@ -57,6 +57,27 @@ EVENT_STATUSES = (EVENT_OK, EVENT_WARNING, EVENT_ERROR)
 
 EMBEDDING_DIMENSIONS = 768
 
+# Phase 8e: what a model wrote about a document. A summary covers the whole document or one
+# section of it; a knowledge card is one short fact, always tied to the passage it came from.
+SUMMARY_DOCUMENT = "document"
+SUMMARY_SECTION = "section"
+SUMMARY_SCOPES = (SUMMARY_DOCUMENT, SUMMARY_SECTION)
+CARD_CASE_STUDY = "case_study"  # work done for a named or described client
+CARD_CAPABILITY = "capability"  # what an offering does or how we deliver it
+CARD_RESULT = "result"  # a measured outcome, with its figure
+CARD_CLIENT = "client"  # a client we serve, with nothing more said
+CARD_CERTIFICATION = "certification"
+CARD_PARTNERSHIP = "partnership"
+CARD_KINDS = (
+    CARD_CASE_STUDY,
+    CARD_CAPABILITY,
+    CARD_RESULT,
+    CARD_CLIENT,
+    CARD_CERTIFICATION,
+    CARD_PARTNERSHIP,
+)
+CONFIDENCE_LEVELS = ("high", "medium", "low")
+
 
 def _in(column: str, values: tuple[str, ...]) -> str:
     return f"{column} IN ({', '.join(repr(v) for v in values)})"
@@ -272,12 +293,118 @@ class DocumentIngestionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class DocumentSummary(Base):
+    """A short summary of a version, written by a model: one for the whole document and one per
+    section (a run of pages or slides). Model-written, so it records which model and prompt wrote
+    it (G9); the whole-document row also carries what summarising the version cost."""
+
+    __tablename__ = "document_summaries"
+    __table_args__ = (
+        UniqueConstraint("version_id", "scope", "position"),
+        CheckConstraint(_in("scope", SUMMARY_SCOPES), name="scope"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), index=True
+    )
+    scope: Mapped[str] = mapped_column(String(10))
+    position: Mapped[int] = mapped_column(Integer)  # 0 for the document, 1.. for sections
+    locator: Mapped[str] = mapped_column(String(80))  # "Slides 1-6", or the file's page range
+    text: Mapped[str] = mapped_column(Text)
+    model_used: Mapped[str | None] = mapped_column(String(60))
+    prompt_version: Mapped[str | None] = mapped_column(String(20))
+    # On the document row only: the estimated cost of every model call that summarised the version.
+    est_cost_usd: Mapped[float | None] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class KnowledgeCard(Base):
+    """One short fact a model pulled from a document ("Moved 40 plants to Azure for a car maker"),
+    tied to the passage it came from and to a verbatim quote that code checked is in it. Cards are
+    what the flows see first from our documents: shorter and sharper than whole passages.
+
+    The client, industry and offering columns are kept so a graph of who-we-did-what-for can be
+    built later without reading the cards again. A wrong card is hidden by a person, never edited:
+    its words stay the model's own (G9)."""
+
+    __tablename__ = "knowledge_cards"
+    __table_args__ = (
+        UniqueConstraint("version_id", "position"),
+        CheckConstraint(_in("kind", CARD_KINDS), name="kind"),
+        CheckConstraint(_in("confidence", CONFIDENCE_LEVELS), name="confidence"),
+        Index("ix_knowledge_cards_tsv", "tsv", postgresql_using="gin"),
+        Index(
+            "ix_knowledge_cards_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)
+    organization_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("organizations.id"), index=True)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_versions.id", ondelete="CASCADE"), index=True
+    )
+    # The passage the fact came from; the quote below is found in its text.
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("document_chunks.id", ondelete="CASCADE"), index=True
+    )
+    position: Mapped[int] = mapped_column(Integer)  # order within the version
+    kind: Mapped[str] = mapped_column(String(20))
+    statement: Mapped[str] = mapped_column(String(600))
+    quote: Mapped[str] = mapped_column(Text)
+    # Only when the passage names them; never guessed.
+    client: Mapped[str | None] = mapped_column(String(255))
+    industry: Mapped[str | None] = mapped_column(String(120))
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("products.id", ondelete="SET NULL"), index=True
+    )
+    confidence: Mapped[str] = mapped_column(String(10))
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    model_used: Mapped[str | None] = mapped_column(String(60))
+    prompt_version: Mapped[str | None] = mapped_column(String(20))
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
+    embedding_model: Mapped[str | None] = mapped_column(String(60))
+    tsv: Mapped[str | None] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('english', statement || ' ' || coalesce(client, '') || ' ' || "
+            "coalesce(industry, ''))",
+            persisted=True,
+        ),
+        deferred=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 AUDIT_UPLOADED = "uploaded"
 AUDIT_NEW_VERSION = "new_version"
 AUDIT_READ_AGAIN = "read_again"
 AUDIT_RENAMED = "renamed"
 AUDIT_DELETED = "deleted"
-AUDIT_ACTIONS = (AUDIT_UPLOADED, AUDIT_NEW_VERSION, AUDIT_READ_AGAIN, AUDIT_RENAMED, AUDIT_DELETED)
+# Phase 8e: a person hid a knowledge card (or showed it again), or asked for a new summary.
+AUDIT_CARD_HIDDEN = "card_hidden"
+AUDIT_CARD_SHOWN = "card_shown"
+AUDIT_SUMMARISE = "summarise"
+AUDIT_ACTIONS = (
+    AUDIT_UPLOADED,
+    AUDIT_NEW_VERSION,
+    AUDIT_READ_AGAIN,
+    AUDIT_RENAMED,
+    AUDIT_DELETED,
+    AUDIT_CARD_HIDDEN,
+    AUDIT_CARD_SHOWN,
+    AUDIT_SUMMARISE,
+)
 
 
 class DocumentAudit(Base):

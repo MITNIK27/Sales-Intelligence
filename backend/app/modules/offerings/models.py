@@ -22,6 +22,9 @@ LANE_EXTRA = "extra"
 LANE_POST = "post"
 # A link the company's own website menu names that the catalogue does not cover yet.
 LANE_MENU = "menu"
+# Not from the website at all: a better description for a live offering, drawn from the knowledge
+# cards of our own documents (Phase 8e). Approving one changes the description only.
+LANE_DOCUMENT = "document"
 
 # What the importer concluded about a page, remembered so it is not judged again until it changes.
 VERDICT_OFFERING = "offering"
@@ -60,6 +63,11 @@ class OfferingProposal(Base, TimestampMixin):
     # for proposals made before this was kept.
     model_used: Mapped[str | None] = mapped_column(String(50))
     prompt_version: Mapped[str | None] = mapped_column(String(20))
+    # For origin "document": the document whose cards the new description was drawn from. Kept
+    # empty (not deleted) if that document is deleted later, so a decided proposal keeps its record.
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
 
 
 class OfferingPage(Base, TimestampMixin):

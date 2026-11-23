@@ -17,6 +17,8 @@ from app.core.config import Settings, get_settings
 from app.modules.documents.chunking import ChunkConfig
 from app.modules.documents.detect import detect_media_type
 from app.modules.documents.models import (
+    AUDIT_CARD_HIDDEN,
+    AUDIT_CARD_SHOWN,
     AUDIT_DELETED,
     AUDIT_NEW_VERSION,
     AUDIT_READ_AGAIN,
@@ -27,6 +29,8 @@ from app.modules.documents.models import (
     STATUS_PROCESSING,
     STATUS_QUEUED,
     STATUS_READY,
+    SUMMARY_DOCUMENT,
+    SUMMARY_SECTION,
     Document,
     DocumentAsset,
     DocumentAudit,
@@ -34,8 +38,10 @@ from app.modules.documents.models import (
     DocumentIngestionEvent,
     DocumentOffering,
     DocumentPage,
+    DocumentSummary,
     DocumentUpload,
     DocumentVersion,
+    KnowledgeCard,
 )
 from app.modules.documents.reading import DocumentReadError, ReaderConfig
 from app.modules.documents.schemas import (
@@ -45,8 +51,10 @@ from app.modules.documents.schemas import (
     DocumentOut,
     DocumentPages,
     EventOut,
+    KnowledgeCardOut,
     OfferingRef,
     PageOut,
+    SummaryOut,
     VersionOut,
 )
 from app.modules.jobs.models import Job
@@ -80,6 +88,15 @@ class UnknownOfferingError(ValueError):
 
 class CannotReprocessError(ValueError):
     """There is nothing to run again: the file is no longer held, or it is being read now."""
+
+
+class CardNotFoundError(LookupError):
+    """No such knowledge card in that document."""
+
+
+def cards_available(settings: Settings) -> bool:
+    """Documents are summarised and knowledge cards drawn from them (Phase 8e)."""
+    return settings.documents_cards_enabled and bool(settings.gemini_api_key)
 
 
 def reader_config(settings: Settings, *, collect_images: bool) -> ReaderConfig:
@@ -424,6 +441,31 @@ async def _summaries(
         offerings[document_id].append(OfferingRef(id=product_id, name=name))
 
     newest_ids = [vs[-1].id for vs in versions.values()]
+    # The summary and cards shown are those of the version in use, else of the newest one.
+    shown_ids = [_shown(vs).id for vs in versions.values()]
+    summaries: dict[uuid.UUID, str] = dict(
+        (
+            await session.execute(
+                select(DocumentSummary.version_id, DocumentSummary.text).where(
+                    DocumentSummary.version_id.in_(shown_ids),
+                    DocumentSummary.scope == SUMMARY_DOCUMENT,
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    card_counts: dict[uuid.UUID, int] = dict(
+        (
+            await session.execute(
+                select(KnowledgeCard.version_id, func.count())
+                .where(KnowledgeCard.version_id.in_(shown_ids), ~KnowledgeCard.hidden)
+                .group_by(KnowledgeCard.version_id)
+            )
+        )
+        .tuples()
+        .all()
+    )
     counts: dict[uuid.UUID, AssetCounts] = defaultdict(AssetCounts)
     for version_id, status, n in (
         await session.execute(
@@ -461,6 +503,7 @@ async def _summaries(
     for document in documents:
         vs = versions[document.id]
         newest = vs[-1]
+        shown = _shown(vs)
         out.append(
             DocumentOut(
                 id=document.id,
@@ -479,11 +522,18 @@ async def _summaries(
                 offerings=offerings[document.id],
                 assets=counts[newest.id],
                 can_reprocess=newest.id in held and newest.status in (STATUS_FAILED, STATUS_READY),
+                summary=summaries.get(shown.id),
+                card_count=card_counts.get(shown.id, 0),
                 created_at=document.created_at,
                 updated_at=document.updated_at,
             )
         )
     return out
+
+
+def _shown(versions: list[DocumentVersion]) -> DocumentVersion:
+    """The version whose summary and cards are shown: the one in use, else the newest."""
+    return next((v for v in versions if v.is_current), versions[-1])
 
 
 async def list_documents(session: AsyncSession, organization_id: uuid.UUID) -> list[DocumentOut]:
@@ -529,11 +579,92 @@ async def get_document(
         .scalars()
         .all()
     )
+    shown = _shown(list(reversed(versions)))
+    written = list(
+        (
+            await session.execute(
+                select(DocumentSummary)
+                .where(DocumentSummary.version_id == shown.id)
+                .order_by(DocumentSummary.scope, DocumentSummary.position)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    overall = next((s for s in written if s.scope == SUMMARY_DOCUMENT), None)
     return DocumentDetail(
         **summary.model_dump(),
         versions=[VersionOut.model_validate(v) for v in versions],
         events=[EventOut.model_validate(e) for e in events],
+        sections=[SummaryOut.model_validate(s) for s in written if s.scope == SUMMARY_SECTION],
+        cards=await _cards(session, shown.id),
+        summary_model=overall.model_used if overall else None,
+        summary_prompt_version=overall.prompt_version if overall else None,
+        summary_cost_usd=overall.est_cost_usd if overall else None,
+        summarised_at=overall.created_at if overall else None,
+        can_summarise=cards_available(get_settings())
+        and shown.status == STATUS_READY
+        and shown.chunk_count > 0,
     )
+
+
+async def _cards(
+    session: AsyncSession, version_id: uuid.UUID, card_id: uuid.UUID | None = None
+) -> list[KnowledgeCardOut]:
+    stmt = (
+        select(KnowledgeCard, DocumentChunk.locator, Product.id, Product.name)
+        .join(DocumentChunk, DocumentChunk.id == KnowledgeCard.chunk_id)
+        .outerjoin(Product, Product.id == KnowledgeCard.product_id)
+        .where(KnowledgeCard.version_id == version_id)
+        .order_by(KnowledgeCard.position)
+    )
+    if card_id is not None:
+        stmt = stmt.where(KnowledgeCard.id == card_id)
+    return [
+        KnowledgeCardOut(
+            id=card.id,
+            kind=card.kind,
+            statement=card.statement,
+            quote=card.quote,
+            client=card.client,
+            industry=card.industry,
+            offering=OfferingRef(id=product_id, name=name) if product_id else None,
+            confidence=card.confidence,
+            hidden=card.hidden,
+            locator=locator,
+            chunk_id=card.chunk_id,
+            model_used=card.model_used,
+            prompt_version=card.prompt_version,
+        )
+        for card, locator, product_id, name in (await session.execute(stmt)).all()
+    ]
+
+
+async def set_card_hidden(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    document_id: uuid.UUID,
+    card_id: uuid.UUID,
+    hidden: bool,
+) -> KnowledgeCardOut:
+    """Hides a wrong card from every flow (or shows it again). The card itself is never edited:
+    its words stay the model's own. Recorded in the library history."""
+    document = await _document(session, organization_id, document_id)
+    card = await session.get(KnowledgeCard, card_id)
+    if card is None or card.document_id != document_id:
+        raise CardNotFoundError(f"card {card_id} is not in document {document_id}")
+    if card.hidden != hidden:
+        card.hidden = hidden
+        await record_audit(
+            session,
+            organization_id,
+            document,
+            AUDIT_CARD_HIDDEN if hidden else AUDIT_CARD_SHOWN,
+            card.statement,
+        )
+        await session.flush()
+    (out,) = await _cards(session, card.version_id, card.id)
+    return out
 
 
 async def get_pages(

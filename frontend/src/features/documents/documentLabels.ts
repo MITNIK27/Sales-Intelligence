@@ -3,6 +3,8 @@ import type {
   DocumentEvent,
   DocumentMediaType,
   DocumentStatus,
+  KnowledgeCardInfo,
+  KnowledgeCardKind,
   LibraryDocument,
 } from "@/api/types";
 import { formatNumber, plural } from "@/lib/format";
@@ -117,7 +119,9 @@ const STEP_LABEL: Record<string, string> = {
   read: "Reading",
   describe: "Pictures",
   chunk: "Passages",
+  embed: "Indexing",
   done: "Finished",
+  summarise: "Summary",
   failed: "Failed",
 };
 
@@ -169,4 +173,47 @@ export function libraryOrder(docs: LibraryDocument[]): LibraryDocument[] {
 export function defaultName(filename: string): string {
   const stem = filename.trim().replace(/\.[A-Za-z0-9]{1,8}$/, "");
   return stem.replace(/[_\s]+/g, " ").trim() || "Untitled document";
+}
+
+// Knowledge cards (Phase 8e): short facts a model drew from a document.
+export const CARD_KIND_LABEL: Record<KnowledgeCardKind, string> = {
+  case_study: "Case study",
+  capability: "Capability",
+  result: "Result",
+  client: "Client",
+  certification: "Certification",
+  partnership: "Partnership",
+};
+
+export const CONFIDENCE_LABEL: Record<KnowledgeCardInfo["confidence"], string> =
+  {
+    high: "Stated plainly",
+    medium: "Read between the lines",
+    low: "Unsure",
+  };
+
+// "3 knowledge cards" in the library list; nothing when there are none.
+export function cardsSummary(
+  doc: Pick<LibraryDocument, "card_count">,
+): string | null {
+  const count = doc.card_count ?? 0;
+  if (count === 0) return null;
+  return `${formatNumber(count)} knowledge ${plural(count, "card")}`;
+}
+
+// "Written by gemini-flash-lite-latest (cards v1) · about $0.0021", for the summary.
+export function summaryWrittenBy(detail: {
+  summary_model?: string | null;
+  summary_prompt_version?: string | null;
+  summary_cost_usd?: number | null;
+}): string | null {
+  if (!detail.summary_model) return null;
+  const prompt = detail.summary_prompt_version
+    ? ` (cards ${detail.summary_prompt_version})`
+    : "";
+  const cost =
+    typeof detail.summary_cost_usd === "number"
+      ? ` · about $${detail.summary_cost_usd.toFixed(4)}`
+      : "";
+  return `Written by ${detail.summary_model}${prompt}${cost}`;
 }

@@ -78,6 +78,8 @@ KEEP_TABLES = (
     "document_offerings",
     "document_ingestion_events",
     "document_audit",
+    "document_summaries",
+    "knowledge_cards",
 )
 
 

@@ -33,11 +33,12 @@ import {
   writtenBy,
 } from "@/features/documents/documentLabels";
 import { DocumentText } from "@/features/documents/DocumentText";
+import { SummaryTab } from "@/features/documents/KnowledgeCards";
 import { useDocumentDetail } from "@/features/documents/useDocuments";
 import { timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-type TabId = "read" | "pictures" | "versions" | "activity";
+type TabId = "summary" | "read" | "pictures" | "versions" | "activity";
 
 // One document in a window over the library, so the list behind keeps its place. Shows what the
 // app actually read (page by page), which words a model wrote, every version, and what happened
@@ -86,7 +87,8 @@ function DocumentDetailContent({
 }) {
   const { detail, pages, error, reload, showMore } =
     useDocumentDetail(documentId);
-  const [tab, setTab] = useState<TabId>("read");
+  // Opens on the summary when there is one, else on what was read; a click then decides.
+  const [chosenTab, setTab] = useState<TabId | null>(null);
   const [name, setName] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
@@ -107,12 +109,18 @@ function DocumentDetailContent({
   }
 
   const hasPictures = (pages?.assets.length ?? 0) > 0;
+  const showSummary =
+    Boolean(detail?.summary) || Boolean(detail?.can_summarise);
   const tabs: { id: TabId; label: string }[] = [
+    ...(showSummary
+      ? [{ id: "summary" as const, label: "Summary and cards" }]
+      : []),
     { id: "read", label: "What was read" },
     ...(hasPictures ? [{ id: "pictures" as const, label: "Pictures" }] : []),
     { id: "versions", label: "Versions" },
     { id: "activity", label: "Activity" },
   ];
+  const tab: TabId = chosenTab ?? (detail?.summary ? "summary" : "read");
 
   return (
     <DialogContent className="overflow-hidden">
@@ -280,6 +288,25 @@ function DocumentDetailContent({
                 onChange={setTab}
                 label="Document details"
               />
+              {tab === "summary" && (
+                <SummaryTab
+                  detail={detail}
+                  working={working}
+                  onRefresh={() => void reload()}
+                  onSummarise={() =>
+                    void act(() =>
+                      apiPost(`/documents/${documentId}/summarise`),
+                    )
+                  }
+                  onHide={(card, hidden) =>
+                    void act(() =>
+                      apiPatch(`/documents/${documentId}/cards/${card.id}`, {
+                        hidden,
+                      }),
+                    )
+                  }
+                />
+              )}
               {tab === "read" && (
                 <ReadTab detail={detail} pages={pages} onShowMore={showMore} />
               )}

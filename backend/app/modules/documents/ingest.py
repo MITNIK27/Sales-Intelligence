@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.core.config import Settings, get_settings
+from app.modules.documents.cards import queue_summary
 from app.modules.documents.chunking import chunk_units
 from app.modules.documents.embedding import queue_embedding
 from app.modules.documents.models import (
@@ -34,6 +35,7 @@ from app.modules.documents.models import (
     DocumentAsset,
     DocumentChunk,
     DocumentPage,
+    DocumentSummary,
     DocumentUpload,
     DocumentVersion,
 )
@@ -217,7 +219,8 @@ async def _run(
 
     # 4. save, and make this the version search uses
     await progress(3, 4, stage="save", detail="Saving")
-    for model in (DocumentPage, DocumentChunk, DocumentAsset):
+    # Knowledge cards go with the passages they came from (the database cascades them).
+    for model in (DocumentPage, DocumentChunk, DocumentAsset, DocumentSummary):
         await session.execute(delete(model).where(model.version_id == version_id))
     session.add_all(
         DocumentPage(
@@ -269,6 +272,7 @@ async def _run(
         f"{'' if parsed.page_count == 1 else 's'}",
     )
     await queue_embedding(session, organization_id, version_id)
+    await queue_summary(session, organization_id, version_id)
     await session.commit()
     await progress(4, 4, stage="done", detail="Ready")
     return {

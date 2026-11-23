@@ -1,6 +1,10 @@
 """The people side of the website sync: listing what it found, approving or rejecting each item,
 and the status of the sync itself. Approving is the only place a website offering is created,
-changed or archived."""
+changed or archived.
+
+Proposals drawn from our own documents (origin "document", Phase 8e) sit in the same list. Approving
+one changes the offering's description and nothing else: not its name, kind or status, and not the
+website fingerprint the sync compares pages against."""
 
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -15,6 +19,7 @@ from app.modules.offerings.models import (
     CHANGE_CHANGED,
     CHANGE_NEW,
     CHANGE_REMOVED,
+    LANE_DOCUMENT,
     PROPOSAL_APPROVED,
     PROPOSAL_PENDING,
     PROPOSAL_REJECTED,
@@ -113,7 +118,11 @@ async def approve_proposal(
         return proposal
     now = datetime.now(UTC)
 
-    if proposal.change == CHANGE_REMOVED:
+    if proposal.origin == LANE_DOCUMENT:
+        product = await session.get(Product, proposal.product_id) if proposal.product_id else None
+        if product is not None and product.organization_id == organization_id:
+            product.description = proposal.description
+    elif proposal.change == CHANGE_REMOVED:
         product = await session.get(Product, proposal.product_id) if proposal.product_id else None
         if product is not None:
             product.status = STATUS_ARCHIVED

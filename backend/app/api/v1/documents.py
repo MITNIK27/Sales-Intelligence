@@ -6,15 +6,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
-from app.modules.documents import retrieval, service
+from app.modules.documents import cards, retrieval, service
 from app.modules.documents.embedding import embeddings_available
 from app.modules.documents.reading import DocumentReadError
 from app.modules.documents.schemas import (
+    CardUpdate,
     DocumentDetail,
     DocumentOut,
     DocumentPages,
     DocumentsStatus,
     DocumentUpdate,
+    KnowledgeCardOut,
     OfferingRef,
     SearchHitOut,
     SearchOut,
@@ -33,6 +35,7 @@ async def documents_status() -> DocumentsStatus:
         accepted_extensions=service.ACCEPTED_EXTENSIONS,
         vision_enabled=settings.documents_vision_enabled and bool(settings.gemini_api_key),
         meaning_search_enabled=embeddings_available(settings),
+        cards_enabled=service.cards_available(settings),
     )
 
 
@@ -76,6 +79,8 @@ def _refusal(exc: Exception) -> HTTPException:
         )
     if isinstance(exc, service.DocumentNotFoundError):
         return HTTPException(status_code=404, detail="Document not found.")
+    if isinstance(exc, service.CardNotFoundError):
+        return HTTPException(status_code=404, detail="Card not found.")
     if isinstance(exc, service.CannotReprocessError):
         return HTTPException(status_code=409, detail=str(exc))
     return HTTPException(status_code=400, detail=str(exc))
@@ -87,6 +92,7 @@ _REFUSALS = (
     service.DocumentNotFoundError,
     service.CannotReprocessError,
     service.UnknownOfferingError,
+    service.CardNotFoundError,
 )
 
 
@@ -251,6 +257,39 @@ async def reprocess_document(
         raise _refusal(exc) from exc
     await session.commit()
     return queued
+
+
+@router.post("/{document_id}/summarise", response_model=DocumentDetail, status_code=202)
+async def summarise_document(
+    document_id: uuid.UUID, session: AsyncSession = Depends(get_db)
+) -> DocumentDetail:
+    """Writes the summary and knowledge cards of the version in use again, in the background."""
+    try:
+        job = await cards.summarise_again(session, DEFAULT_ORGANIZATION_ID, document_id)
+        detail = await service.get_document(session, DEFAULT_ORGANIZATION_ID, document_id)
+    except _REFUSALS as exc:
+        raise _refusal(exc) from exc
+    await session.commit()
+    detail.job_id = job.id
+    return detail
+
+
+@router.patch("/{document_id}/cards/{card_id}", response_model=KnowledgeCardOut)
+async def update_card(
+    document_id: uuid.UUID,
+    card_id: uuid.UUID,
+    body: CardUpdate,
+    session: AsyncSession = Depends(get_db),
+) -> KnowledgeCardOut:
+    """Hides a wrong card from every flow, or shows it again."""
+    try:
+        updated = await service.set_card_hidden(
+            session, DEFAULT_ORGANIZATION_ID, document_id, card_id, body.hidden
+        )
+    except _REFUSALS as exc:
+        raise _refusal(exc) from exc
+    await session.commit()
+    return updated
 
 
 @router.delete("/{document_id}", status_code=204)

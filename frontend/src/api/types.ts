@@ -611,6 +611,9 @@ export type KnowledgeRef = {
   version: number;
   locator: string;
   cited?: boolean;
+  // Set when the model was shown a knowledge card rather than a passage: the card's fact.
+  card_id?: string;
+  statement?: string;
 };
 
 export type BuyingRole =
@@ -683,13 +686,16 @@ export type OfferingProposal = {
     kind: ProductKind;
   } | null;
   // Which lane found it; blog-post finds ("post") are suggestions, not part of the main review.
-  origin: "site" | "extra" | "post" | "menu";
+  // "document": a better description drawn from our own documents; approving changes the text only.
+  origin: "site" | "extra" | "post" | "menu" | "document";
   // The start of the page the description was written from, for checking it on the spot.
   source_excerpt: string | null;
   // Anything in the description the page does not back up.
   grounding_flags: string[] | null;
   // A live offering or another waiting proposal this may be the same thing as.
   possible_duplicate: string | null;
+  // For origin "document": the document it was drawn from (null once that document is deleted).
+  document_id?: string | null;
 };
 
 export type OfferingPageVerdict = "offering" | "not_offering" | "failed";
@@ -1164,6 +1170,8 @@ export type DocumentsStatusInfo = {
   vision_enabled: boolean;
   // Passages are also found by meaning (needs the setting and a Gemini key), not only by words.
   meaning_search_enabled: boolean;
+  // Documents are summarised and knowledge cards drawn from them.
+  cards_enabled?: boolean;
 };
 
 export type LibraryDocument = {
@@ -1188,6 +1196,9 @@ export type LibraryDocument = {
   // The uploaded file is still held, so it can be read again without uploading.
   can_reprocess: boolean;
   job_id: string | null;
+  // The model-written summary of the version in use, and how many of its cards are not hidden.
+  summary?: string | null;
+  card_count?: number;
   created_at: string;
   updated_at: string;
 };
@@ -1215,9 +1226,49 @@ export type DocumentEvent = {
   created_at: string;
 };
 
+export type KnowledgeCardKind =
+  | "case_study"
+  | "capability"
+  | "result"
+  | "client"
+  | "certification"
+  | "partnership";
+
+// One short fact a model drew from a document, the passage it came from (`locator`) and the words
+// of that passage it was checked against (`quote`). A hidden card is kept out of every flow.
+export type KnowledgeCardInfo = {
+  id: string;
+  kind: KnowledgeCardKind;
+  statement: string;
+  quote: string;
+  client: string | null;
+  industry: string | null;
+  offering: { id: string; name: string } | null;
+  confidence: "high" | "medium" | "low";
+  hidden: boolean;
+  locator: string;
+  chunk_id: string;
+  model_used: string | null;
+  prompt_version: string | null;
+};
+
+export type DocumentSectionSummary = {
+  scope: "document" | "section";
+  position: number;
+  locator: string;
+  text: string;
+};
+
 export type DocumentDetailData = LibraryDocument & {
   versions: DocumentVersionInfo[];
   events: DocumentEvent[];
+  sections?: DocumentSectionSummary[];
+  cards?: KnowledgeCardInfo[];
+  summary_model?: string | null;
+  summary_prompt_version?: string | null;
+  summary_cost_usd?: number | null;
+  summarised_at?: string | null;
+  can_summarise?: boolean;
 };
 
 export type DocumentPageText = {

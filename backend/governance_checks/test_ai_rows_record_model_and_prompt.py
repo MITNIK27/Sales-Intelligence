@@ -5,7 +5,7 @@ gaps below are known, a new AI table with a gap fails, and a fixed gap must leav
 from sqlalchemy.orm import DeclarativeBase
 
 from app.modules.ai_recommendation.models import Recommendation
-from app.modules.documents.models import DocumentAsset
+from app.modules.documents.models import DocumentAsset, DocumentSummary, KnowledgeCard
 from app.modules.draft.models import Draft
 from app.modules.offerings.models import OfferingProposal
 from app.modules.opportunity.models import (
@@ -24,7 +24,9 @@ AI_TABLES: list[type[DeclarativeBase]] = [
     CompanySnapshot,
     ContactOpportunityRelevance,
     DocumentAsset,
+    DocumentSummary,
     Draft,
+    KnowledgeCard,
     OfferingProposal,
     OpportunityAssessment,
     OpportunityOfferingMatch,

@@ -50,6 +50,7 @@ def _to_out(
         source_excerpt=proposal.source_excerpt,
         grounding_flags=proposal.grounding_flags,
         possible_duplicate=duplicate,
+        document_id=proposal.document_id,
         current=(
             CurrentOffering(name=product.name, description=product.description, kind=product.kind)
             if product is not None

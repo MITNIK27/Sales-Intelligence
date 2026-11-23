@@ -25,6 +25,7 @@ import {
   STATUS_CLASS,
   STATUS_LABEL,
   TYPE_LABEL,
+  cardsSummary,
   contentSummary,
   fileSize,
   indexingSummary,
@@ -171,6 +172,7 @@ function Library({
         {documents.map((doc) => {
           const pictures = pictureSummary(doc.assets);
           const indexing = indexingSummary(doc, meaningSearch);
+          const cardCount = cardsSummary(doc);
           return (
             <TableRow
               key={doc.id}
@@ -192,6 +194,11 @@ function Library({
                   {TYPE_LABEL[doc.media_type]} · {fileSize(doc.size_bytes)}
                   {doc.version_count > 1 && ` · version ${doc.version}`}
                 </div>
+                {doc.summary && (
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {doc.summary}
+                  </p>
+                )}
                 {doc.status === "failed" && doc.error && (
                   <p className="mt-1 text-xs text-destructive">{doc.error}</p>
                 )}
@@ -232,6 +239,11 @@ function Library({
                 {indexing && (
                   <div className="text-xs text-muted-foreground">
                     {indexing}
+                  </div>
+                )}
+                {cardCount && (
+                  <div className="text-xs text-muted-foreground">
+                    {cardCount}
                   </div>
                 )}
               </TableCell>

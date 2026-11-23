@@ -24,7 +24,8 @@ class ProposalOut(BaseModel):
     product_id: uuid.UUID | None
     detected_at: datetime
     current: CurrentOffering | None = None
-    # "site" | "extra" | "post"; blog-post finds are suggestions.
+    # "site" | "extra" | "post" | "menu" | "document"; blog-post finds are suggestions, and
+    # "document" proposals are a better description drawn from our own documents.
     origin: str = "site"
     # The start of the page the description came from, and anything in the description the page
     # does not back up, so a reviewer can check it on the spot.
@@ -32,6 +33,8 @@ class ProposalOut(BaseModel):
     grounding_flags: list[str] | None = None
     # A live offering or another waiting proposal this may be the same thing as.
     possible_duplicate: str | None = None
+    # For origin "document": the document the description was drawn from (None once deleted).
+    document_id: uuid.UUID | None = None
 
 
 class ProposalList(BaseModel):

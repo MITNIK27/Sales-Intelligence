@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import { apiPost } from "@/api/client";
 import type { OfferingProposal, OfferingProposalChange } from "@/api/types";
@@ -250,7 +251,24 @@ function ProposalRow({
           <span className="text-xs text-muted-foreground">
             {KIND_LABEL[proposal.kind]}
           </span>
-          <WebsiteLink domain={proposal.source_url} className="text-xs" />
+          {proposal.origin === "document" ? (
+            <span className="bg-chip-info-bg px-2 py-0.5 text-xs font-medium text-chip-info-fg">
+              From our documents
+              {proposal.document_id && (
+                <>
+                  {" · "}
+                  <Link
+                    to={`/documents?document=${encodeURIComponent(proposal.document_id)}`}
+                    className="underline hover:text-primary-text"
+                  >
+                    open the document
+                  </Link>
+                </>
+              )}
+            </span>
+          ) : (
+            <WebsiteLink domain={proposal.source_url} className="text-xs" />
+          )}
           {proposal.possible_duplicate && (
             <span className="bg-chip-warning-bg px-2 py-0.5 text-xs font-medium text-chip-warning-fg">
               Possible duplicate of {proposal.possible_duplicate}
@@ -274,10 +292,13 @@ function ProposalRow({
         {proposal.source_excerpt && (
           <details className="mt-2 text-xs text-muted-foreground">
             <summary className="cursor-pointer text-primary-text hover:underline">
-              Compare with the page
+              {proposal.origin === "document"
+                ? "Why, and the facts it was drawn from"
+                : "Compare with the page"}
             </summary>
-            <p className="mt-1 border-l-2 border-border pl-3">
-              {proposal.source_excerpt}…
+            <p className="mt-1 whitespace-pre-line border-l-2 border-border pl-3">
+              {proposal.source_excerpt}
+              {proposal.origin === "document" ? "" : "…"}
             </p>
           </details>
         )}

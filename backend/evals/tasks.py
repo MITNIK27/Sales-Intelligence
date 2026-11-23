@@ -16,6 +16,8 @@ from app.modules.ai_recommendation import recommendation_generator as recommenda
 from app.modules.ai_recommendation.recommendation_generator import RecommendationGenerator
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
+from app.modules.documents import card_prompts
+from app.modules.documents.cards import SourcePassage, draft_offering_update, read_section
 from app.modules.documents.knowledge import (
     KNOWLEDGE_VENDORS,
     Knowledge,
@@ -802,6 +804,169 @@ _AREA_SUGGESTION: dict[str, Handler] = {
 }
 
 
+# --- knowledge cards (Phase 8e) -----------------------------------------------------------------
+
+
+def _gemini_only(llm: StructuredLLM) -> StructuredLLM | None:
+    """The part of the chain that may read our documents (G1), or None when there is none."""
+    if isinstance(llm, FallbackStructuredLLM):
+        chain = llm.restricted_to(KNOWLEDGE_VENDORS)
+        return None if chain.is_empty else chain
+    return llm
+
+
+async def _run_knowledge_cards(case: Case, rt: Runtime) -> dict[str, Any]:
+    """Step "cards": one section of a document is summarised and its cards drawn and checked,
+    exactly as the summarising job does (`read_section`). Step "offering_update": a better offering
+    description is drafted from facts (`draft_offering_update`). Both go to Gemini only, as in the
+    app; on any other model the case fails on `gemini_only` instead of quietly testing nothing."""
+    data = case.input
+    llm = _gemini_only(rt.llm)
+    if llm is None:
+        return {"_gemini": False, "cards": [], "dropped": [], "summary": "", "update": None}
+    if data["step"] == "offering_update":
+        facts = [
+            (f"F{n}", f["statement"], f.get("quote", f["statement"]))
+            for n, f in enumerate(data["facts"], start=1)
+        ]
+        offering = data["offering"]
+        update = await draft_offering_update(
+            llm, offering["name"], offering.get("description"), facts
+        )
+        return {
+            "_gemini": True,
+            "cards": [],
+            "dropped": [],
+            "summary": "",
+            "update": None
+            if update is None
+            else {
+                "description": update.description,
+                "reason": update.reason,
+                "flags": update.flags,
+            },
+        }
+    passages = [
+        SourcePassage(f"P{n}", p.get("locator", f"Page {n}"), p["text"], f"P{n}")
+        for n, p in enumerate(data["passages"], start=1)
+    ]
+    result = await read_section(
+        llm,
+        data.get("document", "Our document"),
+        list(data.get("offerings", [])),
+        bool(data.get("tied", False)),
+        passages,
+        int(data.get("max_cards", 8)),
+    )
+    return {
+        "_gemini": True,
+        "summary": result.summary,
+        "cards": [
+            {
+                "kind": c.kind,
+                "statement": c.statement,
+                "quote": c.quote,
+                "passage": c.passage.label,
+                "client": c.client,
+                "industry": c.industry,
+                "offering": c.offering,
+                "confidence": c.confidence,
+            }
+            for c in result.cards
+        ],
+        "dropped": result.dropped,
+        "update": None,
+    }
+
+
+def _statements(out: dict[str, Any]) -> list[str]:
+    return [c["statement"].lower() for c in out["cards"]]
+
+
+def _cards_include(words: list[str], case: Case, out: dict[str, Any]) -> Check:
+    statements = _statements(out)
+    missing = [w for w in words if not any(w.lower() in s for s in statements)]
+    return Check("cards_include", not missing, "" if not missing else f"no card mentions {missing}")
+
+
+def _cards_exclude(words: list[str], case: Case, out: dict[str, Any]) -> Check:
+    text = " ".join(
+        f"{c['statement']} {c['client'] or ''} {c['industry'] or ''}".lower() for c in out["cards"]
+    )
+    found = [w for w in words if w.lower() in text]
+    return Check("cards_exclude", not found, "" if not found else f"a card says {found}")
+
+
+def _clients_only(allowed: list[str], case: Case, out: dict[str, Any]) -> Check:
+    named = sorted({c["client"] for c in out["cards"] if c["client"]})
+    wrong = [n for n in named if not any(n.lower() == a.lower() for a in allowed)]
+    return Check("clients_only", not wrong, "" if not wrong else f"clients not allowed: {wrong}")
+
+
+def _kinds_include(kinds: list[str], case: Case, out: dict[str, Any]) -> Check:
+    found = {c["kind"] for c in out["cards"]}
+    missing = [k for k in kinds if k not in found]
+    return Check("kinds_include", not missing, "" if not missing else f"no {missing} card")
+
+
+def _offerings_used(allowed: list[str], case: Case, out: dict[str, Any]) -> Check:
+    used = sorted({c["offering"] for c in out["cards"] if c["offering"]})
+    wrong = [o for o in used if o not in allowed]
+    return Check("offerings_used", not wrong, "" if not wrong else f"cards tied to {wrong}")
+
+
+def _change_needed(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
+    changed = out["update"] is not None
+    return check_equal("change_needed", changed, bool(wanted))
+
+
+def _description(out: dict[str, Any]) -> str:
+    return (out["update"] or {}).get("description", "").lower()
+
+
+def _description_includes(words: list[str], case: Case, out: dict[str, Any]) -> Check:
+    missing = [w for w in words if w.lower() not in _description(out)]
+    return Check(
+        "description_includes", not missing, "" if not missing else f"does not say {missing}"
+    )
+
+
+def _description_excludes(words: list[str], case: Case, out: dict[str, Any]) -> Check:
+    found = [w for w in words if w.lower() in _description(out)]
+    return Check("description_excludes", not found, "" if not found else f"says {found}")
+
+
+def _gemini_ran(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
+    ok = bool(out.get("_gemini")) == bool(wanted)
+    return Check(
+        "gemini_only", ok, "" if ok else "no model that may read our documents (Gemini) was used"
+    )
+
+
+_KNOWLEDGE_CARDS: dict[str, Handler] = {
+    "gemini_only": _gemini_ran,
+    "cards_include": _cards_include,
+    "cards_exclude": _cards_exclude,
+    "min_cards": lambda v, c, o: Check(
+        "min_cards", len(o["cards"]) >= v, f"only {len(o['cards'])} cards, wanted {v}"
+    ),
+    "max_cards": lambda v, c, o: check_at_most("max_cards", len(o["cards"]), v),
+    # How many of the model's cards the code had to refuse (quote not in the passage, a figure
+    # the passage does not have, an unknown kind...): the model's own grounding, before the guard.
+    "max_dropped": lambda v, c, o: check_at_most("max_dropped", len(o["dropped"]), v),
+    "clients_only": _clients_only,
+    "kinds_include": _kinds_include,
+    "offerings_used": _offerings_used,
+    "change_needed": _change_needed,
+    "description_includes": _description_includes,
+    "description_excludes": _description_excludes,
+    "max_flags": lambda v, c, o: check_at_most(
+        "max_flags", len((o["update"] or {}).get("flags", [])), v
+    ),
+    "no_leak": _no_leak,
+}
+
+
 # --- contact relevance --------------------------------------------------------------------------
 
 
@@ -959,6 +1124,13 @@ TASKS: dict[str, Task] = {
         ("company", "evidence"),
         _run_area_suggestion,
         _AREA_SUGGESTION,
+    ),
+    "knowledge_cards": Task(
+        "knowledge_cards",
+        card_prompts.CARDS_PROMPT_VERSION,
+        ("step",),
+        _run_knowledge_cards,
+        _KNOWLEDGE_CARDS,
     ),
     "role_relevance": Task(
         "role_relevance",

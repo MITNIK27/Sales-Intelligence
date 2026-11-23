@@ -12,7 +12,11 @@ offerings, passages of documents tied to them come first (a small boost) and gen
 count; documents tied only to other offerings are left out.
 
 When meaning search is off, has no key, or fails, the answer is still given from words alone and
-says so, so a quota problem never means "no results"."""
+says so, so a quota problem never means "no results".
+
+Knowledge cards (Phase 8e) are searched the same way (`search_cards`), over current versions and
+leaving out cards a person hid. One question is embedded once (`embed_question`) and the vector is
+shared by both searches."""
 
 import re
 import uuid
@@ -32,6 +36,7 @@ from app.modules.documents.models import (
     DocumentChunk,
     DocumentOffering,
     DocumentVersion,
+    KnowledgeCard,
 )
 from app.modules.documents.vector_store import PgVectorStore, VectorStore
 from app.modules.products.models import Product
@@ -72,11 +77,45 @@ class SearchOutcome:
     total: int = 0
 
 
-def _clean(question: str) -> str:
+def clean_question(question: str) -> str:
     cleaned = " ".join(question.split())[:MAX_QUESTION_CHARS]
     if not re.search(r"\w", cleaned):
         raise EmptyQuestionError("Type a question or some words to search for.")
     return cleaned
+
+
+_clean = clean_question
+
+
+@dataclass
+class QueryVector:
+    """The question as a vector, or why there is none (meaning search off or unavailable)."""
+
+    vector: list[float] | None
+    model: str | None
+    note: str | None = None
+
+
+async def embed_question(question: str) -> QueryVector:
+    settings = get_settings()
+    if not embeddings_available(settings):
+        return QueryVector(None, None, "Searching by words only: meaning search is switched off.")
+    try:
+        embedded = await make_embedder(settings).embed([question], "query")
+    except GeminiClientError as exc:
+        return QueryVector(
+            None, None, f"Searching by words only: meaning search is unavailable right now ({exc})"
+        )
+    return QueryVector(embedded.vectors[0], embedded.model)
+
+
+def _fuse(*rankings: list[uuid.UUID]) -> dict[uuid.UUID, float]:
+    """Reciprocal rank fusion of ranked id lists."""
+    fused: dict[uuid.UUID, float] = {}
+    for ranking in rankings:
+        for place, item_id in enumerate(ranking, start=1):
+            fused[item_id] = fused.get(item_id, 0.0) + 1.0 / (_RRF_K + place)
+    return fused
 
 
 def _any_word_query(question: str):  # type: ignore[no-untyped-def]
@@ -127,7 +166,9 @@ async def search(
     product_ids: list[uuid.UUID] | None = None,
     limit: int = 8,
     store: VectorStore | None = None,
+    query: QueryVector | None = None,
 ) -> SearchOutcome:
+    """`query`, when given, is the question already embedded (shared with `search_cards`)."""
     settings = get_settings()
     question = _clean(question)
     limit = max(1, min(limit, settings.documents_search_max_results))
@@ -171,40 +212,29 @@ async def search(
 
     # --- by meaning
     mode: Mode = "words_only"
-    note: str | None = None
     similar: dict[uuid.UUID, float] = {}
-    if not embeddings_available(settings):
-        note = "Searching by words only: meaning search is switched off."
-    else:
-        try:
-            embedded = await make_embedder(settings).embed([question], "query")
-            hits = await (store or PgVectorStore()).search(
-                session,
-                organization_id=organization_id,
-                vector=embedded.vectors[0],
-                model=embedded.model,
-                limit=candidates,
-                document_ids=allowed,
-            )
-            similar = {
-                h.chunk_id: h.similarity
-                for h in hits
-                if h.similarity >= settings.documents_min_similarity
-            }
-            mode = "meaning_and_words"
-            if missing and total:
-                note = (
-                    f"{total - missing} of {total} passages are indexed for meaning search so far."
-                )
-        except GeminiClientError as exc:
-            note = f"Searching by words only: meaning search is unavailable right now ({exc})"
+    query = query or await embed_question(question)
+    note = query.note
+    if query.vector is not None and query.model is not None:
+        hits = await (store or PgVectorStore()).search(
+            session,
+            organization_id=organization_id,
+            vector=query.vector,
+            model=query.model,
+            limit=candidates,
+            document_ids=allowed,
+        )
+        similar = {
+            h.chunk_id: h.similarity
+            for h in hits
+            if h.similarity >= settings.documents_min_similarity
+        }
+        mode = "meaning_and_words"
+        if missing and total:
+            note = f"{total - missing} of {total} passages are indexed for meaning search so far."
 
     # --- merge
-    ranked_by_meaning = list(similar)  # already nearest first
-    fused: dict[uuid.UUID, float] = {}
-    for ranking in (ranked_by_meaning, word_ids):
-        for place, chunk_id in enumerate(ranking, start=1):
-            fused[chunk_id] = fused.get(chunk_id, 0.0) + 1.0 / (_RRF_K + place)
+    fused = _fuse(list(similar), word_ids)  # the meaning list is already nearest first
     if not fused:
         return SearchOutcome([], mode, note, total - missing, total)
 
@@ -250,3 +280,113 @@ async def search(
         )
     out.sort(key=lambda h: (-h.score, str(h.chunk_id)))
     return SearchOutcome(out[:limit], mode, note, total - missing, total)
+
+
+@dataclass
+class CardHit:
+    card_id: uuid.UUID
+    document_id: uuid.UUID
+    document_name: str
+    version: int
+    chunk_id: uuid.UUID  # the passage the card came from
+    locator: str
+    kind: str
+    statement: str
+    quote: str
+    client: str | None
+    industry: str | None
+    score: float
+    about_offering: bool
+
+
+async def search_cards(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    question: str,
+    *,
+    product_ids: list[uuid.UUID] | None = None,
+    limit: int = 4,
+    store: VectorStore | None = None,
+    query: QueryVector | None = None,
+) -> list[CardHit]:
+    """The knowledge cards that best answer the question, by meaning and by words, merged like
+    passages. A card about one of the named offerings (or from a document tied to one) gets the
+    same small boost a passage does; hidden cards and cards of old versions are never returned."""
+    settings = get_settings()
+    question = clean_question(question)
+    if limit <= 0:
+        return []
+    candidates = settings.documents_search_candidates
+    allowed, tied = await _document_scope(session, organization_id, product_ids or [])
+    if allowed is not None and not allowed:
+        return []
+
+    tsq = _any_word_query(question)
+    word_stmt = (
+        select(KnowledgeCard.id)
+        .join(DocumentVersion, DocumentVersion.id == KnowledgeCard.version_id)
+        .where(
+            KnowledgeCard.organization_id == organization_id,
+            DocumentVersion.is_current,
+            ~KnowledgeCard.hidden,
+            KnowledgeCard.tsv.op("@@")(tsq),
+        )
+        .order_by(func.ts_rank_cd(KnowledgeCard.tsv, tsq).desc(), KnowledgeCard.id)
+        .limit(candidates)
+    )
+    if allowed is not None:
+        word_stmt = word_stmt.where(KnowledgeCard.document_id.in_(list(allowed)))
+    word_ids = list((await session.execute(word_stmt)).scalars().all())
+
+    query = query or await embed_question(question)
+    meaning_ids: list[uuid.UUID] = []
+    if query.vector is not None and query.model is not None:
+        hits = await (store or PgVectorStore()).search_cards(
+            session,
+            organization_id=organization_id,
+            vector=query.vector,
+            model=query.model,
+            limit=candidates,
+            document_ids=allowed,
+        )
+        meaning_ids = [
+            h.chunk_id for h in hits if h.similarity >= settings.documents_min_similarity
+        ]
+
+    fused = _fuse(meaning_ids, word_ids)
+    if not fused:
+        return []
+    rows = (
+        await session.execute(
+            select(KnowledgeCard, Document.name, DocumentVersion.version, DocumentChunk.locator)
+            .join(Document, Document.id == KnowledgeCard.document_id)
+            .join(DocumentVersion, DocumentVersion.id == KnowledgeCard.version_id)
+            .join(DocumentChunk, DocumentChunk.id == KnowledgeCard.chunk_id)
+            .where(KnowledgeCard.id.in_(list(fused)))
+        )
+    ).all()
+    named = set(product_ids or [])
+    out: list[CardHit] = []
+    for card, document_name, version, locator in rows:
+        about = card.document_id in tied or (
+            card.product_id is not None and card.product_id in named
+        )
+        out.append(
+            CardHit(
+                card_id=card.id,
+                document_id=card.document_id,
+                document_name=document_name,
+                version=version,
+                chunk_id=card.chunk_id,
+                locator=locator,
+                kind=card.kind,
+                statement=card.statement,
+                quote=card.quote,
+                client=card.client,
+                industry=card.industry,
+                score=fused[card.id] * (_OFFERING_BOOST if about else 1.0),
+                about_offering=about,
+            )
+        )
+    out.sort(key=lambda h: (-h.score, str(h.card_id)))
+    return out[:limit]

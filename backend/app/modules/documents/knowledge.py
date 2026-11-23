@@ -13,7 +13,11 @@ A prompt that carries passages goes to Gemini only (docs/ai-governance.md, G1). 
 can answer, the same question is asked without the passages, so the flow never stops for them.
 
 Nothing here may break the flow that asked: with documents off, an empty library or a failed search,
-the answer is simply "no knowledge" and the prompt is the one it always was."""
+the answer is simply "no knowledge" and the prompt is the one it always was.
+
+Since Phase 8e the best matching knowledge cards come first (short facts, each with the verbatim
+quote it was checked against), then passages, within the same budget. A card cited by a model
+links back to the passage it came from."""
 
 import hashlib
 import logging
@@ -35,6 +39,7 @@ from app.modules.documents.models import (
     DocumentChunk,
     DocumentOffering,
     DocumentVersion,
+    KnowledgeCard,
 )
 from app.modules.llm.structured import FallbackStructuredLLM, LLMError, StructuredLLM
 from app.modules.llm.untrusted import wrap_untrusted
@@ -49,7 +54,9 @@ KNOWLEDGE_VENDORS = {"gemini"}
 
 @dataclass(frozen=True)
 class Passage:
-    """One passage to show a model, from the library or (in evals) written into a case."""
+    """One passage to show a model, from the library or (in evals) written into a case. A knowledge
+    card is shown as a passage too: `card_id` is set, `text` is its statement and `quote` the words
+    of the source passage it was checked against."""
 
     document_name: str
     locator: str
@@ -57,6 +64,8 @@ class Passage:
     chunk_id: str = ""
     document_id: str = ""
     version: int = 0
+    card_id: str = ""
+    quote: str = ""
 
 
 @dataclass
@@ -85,21 +94,29 @@ def pack(passages: Iterable[Passage], max_chars: int) -> Knowledge:
         if len(text) > _PER_PASSAGE_CHARS:
             text = text[:_PER_PASSAGE_CHARS].rsplit(" ", 1)[0] + " ..."
         label = f"K{len(refs) + 1}"
-        entry = f"[{label}] ({passage.document_name}, {passage.locator})\n{text}"
+        if passage.card_id:
+            quote = " ".join(passage.quote.split())
+            entry = (
+                f"[{label}] (a fact from {passage.document_name}, {passage.locator})\n{text}"
+                + (f'\nIts source says: "{quote}"' if quote else "")
+            )
+        else:
+            entry = f"[{label}] ({passage.document_name}, {passage.locator})\n{text}"
         if len(entry) > budget:
             break
         budget -= len(entry)
         parts.append(entry)
-        refs.append(
-            {
-                "label": label,
-                "chunk_id": passage.chunk_id,
-                "document_id": passage.document_id,
-                "document_name": passage.document_name,
-                "version": passage.version,
-                "locator": passage.locator,
-            }
-        )
+        ref: dict[str, Any] = {
+            "label": label,
+            "chunk_id": passage.chunk_id,
+            "document_id": passage.document_id,
+            "document_name": passage.document_name,
+            "version": passage.version,
+            "locator": passage.locator,
+        }
+        if passage.card_id:
+            ref |= {"card_id": passage.card_id, "statement": text}
+        refs.append(ref)
     if not refs:
         return Knowledge()
     return Knowledge(block=wrap_untrusted("\n\n".join(parts), "our documents"), refs=refs)
@@ -147,7 +164,30 @@ async def library_hash(
     ).all()
     if not rows:
         return None
-    text = "|".join(f"{d}:{v}:{n}" for d, v, n in rows)
+    # Knowledge cards change what the flows see too: hiding one, or new ones arriving, makes the
+    # results built from this library stale. A version with no cards adds nothing, so a library
+    # from before cards keeps its fingerprint.
+    cards = {
+        version_id: (n, indexed)
+        for version_id, n, indexed in (
+            await session.execute(
+                select(
+                    KnowledgeCard.version_id,
+                    func.count(KnowledgeCard.id),
+                    func.count(KnowledgeCard.embedding),
+                )
+                .where(
+                    KnowledgeCard.version_id.in_([v for _, v, _ in rows]),
+                    ~KnowledgeCard.hidden,
+                )
+                .group_by(KnowledgeCard.version_id)
+            )
+        ).all()
+    }
+    text = "|".join(
+        f"{d}:{v}:{n}" + (f":c{cards[v][0]}:{cards[v][1]}" if v in cards else "")
+        for d, v, n in rows
+    )
     return hashlib.sha256(text.encode()).hexdigest()
 
 
@@ -163,30 +203,52 @@ async def gather(
     if not settings.documents_enabled or settings.documents_knowledge_passages <= 0:
         return Knowledge()
     try:
+        question = retrieval.clean_question(question)
+        query = await retrieval.embed_question(question)
+        cards = await retrieval.search_cards(
+            session,
+            organization_id,
+            question,
+            product_ids=product_ids,
+            limit=settings.documents_knowledge_cards,
+            query=query,
+        )
         outcome = await retrieval.search(
             session,
             organization_id,
             question,
             product_ids=product_ids,
             limit=settings.documents_knowledge_passages,
+            query=query,
         )
     except Exception:  # noqa: BLE001 - knowledge is extra; the flow that asked must go on
         logger.warning("could not search the documents for a prompt", exc_info=True)
         return Knowledge()
-    return pack(
-        (
-            Passage(
-                document_name=hit.document_name,
-                locator=hit.locator,
-                text=hit.text,
-                chunk_id=str(hit.chunk_id),
-                document_id=str(hit.document_id),
-                version=hit.version,
-            )
-            for hit in outcome.hits
-        ),
-        settings.documents_knowledge_max_chars,
-    )
+    facts = [
+        Passage(
+            document_name=card.document_name,
+            locator=card.locator,
+            text=card.statement,
+            chunk_id=str(card.chunk_id),
+            document_id=str(card.document_id),
+            version=card.version,
+            card_id=str(card.card_id),
+            quote=card.quote,
+        )
+        for card in cards
+    ]
+    passages = [
+        Passage(
+            document_name=hit.document_name,
+            locator=hit.locator,
+            text=hit.text,
+            chunk_id=str(hit.chunk_id),
+            document_id=str(hit.document_id),
+            version=hit.version,
+        )
+        for hit in outcome.hits
+    ]
+    return pack(facts + passages, settings.documents_knowledge_max_chars)
 
 
 async def generate_with_knowledge[T: BaseModel](

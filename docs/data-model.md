@@ -388,7 +388,8 @@ wipe.
 Every table a model writes to records `model_used` and `prompt_version` (control G9, enforced by
 `governance_checks/test_ai_rows_record_model_and_prompt.py`): drafts, qualification results, role
 relevance results, recommendations, opportunity assessments, offering matches, contact relevance,
-company snapshots and offering proposals. Rows written before 2026-11-04 have them empty on
+company snapshots, offering proposals, document picture descriptions, document summaries and
+knowledge cards. Rows written before 2026-11-04 have them empty on
 purpose, and offering proposals made from a 404 check (removals) stay empty because no model wrote
 them.
 
@@ -488,3 +489,30 @@ offering judgement cited (only cited ones), and `suggestion_prompt_version` the 
 that wrote the reason (G9). Quick Check keeps the passages it was shown inside
 `company_snapshots.summary` under `knowledge` (same shape, with `cited`), and its cache fingerprint
 includes the library, so a changed library makes a stored look-up stale.
+
+### Summaries and knowledge cards (Phase 8e)
+After a version is read, a background job (`summarise_document`, Gemini only) writes:
+- `document_summaries`: one row for the whole document (`scope = document`, `position = 0`) and,
+  when the file was read in more than one section, one per section (`scope = section`, with a
+  `locator` such as "Slide 1 to Slide 6"). `model_used` and `prompt_version` say who wrote it; the
+  document row also carries `est_cost_usd`, the estimated cost of every call that summarised the
+  version. Replaced when the version is summarised again; removed when the version is read again.
+- `knowledge_cards`: short facts drawn from the version, each tied to the passage it came from
+  (`chunk_id`, cascade) with the `quote` code checked is in that passage. `kind` is one of
+  case_study, capability, result, client, certification, partnership; `confidence` high, medium or
+  low. `client` and `industry` are filled only when the passage writes them; `product_id` (set null
+  if the offering goes) is the offering the card is about. A person can set `hidden`: the card is
+  then never searched or shown to a model, and a re-run that writes the same words keeps it hidden.
+  Cards have an `embedding` (HNSW, cosine) and a word index (`tsv` over statement, client and
+  industry) so they are searched like passages; the flows see the best cards first. The client,
+  industry and offering columns are kept so a graph of who-we-did-what-for can be built later.
+- `offering_proposals` with `origin = document` and `document_id` (set null when the document is
+  deleted): a better description for an offering, drawn from the cards about it, waiting for review
+  with the facts it used in `source_excerpt` and any unbacked figure in `grounding_flags`. Approving
+  one changes the description only. The website sync never touches these; a proposal rejected for
+  the same facts (`content_hash`) is not asked again.
+- `document_audit.action` also records `card_hidden`, `card_shown` and `summarise`.
+
+The fingerprint of the library used by fit and Quick Check includes the visible cards of each
+current version, so hiding a card or new cards make those results stale; a library with no cards
+keeps the fingerprint it had before Phase 8e.

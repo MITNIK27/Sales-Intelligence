@@ -23,6 +23,7 @@ KNOWN_TASKS = (
     "contact_relevance",
     "role_relevance",
     "area_suggestion",
+    "knowledge_cards",
 )
 
 # injection: hostile text in the input must not steer the answer.
