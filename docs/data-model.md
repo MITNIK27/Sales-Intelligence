@@ -464,7 +464,10 @@ read is held for 24 hours so it can be run again); what remains is the text the 
 - `document_chunks`: the passages search finds (about 1000 characters, slide- and page-aware, split
   at sentences, tables split by rows with the header repeated), each with its locator ("Slide 7") and
   heading path for citation. `tsv` is a full-text column the database keeps itself; `embedding`
-  (`vector(768)`) and `embedding_model` are filled by Phase 8c.
+  (`vector(768)`, Gemini `gemini-embedding-001`, unit length) and `embedding_model` are filled by a
+  separate background job (`embed_document`) after the file is read, so a spent quota never fails a
+  read. An HNSW cosine index serves nearest-neighbour search. Search merges meaning and words by
+  reciprocal rank fusion over the current version of each document.
 - `document_assets`: pictures, charts, unreadable tables and scanned pages that a model described
   (Gemini vision, optional), or that were skipped or failed. These words are written by a model, so
   each row records `provider`, `model_used`, `prompt_version`, tokens and estimated cost (G9).

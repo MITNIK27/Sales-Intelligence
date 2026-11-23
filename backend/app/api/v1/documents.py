@@ -1,12 +1,13 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
-from app.modules.documents import service
+from app.modules.documents import retrieval, service
+from app.modules.documents.embedding import embeddings_available
 from app.modules.documents.reading import DocumentReadError
 from app.modules.documents.schemas import (
     DocumentDetail,
@@ -14,6 +15,9 @@ from app.modules.documents.schemas import (
     DocumentPages,
     DocumentsStatus,
     DocumentUpdate,
+    OfferingRef,
+    SearchHitOut,
+    SearchOut,
 )
 
 # Open even while documents are switched off, so the screen can say so instead of failing.
@@ -28,6 +32,7 @@ async def documents_status() -> DocumentsStatus:
         max_upload_mb=settings.documents_max_upload_mb,
         accepted_extensions=service.ACCEPTED_EXTENSIONS,
         vision_enabled=settings.documents_vision_enabled and bool(settings.gemini_api_key),
+        meaning_search_enabled=embeddings_available(settings),
     )
 
 
@@ -114,6 +119,50 @@ async def upload_document(
 @router.get("", response_model=list[DocumentOut])
 async def list_documents(session: AsyncSession = Depends(get_db)) -> list[DocumentOut]:
     return await service.list_documents(session, DEFAULT_ORGANIZATION_ID)
+
+
+# Declared before "/{document_id}" so "search" is not read as an id.
+@router.get("/search", response_model=SearchOut)
+async def search_documents(
+    q: str = Query(..., max_length=2000, description="A question or some words"),
+    product_id: list[uuid.UUID] = Query(default_factory=list),
+    limit: int = Query(8, ge=1, le=50),
+    session: AsyncSession = Depends(get_db),
+) -> SearchOut:
+    """Passages that answer the question, from the current version of each document, found by
+    meaning and by words and merged. Falls back to words alone (and says so) when meaning search
+    is off or unavailable."""
+    try:
+        outcome = await retrieval.search(
+            session, DEFAULT_ORGANIZATION_ID, q, product_ids=product_id, limit=limit
+        )
+    except retrieval.EmptyQuestionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await session.commit()  # the question's embedding call is recorded in the usage log
+    return SearchOut(
+        question=" ".join(q.split())[: retrieval.MAX_QUESTION_CHARS],
+        mode=outcome.mode,
+        note=outcome.note,
+        indexed_passages=outcome.indexed,
+        total_passages=outcome.total,
+        hits=[
+            SearchHitOut(
+                chunk_id=h.chunk_id,
+                document_id=h.document_id,
+                document_name=h.document_name,
+                version=h.version,
+                locator=h.locator,
+                heading_path=h.heading_path,
+                text=h.text,
+                offerings=[OfferingRef(id=i, name=n) for i, n in h.offerings],
+                score=round(h.score, 5),
+                similarity=None if h.similarity is None else round(h.similarity, 4),
+                word_match=h.word_match,
+                about_offering=h.about_offering,
+            )
+            for h in outcome.hits
+        ],
+    )
 
 
 @router.get("/{document_id}", response_model=DocumentDetail)

@@ -258,6 +258,17 @@ class Settings(BaseSettings):
     documents_vision_concurrency: int = 3
     documents_vision_min_px: int = 50  # smaller images are icons, not content
     documents_vision_max_banner_ratio: float = 5.0  # wider than this x its height is a banner
+    # Phase 8c: passages get a vector (Gemini embeddings) so search finds them by meaning as well
+    # as by words. Off by default: it spends Gemini quota. While off, search still works by words.
+    documents_embeddings_enabled: bool = False
+    documents_embedding_model: str = "gemini-embedding-001"
+    documents_embedding_batch: int = 20  # passages per request (free tier counts tokens per minute)
+    documents_embedding_rate_wait_seconds: int = 65  # pause after a per-minute limit, then retry
+    documents_search_candidates: int = 30  # taken from each of meaning and words before merging
+    documents_search_max_results: int = 20
+    # A passage found only by meaning is dropped when it is less similar to the question than this
+    # (0 to 1, cosine). 0 keeps everything. Not calibrated yet: see the scores in the search box.
+    documents_min_similarity: float = 0.0
 
 
 @lru_cache

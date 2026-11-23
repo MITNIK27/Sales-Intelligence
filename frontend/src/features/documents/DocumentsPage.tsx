@@ -18,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DocumentDetailDialog } from "@/features/documents/DocumentDetailDialog";
+import { SearchBox } from "@/features/documents/SearchBox";
 import { UploadZone } from "@/features/documents/UploadZone";
 import {
   STATUS_CLASS,
@@ -25,6 +26,7 @@ import {
   TYPE_LABEL,
   contentSummary,
   fileSize,
+  indexingSummary,
   libraryOrder,
   pictureSummary,
 } from "@/features/documents/documentLabels";
@@ -79,6 +81,14 @@ export function DocumentsPage() {
             onUploaded={() => void refresh()}
           />
 
+          {documents?.some((d) => d.is_searchable) && (
+            <SearchBox
+              status={status}
+              offeringOptions={options}
+              onOpen={setOpenId}
+            />
+          )}
+
           {rowError && (
             <p className="text-sm text-destructive" role="alert">
               {rowError}
@@ -101,6 +111,7 @@ export function DocumentsPage() {
             {documents && documents.length > 0 && (
               <Library
                 documents={libraryOrder(documents)}
+                meaningSearch={status.meaning_search_enabled}
                 onOpen={setOpenId}
                 onReadAgain={(id) => void readAgain(id)}
               />
@@ -121,10 +132,12 @@ export function DocumentsPage() {
 
 function Library({
   documents,
+  meaningSearch,
   onOpen,
   onReadAgain,
 }: {
   documents: LibraryDocument[];
+  meaningSearch: boolean;
   onOpen: (id: string) => void;
   onReadAgain: (id: string) => void;
 }) {
@@ -145,6 +158,7 @@ function Library({
       <TableBody>
         {documents.map((doc) => {
           const pictures = pictureSummary(doc.assets);
+          const indexing = indexingSummary(doc, meaningSearch);
           return (
             <TableRow
               key={doc.id}
@@ -201,6 +215,11 @@ function Library({
                 {pictures && (
                   <div className="text-xs text-muted-foreground">
                     {pictures}
+                  </div>
+                )}
+                {indexing && (
+                  <div className="text-xs text-muted-foreground">
+                    {indexing}
                   </div>
                 )}
               </TableCell>

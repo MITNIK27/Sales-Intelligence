@@ -30,6 +30,7 @@ from app.modules.documents.models import (
     Document,
     DocumentAsset,
     DocumentAudit,
+    DocumentChunk,
     DocumentIngestionEvent,
     DocumentOffering,
     DocumentPage,
@@ -432,6 +433,20 @@ async def _summaries(
         )
     ).all():
         setattr(counts[version_id], status, n)
+    indexed: dict[uuid.UUID, int] = dict(
+        (
+            await session.execute(
+                select(DocumentChunk.version_id, func.count())
+                .where(
+                    DocumentChunk.version_id.in_(newest_ids),
+                    DocumentChunk.embedding.is_not(None),
+                )
+                .group_by(DocumentChunk.version_id)
+            )
+        )
+        .tuples()
+        .all()
+    )
     held = set(
         (
             await session.execute(
@@ -457,6 +472,7 @@ async def _summaries(
                 error=newest.error,
                 page_count=newest.page_count,
                 chunk_count=newest.chunk_count,
+                indexed_chunks=indexed.get(newest.id, 0),
                 version=newest.version,
                 version_count=len(vs),
                 is_searchable=any(v.is_current for v in vs),

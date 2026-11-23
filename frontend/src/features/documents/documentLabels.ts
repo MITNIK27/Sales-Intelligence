@@ -57,6 +57,30 @@ export function contentSummary(doc: LibraryDocument): string {
   return `${formatNumber(pages)} ${plural(pages, one, many)} · ${formatNumber(doc.chunk_count)} ${plural(doc.chunk_count, "passage")}`;
 }
 
+// "Indexing for meaning search: 12 of 54", or null when nothing is to be said (done, off, or the
+// document is not readable yet).
+export function indexingSummary(
+  doc: LibraryDocument,
+  meaningSearch: boolean,
+): string | null {
+  if (!meaningSearch || !doc.is_searchable || doc.chunk_count === 0)
+    return null;
+  if (doc.indexed_chunks >= doc.chunk_count) return null;
+  return `Meaning search: ${formatNumber(doc.indexed_chunks)} of ${formatNumber(doc.chunk_count)} indexed`;
+}
+
+// How a passage was found, in words a person can use to judge it.
+export function matchLabel(hit: {
+  similarity: number | null;
+  word_match: boolean;
+}): string {
+  const parts: string[] = [];
+  if (hit.similarity !== null)
+    parts.push(`meaning ${Math.round(hit.similarity * 100)}%`);
+  if (hit.word_match) parts.push("words");
+  return parts.length > 0 ? `Matched by ${parts.join(" and ")}` : "Matched";
+}
+
 // What happened to the pictures, or null when there were none to describe.
 export function pictureSummary(
   assets: LibraryDocument["assets"],

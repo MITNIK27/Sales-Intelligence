@@ -19,6 +19,7 @@ from sqlalchemy.orm import undefer
 
 from app.core.config import Settings, get_settings
 from app.modules.documents.chunking import chunk_units
+from app.modules.documents.embedding import queue_embedding
 from app.modules.documents.models import (
     ASSET_DESCRIBED,
     ASSET_FAILED,
@@ -267,6 +268,7 @@ async def _run(
         f"Ready: {len(chunks)} passages from {parsed.page_count} {word}"
         f"{'' if parsed.page_count == 1 else 's'}",
     )
+    await queue_embedding(session, organization_id, version_id)
     await session.commit()
     await progress(4, 4, stage="done", detail="Ready")
     return {

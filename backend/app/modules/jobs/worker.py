@@ -8,6 +8,11 @@ from app.core.logging import configure_logging
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db import models as _models  # noqa: F401 - registers all models with SQLAlchemy
 from app.db.session import SessionLocal, use_role
+from app.modules.documents.embedding import (
+    JOB_TYPE_EMBED_DOCUMENT,
+    process_embed_document_job,
+    queue_missing_embeddings,
+)
 from app.modules.documents.ingest import process_ingest_document_job
 from app.modules.documents.service import JOB_TYPE_INGEST_DOCUMENT, purge_stale_uploads
 from app.modules.enrichment.service import JOB_TYPE_SCRAPE_COMPANY, process_scrape_company_job
@@ -81,6 +86,7 @@ _HANDLERS = {
     JOB_TYPE_SUGGEST_AREAS: process_suggest_areas_job,
     JOB_TYPE_COMPANY_OFFERS: process_company_offers_job,
     JOB_TYPE_INGEST_DOCUMENT: process_ingest_document_job,
+    JOB_TYPE_EMBED_DOCUMENT: process_embed_document_job,
 }
 
 
@@ -140,6 +146,14 @@ async def _queue_scheduled_jobs() -> None:
                 logger.info("removed %d old staged document upload(s)", removed)
     except Exception:  # noqa: BLE001 - cleanup must not take the worker down either
         logger.warning("could not clear old staged document uploads", exc_info=True)
+    try:
+        async with SessionLocal() as session:
+            queued = await queue_missing_embeddings(session)
+            await session.commit()
+            if queued:
+                logger.info("queued meaning-search indexing for %d document(s)", queued)
+    except Exception:  # noqa: BLE001 - indexing is a catch-up, never a reason to stop the worker
+        logger.warning("could not queue meaning-search indexing", exc_info=True)
 
 
 async def run_worker(poll_interval_seconds: float = 2.0) -> None:

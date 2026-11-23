@@ -23,7 +23,7 @@ class ApiUsage(Base, TimestampMixin):
     opportunity_id: Mapped[uuid.UUID | None] = mapped_column()
 
     provider: Mapped[str] = mapped_column(String(20), index=True)  # gemini|groq|serper|contextdev
-    kind: Mapped[str] = mapped_column(String(10))  # llm | search | credits
+    kind: Mapped[str] = mapped_column(String(10))  # llm | search | credits | embedding
     model: Mapped[str | None] = mapped_column(String(100))
     task: Mapped[str] = mapped_column(String(60))  # job type, or "unspecified"
     status: Mapped[str] = mapped_column(String(10))  # ok | error

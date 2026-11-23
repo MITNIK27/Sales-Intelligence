@@ -54,6 +54,9 @@ class DocumentOut(BaseModel):
     error: str | None
     page_count: int | None
     chunk_count: int
+    # Passages of the newest version that have a vector (meaning search). Fewer than chunk_count
+    # while they are being indexed, or when that is switched off.
+    indexed_chunks: int
     version: int  # the newest version's number
     version_count: int
     # True once some version has been read and is the one search uses.
@@ -116,3 +119,30 @@ class DocumentsStatus(BaseModel):
     max_upload_mb: int
     accepted_extensions: list[str]
     vision_enabled: bool
+    # Passages are indexed by meaning as well as by words (needs the setting and a Gemini key).
+    meaning_search_enabled: bool
+
+
+class SearchHitOut(BaseModel):
+    chunk_id: uuid.UUID
+    document_id: uuid.UUID
+    document_name: str
+    version: int
+    locator: str
+    heading_path: str | None
+    text: str
+    offerings: list[OfferingRef]
+    score: float
+    # Closeness to the question by meaning (0 to 1); None if it was found by words only.
+    similarity: float | None
+    word_match: bool
+    about_offering: bool
+
+
+class SearchOut(BaseModel):
+    question: str
+    mode: str  # meaning_and_words | words_only
+    note: str | None
+    indexed_passages: int
+    total_passages: int
+    hits: list[SearchHitOut]

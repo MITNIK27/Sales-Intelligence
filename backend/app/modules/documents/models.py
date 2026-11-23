@@ -205,6 +205,13 @@ class DocumentChunk(Base):
     __table_args__ = (
         UniqueConstraint("version_id", "ordinal"),
         Index("ix_document_chunks_tsv", "tsv", postgresql_using="gin"),
+        # Nearest-neighbour search by cosine distance (created by migration d5b9f2a73c18).
+        Index(
+            "ix_document_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_uuid)

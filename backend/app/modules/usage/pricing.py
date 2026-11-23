@@ -17,6 +17,11 @@ _LLM_PRICES_PER_MILLION: dict[str, tuple[float, float]] = {
     "gemini": (0.30, 2.50),
 }
 
+# gemini-embedding-001, paid tier, input only (Google's announcement lists $0.15 per 1M tokens; not
+# checked against the live price sheet). Token counts are estimated by the caller (about 4
+# characters per token) because the Developer API does not report them for embeddings.
+GEMINI_EMBEDDING_USD_PER_MILLION_INPUT = 0.15
+
 SERPER_USD_PER_QUERY = 0.001
 CONTEXTDEV_USD_PER_CREDIT = 0.003
 
@@ -29,6 +34,8 @@ def estimate_cost_usd(
         if price is None or (tokens_in is None and tokens_out is None):
             return None
         return ((tokens_in or 0) * price[0] + (tokens_out or 0) * price[1]) / 1_000_000
+    if kind == "embedding" and provider == "gemini":
+        return (tokens_in or 0) * GEMINI_EMBEDDING_USD_PER_MILLION_INPUT / 1_000_000
     if kind == "search" and provider == "serper":
         return (units or 0) * SERPER_USD_PER_QUERY
     if kind == "credits" and provider == "contextdev":

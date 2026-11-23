@@ -162,6 +162,10 @@ class GeminiClientError(RuntimeError):
     back to here — the caller must surface this, not silently continue."""
 
 
+class GeminiRateLimitedError(GeminiClientError):
+    """A per-minute limit was reached (not the daily allowance): waiting a minute fixes it."""
+
+
 class GeminiInvalidResponseError(GeminiClientError):
     """Gemini answered, but the answer could not be read as the requested schema (even after the
     one repair try), or was cut off at the output cap."""
@@ -300,6 +304,93 @@ async def describe_image(
         model=model,
         tokens_in=getattr(usage, "prompt_token_count", None),
         tokens_out=out if usage is not None else None,
+    )
+
+
+@dataclass(frozen=True)
+class EmbeddingResult:
+    vectors: list[list[float]]
+    model: str
+    tokens_in: int  # estimated: the Developer API does not report it for embeddings
+
+
+def _normalised(vector: list[float]) -> list[float]:
+    """Unit length. Gemini embeddings cut to fewer than 3072 dimensions are not normalised, and
+    cosine comparison (and the index) assume they are, so it is done here once."""
+    norm = sum(x * x for x in vector) ** 0.5
+    return [x / norm for x in vector] if norm else vector
+
+
+async def embed_texts(
+    *,
+    api_key: str,
+    model: str,
+    texts: list[str],
+    task: Literal["document", "query"],
+    dimensions: int,
+) -> EmbeddingResult:
+    """The one place the app turns text into vectors (docs/ai-governance.md, G6), beside
+    `generate_structured`. Passages are embedded as documents and a search question as a query: the
+    model places the two kinds so that a question lands near the passages that answer it. One
+    attempt is recorded per request in the usage log, retries included."""
+    client = genai.Client(api_key=api_key)
+    config = types.EmbedContentConfig(
+        task_type="RETRIEVAL_DOCUMENT" if task == "document" else "RETRIEVAL_QUERY",
+        output_dimensionality=dimensions,
+    )
+    est_tokens = sum(len(t) for t in texts) // 4 + len(texts)
+    contents: Any = list(texts)
+    try:
+        async for attempt in AsyncRetrying(
+            stop=stop_after_attempt(_RETRY_ATTEMPTS),
+            wait=wait_exponential(
+                multiplier=_RETRY_WAIT_MULTIPLIER, min=_RETRY_WAIT_MIN, max=_RETRY_WAIT_MAX
+            ),
+            retry=retry_if_exception(_is_retryable_gemini_error),
+            reraise=True,
+        ):
+            with attempt:
+                begin = started()
+                try:
+                    response = await client.aio.models.embed_content(
+                        model=model, contents=contents, config=config
+                    )
+                except Exception as exc:
+                    await record_usage(
+                        provider="gemini",
+                        kind="embedding",
+                        status="error",
+                        model=model,
+                        units=len(texts),
+                        latency_ms=elapsed_ms(begin),
+                        error=short_error(exc),
+                    )
+                    raise
+                await record_usage(
+                    provider="gemini",
+                    kind="embedding",
+                    model=model,
+                    tokens_in=est_tokens,
+                    units=len(texts),
+                    latency_ms=elapsed_ms(begin),
+                )
+    except httpx.TransportError as exc:
+        raise GeminiClientError(f"Could not reach Gemini: {exc}") from exc
+    except genai_errors.APIError as exc:
+        if exc.code == 429 and not _is_quota_exhausted(exc):
+            raise GeminiRateLimitedError(
+                "Gemini's per-minute limit for embeddings was reached (requests or tokens per "
+                "minute); it clears after a short wait."
+            ) from exc
+        raise GeminiClientError(format_gemini_error(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a clear failure
+        raise GeminiClientError(f"Gemini request failed: {exc}") from exc
+
+    vectors = [list(e.values or []) for e in (response.embeddings or [])]
+    if len(vectors) != len(texts) or any(len(v) != dimensions for v in vectors):
+        raise GeminiInvalidResponseError("Gemini returned embeddings of an unexpected shape")
+    return EmbeddingResult(
+        vectors=[_normalised(v) for v in vectors], model=model, tokens_in=est_tokens
     )
 
 

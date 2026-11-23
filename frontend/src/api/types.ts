@@ -1145,6 +1145,8 @@ export type DocumentsStatusInfo = {
   accepted_extensions: string[];
   // True when pictures and scanned pages will be described by a model.
   vision_enabled: boolean;
+  // Passages are also found by meaning (needs the setting and a Gemini key), not only by words.
+  meaning_search_enabled: boolean;
 };
 
 export type LibraryDocument = {
@@ -1158,6 +1160,8 @@ export type LibraryDocument = {
   error: string | null;
   page_count: number | null;
   chunk_count: number;
+  // Passages that have a vector for meaning search; fewer than chunk_count while indexing.
+  indexed_chunks: number;
   version: number;
   version_count: number;
   // Some version has been read and is the one search uses.
@@ -1226,4 +1230,29 @@ export type DocumentPagesData = {
   total: number;
   pages: DocumentPageText[];
   assets: DocumentAssetInfo[];
+};
+
+export type DocumentSearchHit = {
+  chunk_id: string;
+  document_id: string;
+  document_name: string;
+  version: number;
+  locator: string;
+  heading_path: string | null;
+  text: string;
+  offerings: { id: string; name: string }[];
+  score: number;
+  // Closeness to the question by meaning (0 to 1); null when found by words only.
+  similarity: number | null;
+  word_match: boolean;
+  about_offering: boolean;
+};
+
+export type DocumentSearchResult = {
+  question: string;
+  mode: "meaning_and_words" | "words_only";
+  note: string | null;
+  indexed_passages: number;
+  total_passages: number;
+  hits: DocumentSearchHit[];
 };
