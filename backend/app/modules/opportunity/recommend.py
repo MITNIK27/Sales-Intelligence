@@ -12,6 +12,7 @@ from app.modules.ai_recommendation.models import Recommendation
 from app.modules.ai_recommendation.recommendation_generator import RecommendationGenerator
 from app.modules.ai_recommendation.service import generate_recommendation
 from app.modules.companies.models import Company
+from app.modules.documents.knowledge import gather
 from app.modules.opportunity.fit import latest_matches
 from app.modules.opportunity.models import (
     CompanyOpportunity,
@@ -93,6 +94,13 @@ async def ensure_recommendation(
 
     match = (await latest_matches(session, opportunity.id)).get(product.id)
     context = build_opportunity_context(opportunity, assessment, match.reasoning if match else None)
+    knowledge = await gather(
+        session,
+        opportunity.organization_id,
+        f"{product.name}: {product.description or ''} for {opportunity.area_label}"
+        f" ({opportunity.industry_context or company.industry or 'any industry'})",
+        [product.id],
+    )
     try:
         async with session.begin_nested():
             recommendation = await generate_recommendation(
@@ -105,6 +113,7 @@ async def ensure_recommendation(
                 opportunity_id=opportunity.id,
                 assessment_id=assessment_id,
                 opportunity_context=context,
+                knowledge=knowledge,
             )
     except IntegrityError:
         found = await _existing(session, opportunity.id, product.id, assessment_id)

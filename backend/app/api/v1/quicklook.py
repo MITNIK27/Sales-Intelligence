@@ -89,6 +89,7 @@ async def _snapshot_out(
         working_on=[WorkingOnOut(**w) for w in summary.get("working_on", [])],
         focus=summary.get("focus"),
         criteria=[CriterionResultOut(**c) for c in summary.get("criteria", [])],
+        knowledge=summary.get("knowledge") or [],
         sources=snapshot.sources or [],
         updated_at=snapshot.updated_at,
         cached=cached,

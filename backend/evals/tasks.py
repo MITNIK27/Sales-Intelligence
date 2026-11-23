@@ -5,6 +5,7 @@
 model that was fooled on purpose. An `expect` key a task does not know is rejected when the cases
 are loaded, so a typo cannot quietly turn a check off."""
 
+import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -15,17 +16,26 @@ from app.modules.ai_recommendation import recommendation_generator as recommenda
 from app.modules.ai_recommendation.recommendation_generator import RecommendationGenerator
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
+from app.modules.documents.knowledge import (
+    KNOWLEDGE_VENDORS,
+    Knowledge,
+    Passage,
+    generate_with_knowledge,
+    pack,
+)
 from app.modules.draft import prompts as draft_prompts
 from app.modules.draft import refine as draft_refine_module
 from app.modules.draft.draft_generator import DraftGenerator
 from app.modules.draft.evidence import DraftEvidence
 from app.modules.enrichment.models import EnrichmentRecord
-from app.modules.llm.structured import StructuredLLM
+from app.modules.llm.structured import FallbackStructuredLLM, StructuredLLM
 from app.modules.offerings import extractor as offering_extractor
+from app.modules.opportunity import area_prompts
 from app.modules.opportunity import fit as fit_module
 from app.modules.opportunity import prompts as opportunity_prompts
 from app.modules.opportunity import relevance as relevance_module
 from app.modules.opportunity.assessment import verified_findings
+from app.modules.opportunity.discovery import judge_areas, suggest_areas
 from app.modules.opportunity.evidence import build_evidence_pack, format_evidence, verify_citation
 from app.modules.opportunity.llm_models import AssessmentOut
 from app.modules.opportunity.models import VERDICT_INSUFFICIENT, CompanyOpportunity
@@ -98,6 +108,53 @@ def _no_leak(phrases: list[str], case: Case, out: dict[str, Any]) -> Check:
     return check_no_leak("no_leak", _all_text(out), phrases)
 
 
+# --- passages from our documents (Phase 8d) -----------------------------------------------------
+
+
+def _knowledge(data: dict[str, Any]) -> Knowledge:
+    """The case's `knowledge` (passages from our documents: document, locator, text), packed exactly
+    as the app packs passages from the library."""
+    return pack(
+        (
+            Passage(k.get("document", "Our document"), k.get("locator", "Page 1"), k["text"])
+            for k in data.get("knowledge", [])
+        ),
+        4000,
+    )
+
+
+def _shows_knowledge(llm: StructuredLLM) -> bool:
+    """Whether this model may be shown passages from our documents (G1: Gemini only). A case about
+    passages run on another model would quietly test the plain prompt, so it is failed instead."""
+    if isinstance(llm, FallbackStructuredLLM):
+        return not llm.restricted_to(KNOWLEDGE_VENDORS).is_empty
+    return True
+
+
+def _knowledge_shown(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
+    shown = bool(out.get("_knowledge_shown"))
+    ok = shown == bool(wanted)
+    detail = (
+        ""
+        if ok
+        else (
+            "the passages were not shown to the model (it is not one that may see them)"
+            if wanted
+            else "the passages were shown"
+        )
+    )
+    return Check("knowledge_shown", ok, detail)
+
+
+_FIGURE = re.compile(r"[$€£]?\d[\d,.]*\s?(?:%|percent|[MKB]\b|million|billion)?", re.IGNORECASE)
+
+
+def _figures(text: str) -> set[str]:
+    """Numbers with their unit, written the same way they are compared ("35%", "$2M")."""
+    found = (m.group(0).replace(" ", "").lower().rstrip(".,") for m in _FIGURE.finditer(text or ""))
+    return {figure for figure in found if figure}
+
+
 # --- quicklook ----------------------------------------------------------------------------------
 
 
@@ -119,7 +176,8 @@ async def _run_quicklook(case: Case, rt: Runtime) -> dict[str, Any]:
         offerings,
         data.get("criteria") or [],
         data.get("focus"),
-    )
+        _knowledge(data),
+    ) | {"_knowledge_shown": bool(data.get("knowledge")) and _shows_knowledge(rt.llm)}
 
 
 def _strong_offerings(out: dict[str, Any]) -> int:
@@ -132,6 +190,7 @@ _QUICKLOOK: dict[str, Handler] = {
     "max_strong_offerings": lambda v, c, o: check_at_most(
         "max_strong_offerings", _strong_offerings(o), v
     ),
+    "knowledge_shown": _knowledge_shown,
     "no_leak": _no_leak,
 }
 
@@ -452,17 +511,20 @@ def _allowed(name: str, actual: dict[str, Any], allowed: dict[str, list[Any]]) -
 async def _run_recommendation(case: Case, rt: Runtime) -> dict[str, Any]:
     data = case.input
     generator = _need(rt.recommendation, "recommendation generator")
+    knowledge = _knowledge(data)
     result = await generator.generate(
         _company(data["company"]),
         [Contact(role_title=title) for title in data.get("contact_titles", [])],
         _records(data.get("signals", [])),
         _product(data["product"]),
         data.get("opportunity_context"),
+        **({"knowledge": knowledge.block} if knowledge else {}),
     )
     return {
         "pitch_summary": result.pitch_summary,
         "why_this_company": result.why_this_company,
         "talking_points": list(result.talking_points),
+        "_knowledge_shown": bool(knowledge),  # the recommendation is written by Gemini only
     }
 
 
@@ -480,9 +542,36 @@ def _recommendation_claims(wanted: bool, case: Case, out: dict[str, Any]) -> Che
         product["name"],
         product.get("description"),
         data.get("opportunity_context"),
+        # What our own documents say may be used about us (in the pitch and talking points).
+        *(k["text"] for k in data.get("knowledge", [])),
     ]
     text = "\n".join([out["pitch_summary"], out["why_this_company"], *out["talking_points"]])
     return check_no_unsupported_claims("no_unsupported_claims", text, allowed)
+
+
+def _knowledge_not_in_why(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
+    """A figure from our documents (what we did for someone else) must not be told as a fact about
+    this company. "why_this_company" is about them, so no such figure may appear there unless the
+    company's own input states it too."""
+    if not wanted:
+        return Check("knowledge_not_in_why", True)
+    data = case.input
+    ours = set().union(*(_figures(k["text"]) for k in data.get("knowledge", [])))
+    theirs = _figures(
+        " ".join(
+            [
+                str(data["company"].get("description") or ""),
+                *(s["text"] for s in data.get("signals", [])),
+                str(data.get("opportunity_context") or ""),
+            ]
+        )
+    )
+    borrowed = sorted((ours - theirs) & _figures(out["why_this_company"]))
+    return Check(
+        "knowledge_not_in_why",
+        not borrowed,
+        "" if not borrowed else f"figures from our documents told as theirs: {borrowed}",
+    )
 
 
 def _points_between(bounds: list[int], case: Case, out: dict[str, Any]) -> Check:
@@ -497,6 +586,8 @@ def _points_between(bounds: list[int], case: Case, out: dict[str, Any]) -> Check
 _RECOMMENDATION: dict[str, Handler] = {
     "no_unsupported_claims": _recommendation_claims,
     "talking_points_between": _points_between,
+    "knowledge_not_in_why": _knowledge_not_in_why,
+    "knowledge_shown": _knowledge_shown,
     "no_leak": _no_leak,
 }
 
@@ -557,14 +648,28 @@ async def _run_fit(case: Case, rt: Runtime) -> dict[str, Any]:
     products = [_product(o) for o in data["offerings"]]
     labelled = [(f"O{i}", p) for i, p in enumerate(products, start=1)]
     answers: dict[str, Any] = {}
+    knowledge = _knowledge(data)
+    shown = False
     if items:  # the app does not call a model with nothing to show it
+        evidence_text = format_evidence(items)
+        opportunity = _opportunity(data)
+        plain = fit_module.build_fit_prompt(company, opportunity, evidence_text, None, labelled)
         prompt = fit_module.build_fit_prompt(
-            company, _opportunity(data), format_evidence(items), None, labelled
+            company, opportunity, evidence_text, None, labelled, knowledge.block
         )
-        out = await rt.llm.generate(prompt, fit_module.FitOut)
+        out, shown = await generate_with_knowledge(
+            rt.llm, prompt, plain, fit_module.FitOut, knowledge
+        )
         answers = fit_module._answers_by_label(out, labelled)
         if not answers:  # the app asks once more, plainly
-            out = await rt.llm.generate(prompt + fit_module._RETRY_NOTE, fit_module.FitOut)
+            out, again = await generate_with_knowledge(
+                rt.llm,
+                prompt + fit_module._RETRY_NOTE,
+                plain + fit_module._RETRY_NOTE,
+                fit_module.FitOut,
+                knowledge if shown else Knowledge(),
+            )
+            shown = shown and again
             answers = fit_module._answers_by_label(out, labelled)
     by_label = {item.label: item for item in items}
     offerings: dict[str, dict[str, Any]] = {}
@@ -584,7 +689,7 @@ async def _run_fit(case: Case, rt: Runtime) -> dict[str, Any]:
             "verified": len(verified),
             "dropped": dropped,
         }
-    return {"offerings": offerings}
+    return {"offerings": offerings, "_knowledge_shown": shown}
 
 
 def _fits(names: list[str], case: Case, out: dict[str, Any]) -> Check:
@@ -605,6 +710,94 @@ _FIT: dict[str, Handler] = {
     "max_dropped": lambda v, c, o: check_at_most(
         "max_dropped", sum(x["dropped"] for x in o["offerings"].values()), v
     ),
+    "knowledge_shown": _knowledge_shown,
+    "no_leak": _no_leak,
+}
+
+
+# --- area suggestion ----------------------------------------------------------------------------
+
+
+async def _run_area_suggestion(case: Case, rt: Runtime) -> dict[str, Any]:
+    """Proposes areas from the frozen evidence and judges which offering serves each, exactly as
+    the app does (`suggest_areas` then `judge_areas`), with the case's passages when it has any."""
+    data = case.input
+    company = _company(data["company"])
+    knowledge = _knowledge(data)
+    focus = list(data.get("focus", []))
+    proposed = await suggest_areas(
+        rt.llm,
+        company,
+        _records(data.get("evidence", [])),
+        list(data.get("areas_we_cover", [])),
+        data.get("industry_context"),
+        focus=focus,
+        knowledge=knowledge,
+    )
+    catalogue = [
+        (o["name"], list((o.get("buyer_profile") or {}).get("area_tags", [])))
+        for o in data.get("offerings", [])
+    ]
+    judged = (
+        await judge_areas(rt.llm, company, proposed, catalogue, focus, knowledge)
+        if proposed
+        else []
+    )
+    return {
+        "areas": [
+            {
+                "label": a.label,
+                "reason": a.reason,
+                "offering": a.offering,
+                "support": a.support,
+                "quote": a.quote,
+                "cited": [r["label"] for r in a.knowledge_refs],
+            }
+            for a in judged
+        ],
+        "_knowledge_shown": bool(knowledge) and _shows_knowledge(rt.llm),
+    }
+
+
+def _area_words(out: dict[str, Any]) -> list[str]:
+    return [a["label"].lower() for a in out["areas"]]
+
+
+def _areas_include(words: list[str], case: Case, out: dict[str, Any]) -> Check:
+    labels = _area_words(out)
+    missing = [w for w in words if not any(w.lower() in label for label in labels)]
+    return Check(
+        "areas_include", not missing, "" if not missing else f"no area about {missing}: {labels}"
+    )
+
+
+def _areas_exclude(words: list[str], case: Case, out: dict[str, Any]) -> Check:
+    found = [label for label in _area_words(out) if any(w.lower() in label for w in words)]
+    return Check("areas_exclude", not found, "" if not found else f"should not suggest {found}")
+
+
+def _offerings_include(names: list[str], case: Case, out: dict[str, Any]) -> Check:
+    used = {a["offering"] for a in out["areas"] if a["offering"]}
+    missing = [n for n in names if n not in used]
+    return Check(
+        "offerings_include",
+        not missing,
+        "" if not missing else f"no area is served by {missing} (used: {sorted(used)})",
+    )
+
+
+def _offerings_exclude(names: list[str], case: Case, out: dict[str, Any]) -> Check:
+    wrong = sorted({a["offering"] for a in out["areas"]} & set(names))
+    return Check("offerings_exclude", not wrong, "" if not wrong else f"areas served by {wrong}")
+
+
+_AREA_SUGGESTION: dict[str, Handler] = {
+    "areas_include": _areas_include,
+    "areas_exclude": _areas_exclude,
+    "max_areas": lambda v, c, o: check_at_most("max_areas", len(o["areas"]), v),
+    "offerings_include": _offerings_include,
+    "offerings_exclude": _offerings_exclude,
+    "knowledge_shown": _knowledge_shown,
     "no_leak": _no_leak,
 }
 
@@ -759,6 +952,13 @@ TASKS: dict[str, Task] = {
         ("company", "area_label", "contacts"),
         _run_contact_relevance,
         _CONTACT_RELEVANCE,
+    ),
+    "area_suggestion": Task(
+        "area_suggestion",
+        area_prompts.AREA_PROMPT_VERSION,
+        ("company", "evidence"),
+        _run_area_suggestion,
+        _AREA_SUGGESTION,
     ),
     "role_relevance": Task(
         "role_relevance",

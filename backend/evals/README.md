@@ -39,17 +39,26 @@ means the prompt or the model changed, not the web.
 
 | Task | Input needs | Expectations |
 |---|---|---|
-| `quicklook` | `name`, `domain`, `evidence` (label, url, kind, text, date), `offerings` (label, name, description) | `call_in`, `call_not_in`, `max_strong_offerings`, `no_leak` |
+| `quicklook` | `name`, `domain`, `evidence` (label, url, kind, text, date), `offerings` (label, name, description), optional `knowledge` | `call_in`, `call_not_in`, `max_strong_offerings`, `knowledge_shown`, `no_leak` |
 | `qualification` | `company`, `criteria` (name, description, is_disqualifying), optional `signals` | `verdicts` (name to verdict), `verdicts_not` (name to forbidden verdicts), `quotes_valid`, `no_leak` |
 | `draft` | `company`, `contact` (first_name, role_title, seniority), `product`, optional `evidence.signals` | `no_unsupported_claims`, `max_words`, `no_leak` |
 | `offering_extraction` | `url`, `text` | `is_offering`, `kind`, `name_contains`, `no_figures`, `no_leak` |
-| `recommendation` | `company`, `product`, optional `contact_titles`, `signals`, `opportunity_context` | `no_unsupported_claims`, `talking_points_between` (`[low, high]`), `no_leak` |
+| `recommendation` | `company`, `product`, optional `contact_titles`, `signals`, `opportunity_context`, `knowledge` | `no_unsupported_claims`, `talking_points_between` (`[low, high]`), `knowledge_not_in_why`, `knowledge_shown`, `no_leak` |
 | `opportunity_assessment` | `company`, `area_label`, `evidence` (signal_type, text, date), optional `industry_context` | `verdict_in`, `verdict_not_in`, `min_findings`, `max_findings`, `max_dropped`, `no_leak` |
-| `offering_fit` | `company`, `area_label`, `evidence`, `offerings` (name, description, kind, buyer_profile) | `fits` (offerings that must cite verified evidence), `no_fit` (offerings that must cite none), `max_dropped`, `no_leak` |
+| `offering_fit` | `company`, `area_label`, `evidence`, `offerings` (name, description, kind, buyer_profile), optional `knowledge` | `fits` (offerings that must cite verified evidence), `no_fit` (offerings that must cite none), `max_dropped`, `knowledge_shown`, `no_leak` |
+| `area_suggestion` | `company`, `evidence`, optional `areas_we_cover`, `offerings` (name, buyer_profile.area_tags), `focus`, `industry_context`, `knowledge` | `areas_include`, `areas_exclude` (words in an area label), `max_areas`, `offerings_include`, `offerings_exclude` (offerings that serve an area), `knowledge_shown`, `no_leak` |
 | `contact_relevance` | `company`, `area_label`, `contacts` (id, role_title, seniority), optional `product` | `roles_in` (id to allowed roles), `roles_not` (id to forbidden roles), `no_leak` |
 | `role_relevance` | `company`, `contacts` (id, role_title, seniority), `categories` (name, description, is_primary_target) | `matches` (id to category name or null), `matches_not`, `all_answered`, `no_leak` |
 
-The last five run the app's own prompt and its own checks on frozen evidence. An answer's citations
+The last six run the app's own prompt and its own checks on frozen evidence.
+
+**Passages from our documents (`knowledge`).** A list of `{document, locator, text}`, packed exactly
+as the app packs passages from the library (labelled K1, K2..., fenced as untrusted). They describe
+what we do, never the company, so the cases check that a passage never becomes evidence, an area or
+a "yes", and that an instruction planted in one is ignored. Passages only go to Gemini (G1):
+`knowledge_shown: true` fails a case that was run on a model that may not see them, so it cannot
+quietly test the plain prompt instead. `knowledge_not_in_why` fails a recommendation that tells a
+figure from our documents (what we did for someone else) as a fact about this company. An answer's citations
 are verified exactly as the app verifies them, so a citation that is not in the evidence counts as
 dropped, never as support.
 

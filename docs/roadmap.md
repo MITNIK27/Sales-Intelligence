@@ -468,8 +468,7 @@ Rules, status of each control and the check that enforces it are in [`ai-governa
   labelled-company accuracy, and the Market Discovery judge.
 - Make CI mean something: the unit and frontend tests are git-ignored, so CI runs only the
   governance checks.
-- Branding and positioning, starting from
-  [`marketing/purple-cow-analysis.md`](marketing/purple-cow-analysis.md).
+- Branding and positioning (briefing material is kept locally and is not committed).
 - A knowledge layer (graph and vector index) derived from approved offerings, with Postgres staying
   the system of record. Discussed, not designed.
 - Deployment (hosted API, worker and database) together with sign-in, access control, spend caps

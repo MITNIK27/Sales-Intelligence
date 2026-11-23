@@ -4,6 +4,7 @@ import type { FitBand, OfferingFit } from "@/api/types";
 import { StatusTag, type Tone } from "@/components/StatusTag";
 import { Button } from "@/components/ui/button";
 import { CompareOfferings } from "@/features/brief/compare/CompareOfferings";
+import { DocumentSources } from "@/features/documents/DocumentSources";
 import { BAND_LABEL } from "@/features/brief/opportunityLabels";
 import { EvidenceQuote } from "@/features/quicklook/EvidenceQuote";
 
@@ -61,6 +62,7 @@ export function BestOffering({
           url={e.url}
         />
       ))}
+      <DocumentSources refs={focus.knowledge_refs} />
       <div className="flex flex-wrap gap-2">
         <Button
           size="sm"

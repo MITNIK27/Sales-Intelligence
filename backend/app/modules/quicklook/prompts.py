@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
 
 # Bump when the prompt changes in a way that should make old snapshots stale.
-PROMPT_VERSION = "v4"
+# v5 (Phase 8d): passages from our own documents about our offerings, when there are any.
+PROMPT_VERSION = "v5"
 
 BANDS = ("strong", "potential", "weak")
 VERDICTS = ("met", "not_met", "unknown")
@@ -57,7 +58,11 @@ def build_quicklook_prompt(
     offerings_text: str,
     criteria_text: str = "",
     focus: str | None = None,
+    knowledge_block: str = "",
 ) -> str:
+    """`knowledge_block`, when given, is fenced passages from our own documents (labelled K1,
+    K2...). They tell the model what our offerings really do and have delivered; they are never
+    evidence about the company, so they can never be quoted for a fit or a "working on" point."""
     focus_rule = (
         f'- The person wants to know about this area: "{focus}". In "relevance", say what the '
         "evidence shows about the company in that area, and judge the offerings with it in mind.\n"
@@ -74,6 +79,15 @@ def build_quicklook_prompt(
     )
     criteria_block = (
         f"\nCriteria to check (the person's own):\n{criteria_text}\n" if criteria_text else ""
+    )
+    knowledge_section = (
+        "\nWhat our own documents say about our offerings (internal material: use it to judge "
+        'which of our offerings really fits and to write "idea"; it is NOT evidence about the '
+        "company, never a quote source and never a reason for the call; when a passage shaped an "
+        "idea or a reason, name its label, for example [K2]):\n"
+        f"{knowledge_block}\n"
+        if knowledge_block
+        else ""
     )
     return f"""You are helping a salesperson at a technology services company decide, in one \
 minute, whether a company is worth approaching.
@@ -105,6 +119,6 @@ naming the move of theirs it builds on.
 {focus_rule}{criteria_rule}
 Our offerings:
 {offerings_text}
-{criteria_block}
+{knowledge_section}{criteria_block}
 Evidence:
 {wrap_untrusted(evidence_text, "evidence")}"""

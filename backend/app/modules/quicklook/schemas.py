@@ -78,6 +78,9 @@ class SnapshotOut(BaseModel):
     working_on: list[WorkingOnOut] = []
     focus: str | None = None
     criteria: list[CriterionResultOut] = []
+    # Passages from our documents the model was shown (Phase 8d), `cited` when the answer names
+    # them.
+    knowledge: list[dict[str, Any]] = []
     sources: list[dict[str, Any]]
     updated_at: datetime
     cached: bool

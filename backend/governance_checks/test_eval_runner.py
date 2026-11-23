@@ -125,7 +125,9 @@ async def test_without_yes_nothing_is_called(
     monkeypatch.setattr(run_module, "run_task", boom)
     assert await run_module.main(run_module.parse_args(["--all"])) == 0
     out = capsys.readouterr().out
-    assert "Dry run: nothing was called" in out and "quicklook: 6 case(s)" in out
+    quicklook_cases = sum(1 for case in load_cases() if case.task == "quicklook")
+    assert "Dry run: nothing was called" in out
+    assert f"quicklook: {quicklook_cases} case(s)" in out
 
 
 async def test_a_task_without_its_key_is_skipped_even_with_yes(

@@ -52,7 +52,7 @@ def _format_signals(signals: list[EnrichmentRecord]) -> str:
 
 
 # Bump when the prompt text changes; stored on every row it produces (docs/ai-governance.md, G9).
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"  # v3: passages from our own documents about the product, when there are any
 
 _PROMPT_TEMPLATE = """You are helping a salesperson prepare to pitch a product to a company. \
 Based on the company's firmographics, its known contacts, its recent buying signals, and the \
@@ -75,13 +75,20 @@ Recent buying signals:
 Product being pitched:
 - Name: {product_name}
 - Description: {product_description}
-{opportunity_section}
+{opportunity_section}{knowledge_section}
 Write:
 - pitch_summary: a concise summary of what to pitch and why it's relevant right now.
 - why_this_company: a paragraph explaining why this company specifically is a good fit, \
 grounded in the information above. If contacts or signals are empty, do not invent any — say \
 so plainly and reason from firmographics alone.
 - talking_points: 3-5 specific talking points a rep can use in conversation.
+"""
+
+_KNOWLEDGE_SECTION = """
+What our own documents say about this product (internal material: use it for what the product \
+does and what it has delivered, never as a fact about the company; when you use a passage, put its \
+label in the sentence, for example [K2]):
+{block}
 """
 
 
@@ -101,8 +108,10 @@ class RecommendationGenerator(ABC):
         signals: list[EnrichmentRecord],
         product: Product,
         opportunity_context: str | None = None,
+        knowledge: str | None = None,
     ) -> RecommendationResult:
-        """`opportunity_context`, when given, names the business area being discussed and what has
+        """`knowledge`, when given, is fenced passages from our own documents about the product.
+        `opportunity_context`, when given, names the business area being discussed and what has
         been verified about the company in it, so the pitch is about that area."""
         ...
 
@@ -122,6 +131,7 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
         signals: list[EnrichmentRecord],
         product: Product,
         opportunity_context: str | None = None,
+        knowledge: str | None = None,
     ) -> RecommendationResult:
         if not self._settings.gemini_api_key:
             raise GeminiClientError("GEMINI_API_KEY is not configured")
@@ -139,6 +149,7 @@ class GeminiRecommendationGenerator(RecommendationGenerator):
             product_name=product.name,
             product_description=product.description or "No description available.",
             opportunity_section=(f"\n{opportunity_context}\n" if opportunity_context else ""),
+            knowledge_section=_KNOWLEDGE_SECTION.format(block=knowledge) if knowledge else "",
         )
         prompt = with_untrusted_notice(prompt)
 

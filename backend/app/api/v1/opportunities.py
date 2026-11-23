@@ -210,6 +210,7 @@ async def list_fit_endpoint(
             factors=m.factors,
             evidence=m.evidence,
             needs_review=m.needs_review,
+            knowledge_refs=m.knowledge_refs,
             created_at=m.created_at,
         )
         for m in matches.values()

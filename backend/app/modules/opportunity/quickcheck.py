@@ -18,7 +18,12 @@ from app.modules.opportunity.analysis import (
     outcome_message,
 )
 from app.modules.opportunity.assessment import assess_opportunity
-from app.modules.opportunity.discovery import offering_areas, save_suggestions, suggest_areas
+from app.modules.opportunity.discovery import (
+    area_knowledge,
+    offering_areas,
+    save_suggestions,
+    suggest_areas,
+)
 from app.modules.opportunity.fit import latest_matches
 from app.modules.opportunity.models import (
     ORIGIN_QUICK_CHECK,
@@ -157,7 +162,10 @@ async def run_quick_check_opportunity(
             with usage_scope(company_id=company.id, opportunity_id=general.id):
                 records = await evidence_records_for(session, general)
                 areas = await offering_areas(session, company.organization_id)
-                found = await suggest_areas(llm, company, records, areas, general.industry_context)
+                knowledge = await area_knowledge(session, company, general.industry_context)
+                found = await suggest_areas(
+                    llm, company, records, areas, general.industry_context, knowledge=knowledge
+                )
             known = await save_suggestions(session, company, found)
         # Which offerings fit the company at all; people wait for an area. Run it the first time,
         # whenever offerings were chosen (a repeat check must judge them), and when nothing has

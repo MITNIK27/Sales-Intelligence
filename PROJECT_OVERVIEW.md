@@ -261,7 +261,7 @@ screens for current values.
 - **Naming**: the app's nav says "Quick Check"; code, API and module say "Quick Look".
 - **UI brand**: `design-kit/` holds the InfoBeans brand standards (cream, charcoal, crimson, Lexend,
   square corners, light mode only). Whether the product keeps the InfoBeans brand or becomes its own
-  is undecided (see `docs/marketing/purple-cow-analysis.md`).
+  is undecided.
 
 ## Sources
 

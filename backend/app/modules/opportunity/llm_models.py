@@ -33,6 +33,9 @@ class AreaJudgementOut(BaseModel):
     label: str  # the candidate area, exactly as given
     offering: str = ""  # the name of the offering that area is best served by, or empty for none
     support: str = ""  # clear | partial | none: how well the evidence supports it for that offering
+    # Labels of passages from our documents (K1, K2...) that decided the offering, when any were
+    # shown.
+    sources: list[str] = []
 
 
 class AreaJudgementsOut(BaseModel):

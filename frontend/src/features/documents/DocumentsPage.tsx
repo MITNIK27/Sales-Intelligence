@@ -1,5 +1,6 @@
 import { ChevronRight, FileText } from "lucide-react";
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { apiPost } from "@/api/client";
 import type { LibraryDocument } from "@/api/types";
@@ -40,7 +41,18 @@ import { cn } from "@/lib/utils";
 export function DocumentsPage() {
   const { status, documents, error, refresh } = useDocuments();
   const { options } = useOfferingOptions();
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  // A link from the Brief ("From our documents") opens that document straight away.
+  const [openId, setOpenIdState] = useState<string | null>(
+    params.get("document"),
+  );
+  function setOpenId(id: string | null) {
+    setOpenIdState(id);
+    if (!id && params.has("document")) {
+      params.delete("document");
+      setParams(params, { replace: true });
+    }
+  }
   const [rowError, setRowError] = useState<string | null>(null);
 
   async function readAgain(id: string) {

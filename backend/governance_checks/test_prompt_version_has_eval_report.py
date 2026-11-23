@@ -34,13 +34,12 @@ MEASURED = {
     "modules/ai_recommendation/recommendation_generator.py": "recommendation",
     "modules/opportunity/prompts.py": "opportunity_assessment",
     "modules/opportunity/fit.py": "offering_fit",
+    "modules/opportunity/area_prompts.py": "area_suggestion",
     "modules/opportunity/relevance.py": "contact_relevance",
     "modules/role_relevance/prompts.py": "role_relevance",
 }
 
 # Prompt versions no eval task covers yet. Each one needs a task and cases to leave this list.
-# (The area-suggestion prompt shares opportunity/prompts.py with the assessment and is not
-# exercised by its own task yet.)
 UNMEASURED: dict[str, str] = {
     "modules/documents/vision.py": (
         "picture descriptions for uploaded documents (Phase 8b); eval cases, including a picture "
@@ -51,9 +50,7 @@ UNMEASURED: dict[str, str] = {
 # Tasks that exist and have cases but whose first report has not been committed yet. Run
 # `python -m evals.run --task <task> --yes`, commit the report, and take the task off this list.
 AWAITING_FIRST_REPORT = {
-    "recommendation": "run it once with real models and commit the report",
     "opportunity_assessment": "run it once with real models and commit the report",
-    "offering_fit": "run it once with real models and commit the report",
     "contact_relevance": "run it once with real models and commit the report",
     "role_relevance": "run it once with real models and commit the report",
 }

@@ -2,6 +2,7 @@ import { Sparkles } from "lucide-react";
 
 import type { CompanyOpportunity } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { DocumentSources } from "@/features/documents/DocumentSources";
 import { titleCaseArea } from "@/features/brief/startBrief";
 import {
   recommendedAreasLabel,
@@ -88,7 +89,7 @@ export function SuggestedAreas({
           </h3>
           <ul className="flex flex-wrap gap-2">
             {group.areas.map((o) => (
-              <li key={o.id}>
+              <li key={o.id} className="flex max-w-sm flex-col gap-1">
                 <button
                   type="button"
                   onClick={() => onChoose(o.area_label)}
@@ -104,6 +105,7 @@ export function SuggestedAreas({
                     </span>
                   )}
                 </button>
+                <DocumentSources refs={o.suggestion_knowledge_refs} />
               </li>
             ))}
           </ul>

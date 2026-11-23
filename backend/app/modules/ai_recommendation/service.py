@@ -9,6 +9,7 @@ from app.modules.ai_recommendation.recommendation_generator import (
     RecommendationGenerator,
 )
 from app.modules.companies.service import get_company_detail
+from app.modules.documents.knowledge import Knowledge
 from app.modules.enrichment.service import list_company_signals
 from app.modules.products.service import get_product
 
@@ -33,6 +34,7 @@ async def generate_recommendation(
     opportunity_id: uuid.UUID | None = None,
     assessment_id: uuid.UUID | None = None,
     opportunity_context: str | None = None,
+    knowledge: Knowledge | None = None,
 ) -> Recommendation:
     """Loads the company (+ its contacts), its recent signals, and the target product, then
     calls the given generator and persists a new `Recommendation` row. Append-only: regenerating
@@ -54,6 +56,7 @@ async def generate_recommendation(
         signals,
         product,
         **({"opportunity_context": opportunity_context} if opportunity_context else {}),
+        **({"knowledge": knowledge.block} if knowledge else {}),
     )
 
     recommendation = Recommendation(
@@ -68,6 +71,13 @@ async def generate_recommendation(
         prompt_version=PROMPT_VERSION,
         company_opportunity_id=opportunity_id,
         opportunity_assessment_id=assessment_id,
+        knowledge_refs=(
+            knowledge.cited_in(
+                result.pitch_summary, result.why_this_company, *result.talking_points
+            )
+            if knowledge
+            else None
+        ),
     )
     session.add(recommendation)
     await session.flush()

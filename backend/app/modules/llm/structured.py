@@ -174,11 +174,25 @@ class FallbackStructuredLLM(StructuredLLM):
         self.used: set[str] = set()
         # The model behind the most recent answer; read it right after the call it belongs to.
         self.last_model: str | None = None
+        # Set on a chain made by `restricted_to`, so the full chain also learns who answered.
+        self._parent: FallbackStructuredLLM | None = None
 
     @property
     def vendors(self) -> list[tuple[str, str]]:
         """(vendor, model) for each vendor in the chain, in the order they are tried."""
         return [(vendor.name, vendor.model) for vendor in self._vendors]
+
+    def restricted_to(self, names: set[str]) -> "FallbackStructuredLLM":
+        """The same chain with only these vendors, sharing the record of who answered. Used for
+        prompts that may only go to some vendors (passages from our documents: Gemini only, G1)."""
+        chain = FallbackStructuredLLM([v for v in self._vendors if v.name in names])
+        chain.used = self.used
+        chain._parent = self
+        return chain
+
+    @property
+    def is_empty(self) -> bool:
+        return not self._vendors
 
     async def generate(self, prompt: str, schema: type[T]) -> T:
         errors: list[str] = []
@@ -191,6 +205,8 @@ class FallbackStructuredLLM(StructuredLLM):
                 continue
             self.used.add(vendor.name)
             self.last_model = vendor.model or None
+            if self._parent is not None:
+                self._parent.last_model = self.last_model
             return result
         raise LLMError("; ".join(errors) or "no language model is configured")
 

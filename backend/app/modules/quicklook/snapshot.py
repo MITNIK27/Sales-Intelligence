@@ -8,6 +8,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
+from app.modules.documents.knowledge import Knowledge, generate_with_knowledge
 from app.modules.llm.structured import StructuredLLM
 from app.modules.qualification.evidence import quote_is_in_source
 from app.modules.quicklook.prompts import (
@@ -58,13 +59,18 @@ class OfferingRef:
 
 
 def offerings_fingerprint(
-    offerings: list[OfferingRef], focus: str | None = None, criteria: list[str] | None = None
+    offerings: list[OfferingRef],
+    focus: str | None = None,
+    criteria: list[str] | None = None,
+    library: str | None = None,
 ) -> str:
-    """What a snapshot was judged against: our offerings, the person's extras, and the prompt. A
-    look-up with different extras is a different answer, so it is not served from this cache."""
+    """What a snapshot was judged against: our offerings, the person's extras, the prompt and (when
+    there are any) our documents. A look-up with different extras is a different answer, so it is
+    not served from this cache; a changed library makes the snapshot stale."""
     raw = "|".join(f"{o.product_id}:{o.name}:{o.description}" for o in offerings)
     extras = f"{focus or ''}#{'|'.join(criteria or [])}"
-    return hashlib.sha256(f"{PROMPT_VERSION}#{raw}#{extras}".encode()).hexdigest()
+    documents = f"#{library}" if library else ""
+    return hashlib.sha256(f"{PROMPT_VERSION}#{raw}#{extras}{documents}".encode()).hexdigest()
 
 
 def _format_evidence(evidence: list[Evidence]) -> str:
@@ -189,6 +195,7 @@ def empty_summary(
         "call_reason": _CALL_REASON[CALL_UNCLEAR],
         "offerings": [],
         "working_on": [],
+        "knowledge": [],
         "focus": focus,
         "criteria": [
             {
@@ -212,22 +219,26 @@ async def build_summary(
     offerings: list[OfferingRef],
     criteria: list[str] | None = None,
     focus: str | None = None,
+    knowledge: Knowledge | None = None,
 ) -> dict[str, Any]:
+    """`knowledge`, when given, is passages from our documents shown to the model (Gemini only).
+    The summary lists them under "knowledge", each marked `cited` when the answer names its
+    label; nothing they say can make a fit proven or the call a "yes"."""
     criteria = criteria or []
     chars = sum(len(e.text) for e in evidence)
     if not evidence:
         return empty_summary(name, "Nothing could be read about this company.", criteria, focus)
     criteria_text = "\n".join(f"[C{i}] {c}" for i, c in enumerate(criteria, start=1))
-    answer = await llm.generate(
+    knowledge = knowledge or Knowledge()
+    evidence_text, offerings_text = _format_evidence(evidence), _format_offerings(offerings)
+    answer, saw = await generate_with_knowledge(
+        llm,
         build_quicklook_prompt(
-            name,
-            domain,
-            _format_evidence(evidence),
-            _format_offerings(offerings),
-            criteria_text,
-            focus,
+            name, domain, evidence_text, offerings_text, criteria_text, focus, knowledge.block
         ),
+        build_quicklook_prompt(name, domain, evidence_text, offerings_text, criteria_text, focus),
         QuickLookOut,
+        knowledge,
     )
     picks = _verified_offerings(answer, evidence, offerings)
     call = decide_call(picks, chars)
@@ -248,5 +259,15 @@ async def build_summary(
         "working_on": _verified_working_on(answer, evidence),
         "focus": focus,
         "criteria": _checked_criteria(answer, evidence, criteria),
+        "knowledge": _knowledge_used(answer, knowledge) if saw else [],
         "notes": notes,
     }
+
+
+def _knowledge_used(answer: QuickLookOut, knowledge: Knowledge) -> list[dict[str, Any]]:
+    """The passages shown, each marked `cited` when the written answer names its label."""
+    texts = [answer.relevance, answer.call_reason, answer.what_they_do]
+    for pick in answer.offerings:
+        texts += [pick.reason, pick.idea or "", pick.why_now or ""]
+    texts += [point.point for point in answer.working_on]
+    return knowledge.cited_in(*texts)

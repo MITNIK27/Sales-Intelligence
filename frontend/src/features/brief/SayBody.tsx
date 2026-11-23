@@ -1,4 +1,5 @@
 import type { Recommendation } from "@/api/types";
+import { DocumentSources } from "@/features/documents/DocumentSources";
 
 // What to say: the pitch, why this company, and the talking points. Written once per version of
 // the research, so asking again does not spend another model call.
@@ -31,6 +32,7 @@ export function SayBody({
           </ul>
         </div>
       )}
+      <DocumentSources refs={recommendation.knowledge_refs} />
     </div>
   );
 }

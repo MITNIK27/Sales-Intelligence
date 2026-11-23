@@ -22,6 +22,7 @@ COVERED = {
     "modules/offerings/profile.py",
     "modules/offerings/triage.py",
     "modules/opportunity/fit.py",
+    "modules/opportunity/area_prompts.py",
     "modules/opportunity/pick.py",
     "modules/opportunity/prompts.py",
     "modules/opportunity/relevance.py",

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { StatusTag } from "@/components/StatusTag";
+import { DocumentSources } from "@/features/documents/DocumentSources";
 import { EvidenceQuote } from "@/features/quicklook/EvidenceQuote";
 import { WebsiteLink } from "@/components/WebsiteLink";
 import { Button } from "@/components/ui/button";
@@ -88,8 +89,8 @@ export function SnapshotCard({
             className="border border-border bg-chip-warning-bg px-4 py-3 text-sm text-chip-warning-fg"
           >
             You marked this company not a fit (
-            {reasonLabel(snapshot.existing_company_dismissed_reason)}). It is hidden from your
-            companies list.{" "}
+            {reasonLabel(snapshot.existing_company_dismissed_reason)}). It is
+            hidden from your companies list.{" "}
             {known && (
               <Link
                 to={`/companies/${known}`}
@@ -205,6 +206,9 @@ export function SnapshotCard({
                 })}
               </ul>
             )}
+            <div className="mt-3">
+              <DocumentSources refs={snapshot.knowledge} />
+            </div>
           </section>
         )}
 

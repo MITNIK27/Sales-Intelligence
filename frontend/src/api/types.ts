@@ -528,6 +528,8 @@ export type CompanyOpportunity = {
   // it is a next best area. `suggestion_rank` is its place in the list (lower is first).
   suggestion_source?: "searched" | "evidence" | "next_best" | null;
   suggestion_rank?: number | null;
+  // Passages from our documents the suggestion cited (Phase 8d).
+  suggestion_knowledge_refs?: KnowledgeRef[] | null;
   industry_context: string | null;
   created_at: string;
   assessment: OpportunityAssessment | null;
@@ -594,7 +596,21 @@ export type OfferingFit = {
   };
   evidence: OpportunityFinding["evidence"][];
   needs_review: boolean;
+  // Passages from our documents the model was shown about this offering (Phase 8d).
+  knowledge_refs?: KnowledgeRef[] | null;
   created_at: string;
+};
+
+// A passage from our own documents that a model was shown. `cited` is true when its text names the
+// label (K1, K2...), so the person can see which document a claim about an offering came from.
+export type KnowledgeRef = {
+  label: string;
+  chunk_id: string;
+  document_id: string;
+  document_name: string;
+  version: number;
+  locator: string;
+  cited?: boolean;
 };
 
 export type BuyingRole =
@@ -825,6 +841,7 @@ export type Recommendation = {
   why_this_company: string;
   talking_points: string[];
   model_used: string;
+  knowledge_refs?: KnowledgeRef[] | null;
   created_at: string;
 };
 

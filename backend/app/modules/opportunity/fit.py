@@ -12,6 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.companies.models import Company
+from app.modules.documents.knowledge import (
+    Knowledge,
+    gather,
+    generate_with_knowledge,
+    library_hash,
+)
 from app.modules.enrichment.models import EnrichmentRecord
 from app.modules.llm.structured import StructuredLLM
 from app.modules.llm.untrusted import untrusted_aware, wrap_untrusted
@@ -42,7 +48,10 @@ from app.modules.products.models import Product
 
 logger = logging.getLogger(__name__)
 
-FIT_PROMPT_VERSION = "v2"
+FIT_PROMPT_VERSION = "v3"
+# v3 only adds the passages from our documents; without them the prompt is word for word v2, so a v2
+# fit made when there were no documents is still valid.
+_SAME_WITHOUT_KNOWLEDGE = {"v2"}
 NO_EVIDENCE_REASON = "There is no evidence on file to judge this fit."
 # For an offering the model gave no answer about: nothing in the evidence points to a need for it.
 NOT_ANSWERED_REASON = "The research shows no need for this offering."
@@ -156,7 +165,16 @@ def build_fit_prompt(
     evidence_text: str,
     assessment: OpportunityAssessment | None,
     offerings: Iterable[tuple[str, Product]],
+    knowledge_block: str = "",
 ) -> str:
+    knowledge_section = (
+        "\n\nWhat our own documents say about these offerings (internal material, to understand "
+        "what each offering really does and has delivered; it is NOT evidence about "
+        f"{company.name} and is never cited as E-evidence; when a passage shaped your reasoning, "
+        f"mention its label, for example [K2]):\n{knowledge_block}"
+        if knowledge_block
+        else ""
+    )
     established = (
         "\n".join(f"- {f['statement']}" for f in assessment.findings)
         if assessment and assessment.findings
@@ -183,7 +201,7 @@ Evidence:
 {wrap_untrusted(evidence_text, "evidence")}
 
 Offerings to judge:
-{chr(10).join(_profile_block(label, product) for label, product in offerings)}
+{chr(10).join(_profile_block(label, product) for label, product in offerings)}{knowledge_section}
 
 For each offering return its label, one or two sentences of reasoning, and up to \
 {_MAX_CITATIONS} citations (evidence label and verbatim quote)."""
@@ -210,12 +228,17 @@ def _cache_valid(
     assessment: OpportunityAssessment | None,
     product: Product,
     set_hash: str,
+    knowledge_hash: str | None = None,
 ) -> bool:
+    version_ok = match.prompt_version == FIT_PROMPT_VERSION or (
+        knowledge_hash is None and match.prompt_version in _SAME_WITHOUT_KNOWLEDGE
+    )
     return _band_follows_rules(match) and (
         match.assessment_id == (assessment.id if assessment else None)
         and match.profile_hash == product.profile_hash
         and match.evidence_set_hash == set_hash
-        and match.prompt_version == FIT_PROMPT_VERSION
+        and version_ok
+        and (match.knowledge_hash or None) == knowledge_hash
     )
 
 
@@ -257,26 +280,51 @@ async def judge_offering_fit(
     verdict = assessment.verdict if assessment else None
     existing = await latest_matches(session, opportunity.id)
 
+    knowledge_hashes = {
+        product.id: await library_hash(session, opportunity.organization_id, [product.id])
+        for product in products
+    }
     current: dict[object, OpportunityOfferingMatch] = {}
     stale: list[Product] = []
     for product in products:
         match = existing.get(product.id)
-        if match is not None and not force and _cache_valid(match, assessment, product, set_hash):
+        if (
+            match is not None
+            and not force
+            and _cache_valid(match, assessment, product, set_hash, knowledge_hashes[product.id])
+        ):
             current[product.id] = match
         else:
             stale.append(product)
 
     answers: dict[str, OfferingFitOut] = {}
+    knowledge = Knowledge()
     if stale and items:
         labelled = [(f"O{i}", product) for i, product in enumerate(stale, start=1)]
-        prompt = build_fit_prompt(
-            company, opportunity, format_evidence(items), assessment, labelled
+        knowledge = await gather(
+            session,
+            opportunity.organization_id,
+            f"{opportunity.area_label}: "
+            + ", ".join(p.name for p in stale)
+            + f" ({opportunity.industry_context or company.industry or 'any industry'})",
+            [p.id for p in stale],
         )
-        out = await llm.generate(prompt, FitOut)
+        evidence_text = format_evidence(items)
+        plain = build_fit_prompt(company, opportunity, evidence_text, assessment, labelled)
+        prompt = build_fit_prompt(
+            company, opportunity, evidence_text, assessment, labelled, knowledge.block
+        )
+        out, used_knowledge = await generate_with_knowledge(llm, prompt, plain, FitOut, knowledge)
+        if not used_knowledge:
+            knowledge, prompt = Knowledge(), plain
         answers = _answers_by_label(out, labelled)
         if not answers:
             # A model that sees no fit sometimes returns an empty list. Ask once more, plainly.
-            out = await llm.generate(prompt + _RETRY_NOTE, FitOut)
+            out, again = await generate_with_knowledge(
+                llm, prompt + _RETRY_NOTE, plain + _RETRY_NOTE, FitOut, knowledge
+            )
+            if not again:
+                knowledge = Knowledge()
             answers = _answers_by_label(out, labelled)
         labels = {product.id: label for label, product in labelled}
         if not answers:
@@ -328,6 +376,8 @@ async def judge_offering_fit(
             evidence_set_hash=set_hash,
             prompt_version=FIT_PROMPT_VERSION,
             model_used=model_names(llm) if items else "none",
+            knowledge_refs=knowledge.cited_in(answer.reasoning if answer else "") or None,
+            knowledge_hash=knowledge_hashes[product.id],
         )
         session.add(match)
         current[product.id] = match

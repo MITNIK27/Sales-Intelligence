@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -20,4 +21,6 @@ class RecommendationOut(BaseModel):
     why_this_company: str
     talking_points: list[str]
     model_used: str
+    # Passages from our documents the model was shown, with `cited` when its text names the label.
+    knowledge_refs: list[dict[str, Any]] | None = None
     created_at: datetime

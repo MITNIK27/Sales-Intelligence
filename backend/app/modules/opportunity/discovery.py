@@ -3,14 +3,21 @@ few areas where the company shows real activity. Each proposal must cite evidenc
 that is really in it; a proposal that cannot is dropped. When the evidence is thin the honest
 answer is no suggestions, and that is returned as such."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.companies.models import Company
+from app.modules.documents.knowledge import Knowledge, gather, generate_with_knowledge
 from app.modules.enrichment.models import EnrichmentRecord
 from app.modules.llm.structured import StructuredLLM
+from app.modules.opportunity.area_prompts import (
+    AREA_PROMPT_VERSION,
+    build_area_judgement_prompt,
+    build_area_prompt,
+)
 from app.modules.opportunity.areas import clean_area_label, normalize_area_key
 from app.modules.opportunity.evidence import (
     build_evidence_pack,
@@ -24,7 +31,6 @@ from app.modules.opportunity.models import (
     STATUS_SUGGESTED,
     CompanyOpportunity,
 )
-from app.modules.opportunity.prompts import build_area_judgement_prompt, build_area_prompt
 from app.modules.opportunity.service import get_or_create_opportunity
 from app.modules.products.models import STATUS_ACTIVE, Product
 
@@ -41,6 +47,40 @@ class SuggestedArea:
     # supports it ("clear", "partial"), empty when it was not judged.
     offering: str = ""
     support: str = ""
+    # Passages from our documents the reason or the judgement cited (only cited ones are kept).
+    knowledge_refs: list[dict[str, Any]] = field(default_factory=list)
+
+
+async def area_knowledge(
+    session: AsyncSession,
+    company: Company,
+    industry: str | None,
+    focus: list[str] | None = None,
+) -> Knowledge:
+    """Passages from our documents for suggesting and judging areas for this company: what we
+    have done for companies like it. One set serves both prompts, so a label means the same
+    passage in the reason and in the judgement."""
+    about = (company.description or "")[:300]
+    question = f"{industry or company.industry or ''} {about}"
+    if focus:
+        question += " " + ", ".join(focus)
+    if not question.strip():
+        question = company.name
+    return await gather(session, company.organization_id, question, [])
+
+
+def _cited(knowledge: Knowledge | None, *texts: str) -> list[dict[str, Any]]:
+    if not knowledge:
+        return []
+    return [ref for ref in knowledge.cited_in(*texts) if ref["cited"]]
+
+
+def _merge_refs(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        for ref in group:
+            merged.setdefault(ref["label"], ref)
+    return sorted(merged.values(), key=lambda r: int(r["label"][1:]))
 
 
 async def offering_areas(session: AsyncSession, organization_id: object) -> list[str]:
@@ -74,16 +114,33 @@ async def suggest_areas(
     industry: str | None = None,
     focus: list[str] | None = None,
     widen: bool = False,
+    knowledge: Knowledge | None = None,
 ) -> list[SuggestedArea]:
+    """`knowledge`, when given, is passages from our documents shown to the model (Gemini only);
+    an area still needs a verified quote from the company's evidence."""
     items = build_evidence_pack(company, records)
     if not items:
         return []
-    answer = await llm.generate(
+    evidence_text = format_evidence(items)
+    knowledge = knowledge or Knowledge()
+    answer, saw = await generate_with_knowledge(
+        llm,
         build_area_prompt(
-            company, industry, format_evidence(items), areas_we_cover, focus=focus, widen=widen
+            company,
+            industry,
+            evidence_text,
+            areas_we_cover,
+            focus=focus,
+            widen=widen,
+            knowledge_block=knowledge.block,
+        ),
+        build_area_prompt(
+            company, industry, evidence_text, areas_we_cover, focus=focus, widen=widen
         ),
         AreaSuggestionsOut,
+        knowledge,
     )
+    shown = knowledge if saw else None
     by_label = {item.label: item for item in items}
     suggestions: list[SuggestedArea] = []
     seen_keys: set[str] = set()
@@ -100,6 +157,7 @@ async def suggest_areas(
                 reason=proposed.reason.strip()[:500],
                 quote=proposed.quote.strip(),
                 evidence_url=item.url,
+                knowledge_refs=_cited(shown, proposed.reason),
             )
         )
         if len(suggestions) == MAX_SUGGESTIONS:
@@ -114,7 +172,7 @@ async def save_suggestions(
     person chooses it). An area the company already has an opportunity for is left as it is."""
     saved: list[CompanyOpportunity] = []
     for suggestion in suggestions:
-        opportunity, _created = await get_or_create_opportunity(
+        opportunity, created = await get_or_create_opportunity(
             session,
             company,
             suggestion.label,
@@ -122,8 +180,16 @@ async def save_suggestions(
             status=STATUS_SUGGESTED,
             suggestion_reason=suggestion.reason,
         )
+        if created:
+            record_suggestion_sources(opportunity, suggestion)
         saved.append(opportunity)
     return saved
+
+
+def record_suggestion_sources(opportunity: CompanyOpportunity, area: SuggestedArea) -> None:
+    """Which prompt wrote the suggestion's reason and which of our documents it cited."""
+    opportunity.suggestion_prompt_version = AREA_PROMPT_VERSION
+    opportunity.suggestion_knowledge_refs = area.knowledge_refs or None
 
 
 async def judge_areas(
@@ -132,6 +198,7 @@ async def judge_areas(
     areas: list[SuggestedArea],
     offerings: list[tuple[str, list[str]]],
     focus: list[str],
+    knowledge: Knowledge | None = None,
 ) -> list[SuggestedArea]:
     """A second look at proposed areas, in one call: which offering serves each, and how well the
     evidence supports it. An area judged "none" is dropped. The model only labels; what is kept
@@ -139,12 +206,16 @@ async def judge_areas(
     it is kept unjudged rather than lost, since its quote was already verified."""
     if not areas:
         return []
-    answer = await llm.generate(
-        build_area_judgement_prompt(
-            company, [(a.label, a.reason, a.quote) for a in areas], offerings, focus
-        ),
+    candidates = [(a.label, a.reason, a.quote) for a in areas]
+    knowledge = knowledge or Knowledge()
+    answer, saw = await generate_with_knowledge(
+        llm,
+        build_area_judgement_prompt(company, candidates, offerings, focus, knowledge.block),
+        build_area_judgement_prompt(company, candidates, offerings, focus),
         AreaJudgementsOut,
+        knowledge,
     )
+    shown = knowledge if saw else None
     names = {name.strip().lower(): name for name, _ in offerings}
     by_key = {normalize_area_key(j.label): j for j in answer.areas}
     judged: list[SuggestedArea] = []
@@ -165,6 +236,9 @@ async def judge_areas(
                 evidence_url=area.evidence_url,
                 offering=offering,
                 support=support if support in ("clear", "partial") and offering else "",
+                knowledge_refs=_merge_refs(
+                    area.knowledge_refs, _cited(shown, " ".join(verdict.sources))
+                ),
             )
         )
     return judged

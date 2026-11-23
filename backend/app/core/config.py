@@ -269,6 +269,10 @@ class Settings(BaseSettings):
     # A passage found only by meaning is dropped when it is less similar to the question than this
     # (0 to 1, cosine). 0 keeps everything. Not calibrated yet: see the scores in the search box.
     documents_min_similarity: float = 0.0
+    # Phase 8d: passages from the documents given to the fit and recommendation prompts. 0 turns it
+    # off. Prompts with passages go to Gemini only (G1), never to a fallback vendor.
+    documents_knowledge_passages: int = 5
+    documents_knowledge_max_chars: int = 4000
 
 
 @lru_cache

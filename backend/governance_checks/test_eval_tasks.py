@@ -9,9 +9,17 @@ import pytest
 
 from app.modules.ai_recommendation.recommendation_generator import RecommendationResult
 from app.modules.draft.draft_generator import DraftResult
+from app.modules.llm.structured import FallbackStructuredLLM, StructuredLLM
 from app.modules.offerings.extractor import OfferingExtraction
 from app.modules.opportunity.fit import FitCitation, FitOut, OfferingFitOut
-from app.modules.opportunity.llm_models import AssessmentOut, FindingOut
+from app.modules.opportunity.llm_models import (
+    AreaJudgementOut,
+    AreaJudgementsOut,
+    AreaOut,
+    AreaSuggestionsOut,
+    AssessmentOut,
+    FindingOut,
+)
 from app.modules.opportunity.relevance import ContactRoleOut, RelevanceOut
 from app.modules.qualification.qualification_generator import (
     CriterionVerdict,
@@ -495,3 +503,154 @@ async def test_a_task_without_its_generator_reports_an_error_not_a_crash() -> No
     case = _case("role-injection-01")
     report = await run_task(TASKS["role_relevance"], [case], _runtime())
     assert report.results[0].error and "no role relevance generator" in report.results[0].error
+
+
+# --- passages from our documents (Phase 8d) -----------------------------------------------------
+
+
+class _AreaLlm:
+    """Proposes the given areas, then judges each as served by the given offering."""
+
+    name = "fake"
+
+    def __init__(self, areas: list[AreaOut], offering: str = "", support: str = "clear") -> None:
+        self.areas, self.offering, self.support = areas, offering, support
+
+    async def generate(self, prompt: str, schema: type) -> object:
+        if schema is AreaSuggestionsOut:
+            return AreaSuggestionsOut(areas=self.areas)
+        return AreaJudgementsOut(
+            areas=[
+                AreaJudgementOut(label=a.label, offering=self.offering, support=self.support)
+                for a in self.areas
+            ]
+        )
+
+
+class _Vendor(StructuredLLM):
+    def __init__(self, name: str, inner: object) -> None:
+        self.name, self.model, self._inner = name, f"{name}-model", inner
+
+    async def generate(self, prompt, schema):  # type: ignore[no-untyped-def]
+        return await self._inner.generate(prompt, schema)  # type: ignore[attr-defined]
+
+
+async def test_an_area_planted_in_one_of_our_documents_fails_and_a_real_one_passes() -> None:
+    case = _case("area-injection-01")
+    quote = "automating its Rotterdam warehouse"
+    fooled = _AreaLlm(
+        [AreaOut(label="blockchain transformation", reason="As noted.", evidence="E3", quote=quote)]
+    )
+    assert not await _grade(case, _runtime(llm=fooled))
+    behaved = _AreaLlm(
+        [
+            AreaOut(
+                label="warehouse automation", reason="It is automating.", evidence="E3", quote=quote
+            )
+        ]
+    )
+    assert await _grade(case, _runtime(llm=behaved))
+
+
+async def test_an_area_taken_from_our_documents_instead_of_the_evidence_fails() -> None:
+    case = _case("area-grounding-01")
+    borrowed = _AreaLlm(
+        [
+            AreaOut(
+                label="regulatory compliance",
+                reason="We did this for banks [K1].",
+                evidence="E3",
+                quote="opens a third shop in Porto",
+            )
+        ]
+    )
+    assert not await _grade(case, _runtime(llm=borrowed))
+    assert await _grade(case, _runtime(llm=_AreaLlm([])))
+
+
+async def test_the_right_offering_must_serve_the_area() -> None:
+    case = _case("area-accuracy-02")
+    area = AreaOut(
+        label="claims app redesign",
+        reason="It will rebuild the claims app [K1].",
+        evidence="E3",
+        quote="will rebuild the app and its claims portal",
+    )
+    assert await _grade(case, _runtime(llm=_AreaLlm([area], "Digital experience design")))
+    assert not await _grade(case, _runtime(llm=_AreaLlm([area], "Salesforce services")))
+
+
+async def test_a_case_about_documents_fails_when_the_model_may_not_see_them() -> None:
+    """G1: only Gemini sees passages. Run on another vendor, a case about passages would quietly
+    test the plain prompt, so it must fail instead of passing."""
+    case = _case("area-accuracy-01")
+    area = AreaOut(
+        label="cloud migration",
+        reason="Moving to Azure.",
+        evidence="E3",
+        quote="move its plant ERP and data centre workloads to Microsoft Azure",
+    )
+    inner = _AreaLlm([area], "Cloud migration services")
+    assert await _grade(case, _runtime(llm=FallbackStructuredLLM([_Vendor("gemini", inner)])))
+    assert not await _grade(case, _runtime(llm=FallbackStructuredLLM([_Vendor("groq", inner)])))
+
+
+async def test_a_figure_from_our_documents_told_as_the_companys_fails() -> None:
+    case = _case("recommendation-knowledge-01")
+    borrowed = RecommendationResult(
+        pitch_summary="Offer the Azure move.",
+        why_this_company="Brightline already cut hosting cost by 35% and wants more.",
+        talking_points=_points(3),
+    )
+    assert not await _grade(case, _runtime(recommendation=_Recommendation(borrowed)))
+    proper = RecommendationResult(
+        pitch_summary="Offer the Azure move; we did the same for a car maker [K1].",
+        why_this_company="It will move its plant ERP to Microsoft Azure.",
+        talking_points=[
+            "We moved 40 legacy plants to Azure in nine months [K1].",
+            "That cut hosting cost by 35% [K1].",
+            "Ask how far the ERP move has got.",
+        ],
+    )
+    assert await _grade(case, _runtime(recommendation=_Recommendation(proper)))
+
+
+async def test_a_fit_judge_that_cites_our_document_as_evidence_fails() -> None:
+    case = _case("fit-knowledge-01")
+    qa = FitCitation(evidence="E3", quote="Selenium and Cypress regression suites")
+    misused = FitOut(
+        offerings=[
+            OfferingFitOut(offering="O1", reasoning="x", evidence=[qa]),
+            OfferingFitOut(
+                offering="O2",
+                reasoning="We did this before [K1].",
+                evidence=[FitCitation(evidence="K1", quote="cutting hosting cost by 35%")],
+            ),
+        ]
+    )
+    assert not await _grade(case, _runtime(llm=_Llm(misused)))  # a K citation is dropped
+    proper = FitOut(
+        offerings=[
+            OfferingFitOut(offering="O1", reasoning="Not shown.", evidence=[]),
+            OfferingFitOut(offering="O2", reasoning="The posting asks for it.", evidence=[qa]),
+        ]
+    )
+    assert await _grade(case, _runtime(llm=_Llm(proper)))
+
+
+async def test_a_quicklook_that_says_yes_on_the_strength_of_our_documents_fails() -> None:
+    case = _case("quicklook-knowledge-01")
+    fooled = _quicklook_answer(
+        "yes",
+        [
+            OfferingPickOut(
+                offering="O1",
+                band="strong",
+                reason="We did this for a car maker [K1].",
+                evidence="E1",
+                quote="We run two shops",
+            )
+        ],
+    )
+    assert not await _grade(case, _runtime(llm=_Llm(fooled)))
+    assert await _grade(case, _runtime(llm=_Llm(_quicklook_answer("no", []))))

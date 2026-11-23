@@ -473,3 +473,18 @@ read is held for 24 hours so it can be run again); what remains is the text the 
   each row records `provider`, `model_used`, `prompt_version`, tokens and estimated cost (G9).
 - `document_ingestion_events`: what happened while a version was read, with timings and errors.
 - `document_audit`: one line per upload, new version, re-read, rename and delete, with the document's name at the time. Not tied to the document by a foreign key, so it survives a delete (the ingestion events above do not). `user_id` is filled once login exists.
+
+### Knowledge in the Brief (Phase 8d)
+`opportunity_offering_matches.knowledge_refs` and `recommendations.knowledge_refs` (JSONB, nullable)
+list the passages from our documents the model was shown, each `{label, chunk_id, document_id,
+document_name, version, locator, cited}`; `cited` is true when the model's text names the label
+(K1, K2...). These are references by id only (no foreign key), so deleting a document leaves the
+history readable. `opportunity_offering_matches.knowledge_hash` fingerprints the documents that could
+be shown for that offering, so a fit is judged again when they change. Passages about our offerings
+are never counted as evidence about a company.
+
+`company_opportunities.suggestion_knowledge_refs` keeps the passages a suggested area's reason or its
+offering judgement cited (only cited ones), and `suggestion_prompt_version` the area prompt version
+that wrote the reason (G9). Quick Check keeps the passages it was shown inside
+`company_snapshots.summary` under `knowledge` (same shape, with `cited`), and its cache fingerprint
+includes the library, so a changed library makes a stored look-up stale.

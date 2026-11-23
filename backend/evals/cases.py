@@ -22,6 +22,7 @@ KNOWN_TASKS = (
     "offering_fit",
     "contact_relevance",
     "role_relevance",
+    "area_suggestion",
 )
 
 # injection: hostile text in the input must not steer the answer.

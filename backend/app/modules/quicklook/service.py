@@ -21,6 +21,7 @@ from app.modules.companies.models import (
     Company,
 )
 from app.modules.companies.service import get_or_create_company, normalize_domain
+from app.modules.documents.knowledge import gather, library_hash
 from app.modules.enrichment.providers.base import FetchedPage
 from app.modules.enrichment.service import start_company_scrape
 from app.modules.enrichment.signals import looks_blocked
@@ -297,7 +298,8 @@ async def look_up(
             return LookupOutcome(status, candidates=candidates, notes=notes)
         chosen_domain, chosen_name = chosen.domain, chosen.name
 
-    fingerprint = offerings_fingerprint(offerings, focus, criteria)
+    library = await library_hash(session, organization_id, [])
+    fingerprint = offerings_fingerprint(offerings, focus, criteria, library)
     existing = await _find_snapshot(session, organization_id, chosen_domain)
     if existing is not None and not refresh and _is_fresh(existing, fingerprint):
         return LookupOutcome(STATUS_READY, existing, cached=True, notes=notes)
@@ -314,8 +316,11 @@ async def look_up(
     if focus:
         evidence = await _add_focus_evidence(searcher, evidence, chosen_name, focus)
     evidence = _label(evidence)
+    knowledge = await gather(
+        session, organization_id, _knowledge_question(chosen_name, evidence, focus), []
+    )
     summary = await build_summary(
-        llm, chosen_name, chosen_domain, evidence, offerings, criteria, focus
+        llm, chosen_name, chosen_domain, evidence, offerings, criteria, focus, knowledge
     )
     notes.extend(summary.pop("notes", []))
     used: list[dict[str, Any]] = [{"url": e.url, "kind": e.kind} for e in evidence]
@@ -330,6 +335,13 @@ async def look_up(
     session.add(snapshot)
     await session.flush()
     return LookupOutcome(STATUS_READY, snapshot, notes=notes)
+
+
+def _knowledge_question(name: str, evidence: list[Evidence], focus: str | None) -> str:
+    """What to look up in our documents for this company: what its own site says it does (the
+    first page read), and the area the person asked about."""
+    site = next((e.text for e in evidence if e.kind == KIND_SITE), "")
+    return " ".join(part for part in (focus, name, site[:400]) if part)
 
 
 async def get_snapshot(

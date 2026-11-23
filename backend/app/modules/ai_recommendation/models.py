@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 from sqlalchemy import ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -35,6 +36,8 @@ class Recommendation(Base, TimestampMixin):
     talking_points: Mapped[list[str]] = mapped_column(JsonB)
     model_used: Mapped[str] = mapped_column(String(50))
     prompt_version: Mapped[str | None] = mapped_column(String(20))
+    # Passages from our own documents the model was shown (Phase 8d); see OpportunityOfferingMatch.
+    knowledge_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
     # The opportunity (business area) this was written for and the assessment version it was
     # grounded in; both null for recommendations made before opportunities existed.
     company_opportunity_id: Mapped[uuid.UUID | None] = mapped_column(

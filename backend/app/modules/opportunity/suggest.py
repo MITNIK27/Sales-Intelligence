@@ -22,9 +22,11 @@ from app.modules.opportunity.areas import normalize_area_key
 from app.modules.opportunity.discovery import (
     MAX_SUGGESTIONS,
     SuggestedArea,
+    area_knowledge,
     judge_areas,
     offering_areas,
     offering_catalogue,
+    record_suggestion_sources,
     save_suggestions,
     suggest_areas,
 )
@@ -217,17 +219,29 @@ async def suggest_with_notice(
         records = await evidence_records_for(session, general)
         areas = await offering_areas(session, org)
         industry = general.industry_context
-        proposed = await suggest_areas(llm, company, records, areas, industry, focus=focus_names)
+        knowledge = await area_knowledge(session, company, industry, focus_names)
+        proposed = await suggest_areas(
+            llm, company, records, areas, industry, focus=focus_names, knowledge=knowledge
+        )
         if widen:
             more = await suggest_areas(
-                llm, company, records, areas, industry, focus=focus_names, widen=True
+                llm,
+                company,
+                records,
+                areas,
+                industry,
+                focus=focus_names,
+                widen=True,
+                knowledge=knowledge,
             )
             known = {normalize_area_key(a.label) for a in proposed}
             proposed += [a for a in more if normalize_area_key(a.label) not in known]
         proposed = [a for a in proposed if normalize_area_key(a.label) not in taken]
         catalogue = await offering_catalogue(session, org)
         judged = (
-            await judge_areas(llm, company, proposed, catalogue, focus_names) if proposed else []
+            await judge_areas(llm, company, proposed, catalogue, focus_names, knowledge)
+            if proposed
+            else []
         )
 
     ordered = _order(judged, set(focus_names))[:MAX_SUGGESTIONS]
@@ -243,6 +257,7 @@ async def suggest_with_notice(
         opportunity.suggestion_source = source
         opportunity.suggestion_rank = rank
         opportunity.suggestion_focus = fhash
+        record_suggestion_sources(opportunity, area)
         rank += 1
 
     keep = {o.id for o in seeded} | {o.id for o in saved}

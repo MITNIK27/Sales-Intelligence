@@ -1,3 +1,4 @@
+import type { KnowledgeRef } from "@/api/types";
 import { apiPost } from "@/api/client";
 
 export type Call = "yes" | "maybe" | "no" | "unclear";
@@ -41,6 +42,8 @@ export type Snapshot = {
   working_on: WorkingOn[];
   focus: string | null;
   criteria: CriterionResult[];
+  // Passages from our documents the model was shown, `cited` when the answer names them (Phase 8d).
+  knowledge?: KnowledgeRef[];
   sources: { url: string; kind: string }[];
   updated_at: string;
   cached: boolean;

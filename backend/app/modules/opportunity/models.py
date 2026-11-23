@@ -68,6 +68,11 @@ class CompanyOpportunity(Base, TimestampMixin, UpdatedAtMixin):
     suggestion_source: Mapped[str | None] = mapped_column(String(20))
     suggestion_rank: Mapped[int | None] = mapped_column(Integer)
     suggestion_focus: Mapped[str | None] = mapped_column(String(64))
+    # Passages from our documents the suggestion cited (Phase 8d), each {label, chunk_id,
+    # document_id, document_name, version, locator, cited}, and the area prompt version that wrote
+    # the reason (G9).
+    suggestion_knowledge_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
+    suggestion_prompt_version: Mapped[str | None] = mapped_column(String(20))
     # What each collector (news, hiring, web) did last time: when, what it searched, how much it
     # found, any error, and for hiring the counts over time. It decides what is still fresh and is
     # the source of the plain "searched, found nothing" statements.
@@ -159,6 +164,11 @@ class OpportunityOfferingMatch(Base, TimestampMixin):
     evidence_set_hash: Mapped[str] = mapped_column(String(64))
     prompt_version: Mapped[str] = mapped_column(String(20))
     model_used: Mapped[str] = mapped_column(String(50))
+    # Passages from our own documents the model was shown about these offerings (Phase 8d), each
+    # {label, chunk_id, document_id, document_name, version, locator, cited}, and a fingerprint of
+    # the library they came from, so the fit is judged again when the documents change.
+    knowledge_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JsonB)
+    knowledge_hash: Mapped[str | None] = mapped_column(String(64))
 
 
 class ContactOpportunityRelevance(Base, TimestampMixin):

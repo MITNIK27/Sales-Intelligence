@@ -34,6 +34,8 @@ class OpportunityOut(BaseModel):
     suggestion_reason: str | None
     suggestion_source: str | None = None
     suggestion_rank: int | None = None
+    # Passages from our documents the suggestion cited (Phase 8d).
+    suggestion_knowledge_refs: list[dict[str, Any]] | None = None
     industry_context: str | None
     created_at: datetime
     assessment: AssessmentOut | None = None
@@ -74,6 +76,9 @@ class FitMatchOut(BaseModel):
     factors: dict[str, Any]
     evidence: list[dict[str, Any]]
     needs_review: bool
+    # Passages from our documents the model was shown about this offering, with `cited` when its
+    # reasoning names the label.
+    knowledge_refs: list[dict[str, Any]] | None = None
     created_at: datetime
 
 
