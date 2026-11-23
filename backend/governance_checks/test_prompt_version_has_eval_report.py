@@ -36,17 +36,13 @@ MEASURED = {
     "modules/opportunity/fit.py": "offering_fit",
     "modules/opportunity/area_prompts.py": "area_suggestion",
     "modules/documents/card_prompts.py": "knowledge_cards",
+    "modules/documents/vision.py": "picture_description",
     "modules/opportunity/relevance.py": "contact_relevance",
     "modules/role_relevance/prompts.py": "role_relevance",
 }
 
 # Prompt versions no eval task covers yet. Each one needs a task and cases to leave this list.
-UNMEASURED: dict[str, str] = {
-    "modules/documents/vision.py": (
-        "picture descriptions for uploaded documents (Phase 8b); eval cases, including a picture "
-        "with an injected instruction, are added in Phase 8f"
-    ),
-}
+UNMEASURED: dict[str, str] = {}
 
 # Tasks that exist and have cases but whose first report has not been committed yet. Run
 # `python -m evals.run --task <task> --yes`, commit the report, and take the task off this list.
@@ -54,7 +50,6 @@ AWAITING_FIRST_REPORT = {
     "opportunity_assessment": "run it once with real models and commit the report",
     "contact_relevance": "run it once with real models and commit the report",
     "role_relevance": "run it once with real models and commit the report",
-    "knowledge_cards": "new in Phase 8e: run it once with real models and commit the report",
 }
 
 _VERSION = re.compile(r'^[A-Z_]*PROMPT_VERSION = "', re.MULTILINE)

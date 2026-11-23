@@ -93,6 +93,24 @@ Azure Database for PostgreSQL, Google Cloud SQL and others):
 - Moving the data: `scripts\db_backup.py backup`, restore the dump into the new server, compare
   fingerprints with `db_verify.py --database-url`, then run `alembic upgrade head` there.
 
+## Documents and vectors (Phase 8)
+
+- **Where the knowledge lives:** `documents`, `document_versions`, `document_pages`,
+  `document_chunks` (passages, with a 768-number `embedding` and a `tsv` word index),
+  `document_assets`, `document_summaries`, `knowledge_cards` (with their own `embedding` and `tsv`),
+  `document_offerings`, `document_ingestion_events` and `document_audit`. No original file is kept,
+  so **the database and its backups are the only copy**: back up before deleting documents in bulk.
+- **Size:** a vector is about 3 KB, so 10,000 passages and cards are roughly 30 MB of vectors plus
+  their HNSW indexes (`ix_document_chunks_embedding`, `ix_knowledge_cards_embedding`).
+- **Changing the embedding model** (`DOCUMENTS_EMBEDDING_MODEL`): rows record the model that made
+  their vector, so the worker re-embeds everything on its next hourly pass. Search uses only vectors
+  of the current model meanwhile (words still work). Expect one embedding call per 20 rows.
+- **Rebuilding a vector index** after a large import (slow inserts, or search quality dropping):
+  `REINDEX INDEX CONCURRENTLY ix_document_chunks_embedding;` (and the same for the cards index), run
+  as the owner while the app is quiet.
+- **The app role** gets the new tables automatically (default privileges in
+  `infra/db/create_app_role.sql`).
+
 ## Known traps
 
 - **Do not reuse a data directory across images.** Alpine (musl) and Debian (glibc) sort text

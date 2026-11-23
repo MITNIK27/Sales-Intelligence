@@ -23,6 +23,7 @@ from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.modules.ai_recommendation.recommendation_generator import GeminiRecommendationGenerator
+from app.modules.documents.vision import GeminiImageDescriber
 from app.modules.draft.draft_generator import GeminiDraftGenerator
 from app.modules.llm.structured import build_structured_llm
 from app.modules.qualification.qualification_generator import GeminiQualificationGenerator
@@ -34,7 +35,13 @@ from evals.tasks import TASKS, Runtime, validate_cases
 
 MAX_REPEAT = 10  # a guard for quota; raise it deliberately if you need more
 # Tasks whose app code calls Gemini directly (no vendor chain), so only a Gemini key is needed.
-GEMINI_ONLY_TASKS = ("qualification", "draft", "recommendation", "role_relevance")
+GEMINI_ONLY_TASKS = (
+    "qualification",
+    "draft",
+    "recommendation",
+    "role_relevance",
+    "picture_description",
+)
 
 
 def _repeat_count(value: str) -> int:
@@ -74,6 +81,8 @@ def build_runtime(
         model=label,
         recommendation=GeminiRecommendationGenerator(settings),
         role_relevance=GeminiRoleRelevanceGenerator(settings),
+        # The same describer the app uses when it reads a file; it needs a Gemini key to exist.
+        describer=GeminiImageDescriber(settings) if settings.gemini_api_key else None,
     )
     return runtime, needs
 
@@ -164,9 +173,7 @@ async def main(args: argparse.Namespace) -> int:
     for name, runtime, selected, missing in plan:
         if missing or not selected:
             continue
-        report = await run_task(
-            TASKS[name], selected, runtime, args.delay, secrets, args.repeat
-        )
+        report = await run_task(TASKS[name], selected, runtime, args.delay, secrets, args.repeat)
         previous = previous_report(name)
         path = None if args.no_write else str(write_report(report))
         _print_report(report, previous, path)

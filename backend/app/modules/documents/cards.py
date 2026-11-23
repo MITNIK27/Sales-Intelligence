@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
@@ -444,6 +445,11 @@ async def process_summarise_document_job(
 
     overall, overall_model = await _document_summary(llm, document.name, results)
     await progress(len(sections) + 1, steps, stage="save", detail="Saving")
+    # The model calls take a while: the document may have been deleted, or read again (which
+    # replaces its passages), in the meantime. Then there is nothing to attach the cards to.
+    used = {chunk.id for section, _ in results for chunk in section.chunks}
+    if not await _passages_still_there(session, version_id, used):
+        return {"skipped": _GONE}
 
     hidden_before = set(
         (
@@ -526,7 +532,14 @@ async def process_summarise_document_job(
                 )
             )
     session.add_all(cards)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError:
+        # Deleted or read again between the check above and this save.
+        await session.rollback()
+        if not await _passages_still_there(session, version_id, used):
+            return {"skipped": _GONE}
+        raise
 
     message = (
         f"Summarised {len(results)} section{'' if len(results) == 1 else 's'} and kept "
@@ -601,6 +614,22 @@ async def process_summarise_document_job(
         "dropped": dropped,
         "offering_proposals": proposals,
     }
+
+
+_GONE = "the document was deleted or read again while it was being summarised"
+
+
+async def _passages_still_there(
+    session: AsyncSession, version_id: uuid.UUID, chunk_ids: set[uuid.UUID]
+) -> bool:
+    """Whether every passage the cards would point at is still in the database (a fresh query, not
+    the session's memory, so a delete committed elsewhere is seen)."""
+    found = await session.scalar(
+        select(func.count())
+        .select_from(DocumentChunk)
+        .where(DocumentChunk.version_id == version_id, DocumentChunk.id.in_(list(chunk_ids)))
+    )
+    return found == len(chunk_ids)
 
 
 async def _document_summary(

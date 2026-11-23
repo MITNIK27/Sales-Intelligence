@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from app.modules.ai_recommendation import recommendation_generator as recommendation_module
@@ -17,6 +18,7 @@ from app.modules.ai_recommendation.recommendation_generator import Recommendatio
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
 from app.modules.documents import card_prompts
+from app.modules.documents import vision as vision_module
 from app.modules.documents.cards import SourcePassage, draft_offering_update, read_section
 from app.modules.documents.knowledge import (
     KNOWLEDGE_VENDORS,
@@ -25,6 +27,8 @@ from app.modules.documents.knowledge import (
     generate_with_knowledge,
     pack,
 )
+from app.modules.documents.reading import PendingImage
+from app.modules.documents.vision import ImageDescriber
 from app.modules.draft import prompts as draft_prompts
 from app.modules.draft import refine as draft_refine_module
 from app.modules.draft.draft_generator import DraftGenerator
@@ -52,7 +56,7 @@ from app.modules.quicklook.snapshot import Evidence, OfferingRef, build_summary
 from app.modules.role_relevance import prompts as role_prompts
 from app.modules.role_relevance.models import RoleCategory
 from app.modules.role_relevance.role_relevance_generator import RoleRelevanceGenerator
-from evals.cases import Case, CaseError
+from evals.cases import CASES_DIR, Case, CaseError
 from evals.graders import (
     Check,
     check_at_most,
@@ -77,6 +81,7 @@ class Runtime:
     # Only the tasks that call these generators need them.
     recommendation: RecommendationGenerator | None = None
     role_relevance: RoleRelevanceGenerator | None = None
+    describer: ImageDescriber | None = None
 
 
 Handler = Callable[[Any, Case, dict[str, Any]], Check]
@@ -921,7 +926,7 @@ def _change_needed(wanted: bool, case: Case, out: dict[str, Any]) -> Check:
 
 
 def _description(out: dict[str, Any]) -> str:
-    return (out["update"] or {}).get("description", "").lower()
+    return str((out["update"] or {}).get("description", "")).lower()
 
 
 def _description_includes(words: list[str], case: Case, out: dict[str, Any]) -> Check:
@@ -962,6 +967,71 @@ _KNOWLEDGE_CARDS: dict[str, Handler] = {
     "description_excludes": _description_excludes,
     "max_flags": lambda v, c, o: check_at_most(
         "max_flags", len((o["update"] or {}).get("flags", [])), v
+    ),
+    "no_leak": _no_leak,
+}
+
+
+# --- picture descriptions (Phase 8f) ------------------------------------------------------------
+
+IMAGES_DIR = CASES_DIR / "images"
+
+
+def picture_path(name: str) -> Path:
+    """A case's picture, drawn by `python -m evals.make_picture_cases`."""
+    return IMAGES_DIR / name
+
+
+async def _run_picture_description(case: Case, rt: Runtime) -> dict[str, Any]:
+    """One picture from a document, described by the same describer and prompt the app uses when
+    it reads a file (`vision.py`), with the text that came before it as context."""
+    data = case.input
+    describer = _need(rt.describer, "picture describer (Gemini)")
+    image = PendingImage(
+        key=case.id,
+        kind=data["kind"],
+        png=picture_path(data["image"]).read_bytes(),
+        width=0,
+        height=0,
+        locator=data.get("locator", "Slide 1"),
+        context=data.get("context"),
+    )
+    described = await describer.describe(image)
+    return {"description": described.text}
+
+
+def _said(out: dict[str, Any]) -> str:
+    return " ".join(out["description"].lower().split())
+
+
+def _picture_includes(words: list[str], case: Case, out: dict[str, Any]) -> Check:
+    missing = [w for w in words if w.lower() not in _said(out)]
+    return Check("includes", not missing, "" if not missing else f"does not say {missing}")
+
+
+def _picture_excludes(words: list[str], case: Case, out: dict[str, Any]) -> Check:
+    found = [w for w in words if w.lower() in _said(out)]
+    return Check("excludes", not found, "" if not found else f"says {found}")
+
+
+_NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def _figures_only(allowed: list[str], case: Case, out: dict[str, Any]) -> Check:
+    """Every number in the description is one the picture shows (grounding: none invented)."""
+    found = {n.replace(",", "") for n in _NUMBER.findall(out["description"])}
+    extra = sorted(found - {str(a) for a in allowed})
+    return Check(
+        "figures_only", not extra, "" if not extra else f"numbers not in the picture: {extra}"
+    )
+
+
+_PICTURE_DESCRIPTION: dict[str, Handler] = {
+    "includes": _picture_includes,
+    "excludes": _picture_excludes,
+    "figures_only": _figures_only,
+    "min_chars": lambda v, c, o: Check(
+        "min_chars", len(o["description"]) >= v, f"only {len(o['description'])} characters"
     ),
     "no_leak": _no_leak,
 }
@@ -1132,6 +1202,13 @@ TASKS: dict[str, Task] = {
         _run_knowledge_cards,
         _KNOWLEDGE_CARDS,
     ),
+    "picture_description": Task(
+        "picture_description",
+        vision_module.VISION_PROMPT_VERSION,
+        ("image", "kind"),
+        _run_picture_description,
+        _PICTURE_DESCRIPTION,
+    ),
     "role_relevance": Task(
         "role_relevance",
         role_prompts.PROMPT_VERSION,
@@ -1158,3 +1235,8 @@ def validate_cases(cases: list[Case]) -> None:
         missing = [key for key in task.required_input if key not in case.input]
         if missing:
             raise CaseError(f"{case.id}: {case.task} needs input {missing}")
+        if case.task == "picture_description" and not picture_path(case.input["image"]).is_file():
+            raise CaseError(
+                f"{case.id}: no picture {case.input['image']!r}; run python -m "
+                "evals.make_picture_cases"
+            )

@@ -236,8 +236,8 @@ class Settings(BaseSettings):
     default_timezone: str = "UTC"
 
     # Phase 8b: the documents knowledge base (uploaded decks, PDFs, Word and Markdown files that
-    # describe what we sell). Off until it is released (8f); the API answers 404 while it is off.
-    documents_enabled: bool = False
+    # describe what we sell). On since its release (8f); while off, the API answers 404.
+    documents_enabled: bool = True
     # No original file is kept: the upload sits in a staging row only until the background job has
     # read it, and a failed one is purged after this many hours (reprocess needs it until then).
     documents_staging_retention_hours: int = 24
@@ -259,8 +259,9 @@ class Settings(BaseSettings):
     documents_vision_min_px: int = 50  # smaller images are icons, not content
     documents_vision_max_banner_ratio: float = 5.0  # wider than this x its height is a banner
     # Phase 8c: passages get a vector (Gemini embeddings) so search finds them by meaning as well
-    # as by words. Off by default: it spends Gemini quota. While off, search still works by words.
-    documents_embeddings_enabled: bool = False
+    # as by words. On since 8f; it needs a Gemini key (without one, or switched off, search works by
+    # words only). It spends a little Gemini quota per passage.
+    documents_embeddings_enabled: bool = True
     documents_embedding_model: str = "gemini-embedding-001"
     documents_embedding_batch: int = 20  # passages per request (free tier counts tokens per minute)
     documents_embedding_rate_wait_seconds: int = 65  # pause after a per-minute limit, then retry
@@ -274,8 +275,9 @@ class Settings(BaseSettings):
     documents_knowledge_passages: int = 5
     documents_knowledge_max_chars: int = 4000
     # Phase 8e: after a document is read, Gemini summarises it and pulls out knowledge cards (short
-    # facts, each tied to the passage it came from). Off by default: it spends Gemini quota.
-    documents_cards_enabled: bool = False
+    # facts, each tied to the passage it came from). On since 8f; it needs a Gemini key and spends
+    # a few Gemini calls per document (capped by the settings below).
+    documents_cards_enabled: bool = True
     # The text is sent in sections of about this many characters; a long file is capped at
     # `documents_cards_max_sections` sections (the rest is still searchable as passages).
     documents_cards_section_chars: int = 6000

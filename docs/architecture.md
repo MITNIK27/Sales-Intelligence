@@ -22,6 +22,8 @@ Verify         →  modules/verification (deferred, see Phases below)
 AI Analysis    →  modules/qualification, modules/role_relevance, modules/ai_recommendation,
                   modules/products, modules/offerings, modules/opportunity,
                   modules/quicklook (+ modules/llm)
+Knowledge      →  modules/documents (our own decks, PDFs and Word files, read into passages,
+                  summaries and knowledge cards that the AI Analysis modules draw on)
 Reach Out      →  modules/draft, modules/outreach (cadence, tracker)
 Orchestration  →  modules/orchestrator (the one-prompt pipeline chaining the stages above)
 ```
@@ -58,8 +60,10 @@ swapped for Celery/Arq + Redis; `jobs` is the seam where that happens.
 
 Job types (`_HANDLERS`): CSV ingestion, scrape/enrich, Market Discovery and auto-pipeline, contact
 verification, bulk and ad hoc qualification (`adhoc_qualify` powers Quick Check), bulk confirm,
-`sync_offerings`, and the opportunity jobs (assess, analyse, recommend, suggest areas, company
-offers).
+`sync_offerings`, the opportunity jobs (assess, analyse, recommend, suggest areas, company
+offers), and the documents jobs (`ingest_document`, `embed_document`, `summarise_document`). The
+hourly loop also clears old staged uploads and queues embeddings and summaries for any document
+that is missing them, so a spent quota catches up by itself.
 
 The worker does not reload on code changes; restart it after a backend change.
 
@@ -180,6 +184,37 @@ per domain and invalidated when Our Offerings changes (`offerings_hash`). Nothin
 Companies list until `POST /quick-look/save` turns the snapshot into a company. The page route is
 `/qualification/check` and the component is `QuickLookPage`.
 
+## Documents Knowledge Base (Phase 8)
+`modules/documents/` turns our own files into knowledge the AI flows can cite
+([ADR 0015](decisions/0015-documents-knowledge-base.md)):
+
+```
+upload ─► staging row ─► ingest_document ─► pages + passages (+ picture descriptions)
+                                  │
+                                  ├─► embed_document ─► passage and card vectors (pgvector)
+                                  └─► summarise_document ─► summaries, knowledge cards,
+                                                            offering description proposals
+```
+
+- **Reading** (`ingest.py`, `parsers/`): the type is found from the content; PDF (PyMuPDF), PPTX,
+  DOCX, Markdown and text become pages in reading order and ~1,000-character passages. Pictures,
+  charts, unreadable tables and scanned pages can be described by Gemini (`vision.py`, off by
+  default). No original file is kept.
+- **Search** (`retrieval.py`, `vector_store.py`): meaning (pgvector cosine, HNSW) and words
+  (Postgres full text) merged by reciprocal rank fusion over current versions; cards are searched
+  the same way. Words only when meaning search is off or unavailable, and the screen says so.
+- **Summaries and cards** (`cards.py`, `card_prompts.py`): Gemini summarises each section and the
+  document and draws short facts; code keeps a card only when its quote, figures and any client
+  name are in the passage it names. A document tied to an offering may propose a better
+  description, applied only when a person approves it in the offering review.
+- **In the flows** (`knowledge.py`): `gather()` packs the best cards and passages as `[K1]`, `[K2]`,
+  fenced as untrusted text; `generate_with_knowledge()` sends that prompt to Gemini only and falls
+  back to the plain prompt. Used by offering fit, the recommendation, area suggestions and Quick
+  Check; what was cited is stored with the answer and shown as "From our documents".
+- **Switches:** `DOCUMENTS_ENABLED`, `DOCUMENTS_EMBEDDINGS_ENABLED`, `DOCUMENTS_CARDS_ENABLED` (on;
+  the last two need a Gemini key) and `DOCUMENTS_VISION_ENABLED` (off). Tables are described in
+  [`data-model.md`](data-model.md#documents-phase-8b).
+
 ## "Not a Fit" and the Review Log
 A person can mark a company "not a fit" with a reason from a short fixed list and an optional note,
 singly or in bulk, and restore it later (`POST /companies/{id}/dismiss`, `/restore`,
@@ -284,7 +319,8 @@ runs only `governance_checks`. A pull request template carries an AI-changes che
 | 4 | Credits and usage tracking | Ledger in place; per-call cost and token metering done (`modules/usage`), spending ceiling deferred |
 | 5 | Contact verification | Not started |
 | 6 | Reach Out (drafting, tracker, cadence) | Done for email, sending is manual |
-| 7 | SaaS readiness (sign-in, tenant isolation, spend caps) | Deferred |
+| 7 | SaaS readiness (sign-in, tenant isolation, spend caps) | Deferred; sign-in (Firebase) is next |
+| 8 | Production database (Postgres + pgvector, ADR 0016) and the documents knowledge base (ADR 0015) | Done |
 
 The AI governance programme has its own phase numbers (0 to 7, tracked in `ai-governance.md`) that
 are separate from the table above.

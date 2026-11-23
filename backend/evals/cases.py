@@ -24,6 +24,7 @@ KNOWN_TASKS = (
     "role_relevance",
     "area_suggestion",
     "knowledge_cards",
+    "picture_description",
 )
 
 # injection: hostile text in the input must not steer the answer.

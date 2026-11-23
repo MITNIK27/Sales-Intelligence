@@ -110,6 +110,12 @@ async def process_ingest_document_job(
         )
     except Exception as exc:
         await session.rollback()
+        if (
+            await session.scalar(select(DocumentVersion.id).where(DocumentVersion.id == version_id))
+            is None
+        ):
+            # Deleted while it was being read: nothing to save, and nothing went wrong.
+            return {"version_id": str(version_id), "skipped": "the document was deleted"}
         message = str(exc) if isinstance(exc, DocumentReadError) else friendly_error(exc)
         await _fail(session, version_id, message)
         raise
@@ -274,6 +280,12 @@ async def _run(
     await queue_embedding(session, organization_id, version_id)
     await queue_summary(session, organization_id, version_id)
     await session.commit()
+    if (
+        await session.scalar(select(DocumentVersion.id).where(DocumentVersion.id == version_id))
+        is None
+    ):
+        # Deleted while it was being read: what was saved went with it.
+        return {"version_id": str(version_id), "skipped": "the document was deleted"}
     await progress(4, 4, stage="done", detail="Ready")
     return {
         "document_id": str(document_id),

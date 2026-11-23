@@ -457,7 +457,37 @@ Rules, status of each control and the check that enforces it are in [`ai-governa
 - Phase 4a: "Not a fit" (above). Phase 5 prep and 6: failure reasons stored on failed calls (`api_usage.error`), the Gemini price check, clean types and CI, and the reusable `ai-project-governance` skill (`docs/skills/`).
 - **Open:** reports for the five newest eval tasks; accuracy against real labelled companies (needs labels from the team); temperature 0 for judgments (an experiment, to be measured); a spending ceiling (deferred to a paid key); confirming Groq's terms before it may see personal data; the Market Discovery judge (Phase 4b).
 
+## Database Foundation and Documents Knowledge Base (Phase 8) — **Done**
+
+- **8a, database foundation** ([ADR 0016](decisions/0016-database-foundation.md)): PostgreSQL 16 with
+  pgvector, managed by us; JSONB, CHECK constraints and indexed foreign keys; an owner and an app
+  role with set timeouts; tests on real Postgres; backups with a restore check; the data-safety
+  protocol for every migration ([runbook](database-runbook.md)); the `users` table ready for
+  Firebase sign-in.
+- **8b, documents library:** upload decks, PDFs, Word, Markdown and text (5 MB by default), read in
+  the background into pages and passages, with versions, an activity log, an audit trail that
+  outlives deletes, optional Gemini descriptions of pictures, and no original file kept.
+- **8c, search:** Gemini embeddings and pgvector search merged with full-text search; a search box
+  on the Documents page that says when it is searching by words only.
+- **8d, knowledge in the flows:** offering fit, the recommendation, area suggestions and Quick
+  Check are shown the best passages (Gemini only), cite them as K1, K2..., and show "From our
+  documents" links; passages are never evidence about a company.
+- **8e, summaries and knowledge cards:** a summary per document and section and short facts
+  checked against their passage, shown to the flows first; a person can hide a wrong card;
+  documents tied to an offering can propose a better description, applied only on approval.
+- **8f, release:** ADRs 0015 and 0016; a governance check that nothing from the documents reaches
+  a vendor other than Gemini; eval tasks for knowledge cards and picture descriptions (every prompt
+  in the app now has one); load and failure tests (a large library, broken files, spent quota, a
+  dead worker, a document deleted mid-job); documents, meaning search and summaries on by default.
+- Open: confirm the PyMuPDF licence in writing before serving anyone outside InfoBeans (ADR 0015).
+- First reports: `knowledge_cards` 8/9 (one offering description left out "Azure"),
+  `picture_description` 6/6.
+
 ## Planned Next
+
+- **Sign-in with Firebase Authentication**: the API verifies the Firebase ID token on each request
+  and maps it to the `users` row (already in Postgres, ADR 0016); sign-in limited to the InfoBeans
+  domain; "who did it" filled on review decisions, document uploads and audit lines.
 
 - **Fit for sales and customer-success reps**: plan the daily routine of each role and cut the steps
   between "I have a company or a list" and "I sent a good email". To be scoped from how each role
@@ -469,8 +499,8 @@ Rules, status of each control and the check that enforces it are in [`ai-governa
 - Make CI mean something: the unit and frontend tests are git-ignored, so CI runs only the
   governance checks.
 - Branding and positioning (briefing material is kept locally and is not committed).
-- A knowledge layer (graph and vector index) derived from approved offerings, with Postgres staying
-  the system of record. Discussed, not designed.
+- A graph view over knowledge cards (clients, industries, offerings), built from the columns the
+  cards already keep. The vector index is done (Phase 8).
 - Deployment (hosted API, worker and database) together with sign-in, access control, spend caps
   and separate keys.
 
@@ -489,7 +519,8 @@ Called out explicitly here so they don't get silently carried forward:
 - No ADR yet for the offerings importer (page ledger and verification layers), for qualification
   states, for Quick Look or for "Not a fit"; the design is described in `architecture.md` for now.
   AI governance has its own record ([ADR 0014](decisions/0014-ai-governance.md)), which used that
-  number so 0012 and 0013 stay free.
+  number so 0012 and 0013 stay free; Phase 8 added [ADR 0015](decisions/0015-documents-knowledge-base.md)
+  and [ADR 0016](decisions/0016-database-foundation.md).
 - Two code comments reference ADRs that were never actually written: `context_dev.py` cites
   "docs/decisions/0012-context-dev-evaluation.md" and `qualification/ranking.py` cites "ADR 0005/
   0013" for the Priority Score — only `0001` to `0011` and `0014` exist in `docs/decisions/` today. Both decisions were

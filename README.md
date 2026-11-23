@@ -19,7 +19,7 @@ rules wherever a language model is used, and [`docs/decisions/`](docs/decisions/
 behind the non-obvious choices. [`PROJECT_OVERVIEW.md`](PROJECT_OVERVIEW.md) is the long, single-file
 deep-context brief (the pipeline stage by stage, how it decides, current configuration).
 
-_Documentation last updated: 2026-11-16._
+_Documentation last updated: 2026-11-24._
 
 ## Status
 
@@ -47,6 +47,11 @@ Built and in use:
   whether the offering is a product or a service, with a **Check before sending** note for figures
   or past-work claims the email was not given, **Follow-ups** with send-window scheduling, and a
   read-only **leadership dashboard** with a cost and health panel.
+- **Documents**: upload decks, PDFs, Word and text files about what we sell. They are read into
+  searchable passages, a summary and knowledge cards (short facts checked against their source),
+  and the offering fit, recommendation, area suggestions and Quick Check cite them as "From our
+  documents". Only Gemini ever sees their content; a wrong card can be hidden; offering
+  descriptions change only when a person approves.
 - **AI governance**: control checks that run without keys (`backend/governance_checks/`), a
   hand-written eval set and reports (`backend/evals/`), prompt and model versions on every
   AI-written row, and per-call cost metering (`backend/scripts/usage_report.py`).
@@ -56,13 +61,14 @@ access control, and reporting on template performance. See [`docs/roadmap.md`](d
 
 ## Stack
 
-- **Backend:** Python 3.12+, FastAPI, SQLAlchemy (async), Alembic, PostgreSQL
+- **Backend:** Python 3.12+, FastAPI, SQLAlchemy (async), Alembic, PostgreSQL 16 with pgvector
+  (see [`docs/database-runbook.md`](docs/database-runbook.md))
 - **Frontend:** TypeScript, React, Vite, Tailwind, Vitest
 - **Background jobs:** a Postgres-backed job table and an `asyncio` worker (no broker; see
   `docs/architecture.md` for why). The worker also runs the weekly offerings check.
 - **AI and data providers:** Gemini for most language tasks, Groq (tried first, Gemini as fallback)
   for the offerings importer, context.dev as the main page scraper for the importer with the
-  in-house scraper as fallback, Serper for web search.
+  in-house scraper as fallback, Serper for web search, Gemini embeddings for document search.
 
 ## Local Development
 
@@ -72,8 +78,8 @@ Prerequisites: Docker Desktop (or a local Postgres), Python 3.12+, Node 20+.
 # 1. Copy the env template and fill in the keys you have (never commit .env)
 cp .env.example .env
 
-# 2. Start Postgres
-docker compose -f infra/docker-compose.yml up -d
+# 2. Start Postgres (with pgvector)
+docker compose -f infra/docker-compose.yml up -d postgres-pgvector
 
 # 3. Backend: install, migrate
 cd backend
@@ -88,8 +94,8 @@ cd ../frontend && npm install && npm run dev   # frontend
 
 - The frontend dev server proxies `/api` to `http://localhost:8003`, so the API has to run on 8003.
 - The **worker does not reload itself**: restart it after changing backend code. The API does reload.
-- Without the worker running, discovery, Quick Check, the offerings check and draft jobs stay
-  "pending".
+- Without the worker running, discovery, Quick Check, the offerings check, draft jobs and
+  document reading stay "pending".
 - Run migrations yourself with `alembic upgrade head` after pulling a change that adds one.
 
 ### Tests and checks
