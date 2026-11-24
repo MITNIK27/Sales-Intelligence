@@ -28,7 +28,8 @@ Reach Out      →  modules/draft, modules/outreach (cadence, tracker)
 Orchestration  →  modules/orchestrator (the one-prompt pipeline chaining the stages above)
 ```
 
-Cross-cutting: `modules/auth` (org/user/roles), `modules/credits` (credit ledger),
+Cross-cutting: `modules/auth` (sign-in, users, invitations, access requests and roles; see
+[Sign-in and Access](#sign-in-and-access) below), `modules/credits` (credit ledger),
 `modules/usage` (per-call cost and token log), `modules/review` (the log of what a person decided
 about something the system flagged), `modules/jobs` (background work tracking and the worker),
 `modules/dashboard` (read-only reporting over the pipeline's own data, no writes and no data model
@@ -215,6 +216,35 @@ upload ─► staging row ─► ingest_document ─► pages + passages (+ pict
   the last two need a Gemini key) and `DOCUMENTS_VISION_ENABLED` (off). Tables are described in
   [`data-model.md`](data-model.md#documents-phase-8b).
 
+## Sign-in and Access (Phase 9)
+[ADR 0017](decisions/0017-sign-in-and-access.md). Firebase Authentication with InfoBeans Google
+accounts proves who someone is; `modules/auth/` decides what they may do.
+
+```
+browser ── Google sign-in (Firebase) ──► ID token
+   │                                         │ on every request: Authorization: Bearer <token>
+   ▼                                         ▼
+api/client.ts ──────────────────────► auth/deps.py
+                                         verified_identity  token checked against Google's certs
+                                         signed_in          users row: invited, active, our org
+                                         require(action)    role allowed (auth/permissions.py)
+```
+
+- **Tokens** (`auth/tokens.py`): `google-auth` checks signature, audience, issuer and expiry with
+  only `FIREBASE_PROJECT_ID`; code adds verified email, Google provider and an allowed domain.
+  Certificates are cached for as long as Google allows.
+- **Access** (`auth/service.py`): a token is matched to a `users` row by Firebase id, else by email
+  (taking up an invitation). No row: the person sees the app frame with only the Dashboard and a
+  Request access card. `AUTH_BOOTSTRAP_ADMINS` lets the first admin in.
+- **Every router** in `main.py` is mounted with `Depends(signed_in)` except `/health` and `/auth/*`;
+  `governance_checks/test_routes_require_sign_in.py` fails if one is not. Routes that change
+  things also ask `require(Action.X)`; the matrix is one table, sent to the browser by `/auth/me`.
+- **Who did it**: `signed_in` puts the person in the request context (`usage/context.py`); audit
+  lines, review decisions, runs, jobs and usage rows read it, and the worker restores it from
+  `jobs.created_by`.
+- **Frontend** (`src/auth/`): `AuthProvider` (Firebase identity plus `/auth/me`), the sign-in page,
+  the access gate around the app, the account menu, Profile and User Management.
+
 ## "Not a Fit" and the Review Log
 A person can mark a company "not a fit" with a reason from a short fixed list and an optional note,
 singly or in bulk, and restore it later (`POST /companies/{id}/dismiss`, `/restore`,
@@ -301,8 +331,9 @@ runs only `governance_checks`. A pull request template carries an AI-changes che
 - **Cost and rate control**: retries with backoff and rate limiting at provider boundaries; credit
   ceilings per run for context.dev; a cap on automatic drafting per run.
 - **Security and PII**: contact details are personal data even in a B2B context; provider keys
-  live in env and are never committed. The app has no sign-in yet (see the roadmap), so it must
-  not be exposed publicly as is.
+  live in env and are never committed. Every API route requires a signed-in, invited InfoBeans
+  account (Phase 9, ADR 0017); before deployment, restrict the Firebase web key to the real domain
+  and add that domain to Firebase's authorised domains.
 - **Testability**: provider and LLM seams exist so unit tests run against fakes without network
   access.
 - **Multi-tenancy**: `Organization`/`User` are modeled from day one even though one internal org
@@ -319,8 +350,9 @@ runs only `governance_checks`. A pull request template carries an AI-changes che
 | 4 | Credits and usage tracking | Ledger in place; per-call cost and token metering done (`modules/usage`), spending ceiling deferred |
 | 5 | Contact verification | Not started |
 | 6 | Reach Out (drafting, tracker, cadence) | Done for email, sending is manual |
-| 7 | SaaS readiness (sign-in, tenant isolation, spend caps) | Deferred; sign-in (Firebase) is next |
+| 7 | SaaS readiness (sign-in, tenant isolation, spend caps) | Sign-in, invitations and roles done in Phase 9 (ADR 0017); tenant isolation and spend caps deferred |
 | 8 | Production database (Postgres + pgvector, ADR 0016) and the documents knowledge base (ADR 0015) | Done |
+| 9 | Sign-in with Google (Firebase), invite-only access, roles, who did what (ADR 0017) | Done |
 
 The AI governance programme has its own phase numbers (0 to 7, tracked in `ai-governance.md`) that
 are separate from the table above.

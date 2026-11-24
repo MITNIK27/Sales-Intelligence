@@ -11,13 +11,33 @@ The owning org. Only one exists today (internal use), but every other entity is 
 - `id`, `name`, `created_at`
 
 ### User
-A person who signs in. Sign-in is Firebase Authentication (Phase 8): Firebase holds the credentials,
-this table holds the person, linked by `firebase_uid`. No password is stored. People are disabled,
-not deleted, so their decisions keep pointing at them. Not used by the app until sign-in is built.
+A person who may sign in (Phase 9, [ADR 0017](decisions/0017-sign-in-and-access.md)). Sign-in is
+Firebase Authentication with Google: Firebase proves who someone is, this table decides whether they
+may use the app and with which role, linked by `firebase_uid`. No password is stored. Access is by
+invitation: giving someone access creates the row with no `firebase_uid`, and their first sign-in
+links it. People are deactivated (`status = disabled`), not deleted, so what they did keeps pointing
+at them; only an invitation nobody used can be removed.
 
-- `id`, `organization_id` (FK), `firebase_uid` (unique), `email` (unique), `display_name` (nullable),
-  `role` (`admin` | `manager` | `rep`), `status` (`active` | `disabled`), `last_sign_in_at`
-  (nullable), `created_at`, `updated_at`
+- `id`, `organization_id` (FK), `firebase_uid` (unique, nullable until the first sign-in), `email`
+  (unique, lower-case), `display_name` (nullable, from Google), `role` (`admin` | `manager` | `rep`),
+  `status` (`active` | `disabled`), `last_sign_in_at` (nullable, written at most every 15 minutes),
+  `invited_by` (FK users, nullable; empty for the first admin), `created_at`, `updated_at`
+
+### AccessRequest (table `access_requests`)
+Someone signed in with an allowed Google account but no invitation, and pressed Request access.
+Admins and managers see it on User Management and approve it (which gives access with a role) or
+dismiss it. Kept after the decision as a record. One per person per 24 hours.
+
+- `id`, `organization_id` (FK), `email`, `display_name`, `firebase_uid`, `message` (their note),
+  `status` (`pending` | `approved` | `dismissed`), `requested_at`, `notified_at` and `notify_error`
+  (for emailing admins, not switched on yet), `decided_by` (FK users), `decided_at`
+
+### Who did what (Phase 9)
+The signed-in person is recorded on: `documents.uploaded_by`, `document_audit.user_id`,
+`review_decisions.user_id`, `ingestion_runs.created_by_user_id`, `jobs.created_by` (FK users, set
+null if the user row goes) and `api_usage.user_id` (a plain id like the log's other ids). A job runs
+as the person who queued it, so the model calls it makes are attributed to them too. Rows from
+before Phase 9, scheduled work and scripts leave these empty.
 
 ### Product (shown in the app as "Our Offerings")
 The org's own catalog of what it sells, so the recommendation and drafting layers have something
@@ -346,8 +366,8 @@ wipe. `est_cost_usd` is an estimate from published prices (`usage/pricing.py`), 
 calls record tokens but no cost because no price was found. Read it with
 `backend/scripts/usage_report.py`.
 
-- `id`, `created_at`, `organization_id`, `job_id`, `run_id`, `company_id`, `opportunity_id`
-  (all nullable), `provider` (`gemini` | `groq` | `serper` | `contextdev`), `kind` (`llm` |
+- `id`, `created_at`, `organization_id`, `job_id`, `run_id`, `company_id`, `opportunity_id`,
+  `user_id` (all nullable; `user_id` since Phase 9), `provider` (`gemini` | `groq` | `serper` | `contextdev`), `kind` (`llm` |
   `search` | `credits`), `model`, `task` (the job type, `api:<route>` for a call made inside a web
   request, or `unspecified`), `status` (`ok` | `error`), `tokens_in`, `tokens_out`, `units`
   (queries or credits), `latency_ms`, `est_cost_usd`

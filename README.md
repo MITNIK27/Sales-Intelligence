@@ -52,12 +52,15 @@ Built and in use:
   and the offering fit, recommendation, area suggestions and Quick Check cite them as "From our
   documents". Only Gemini ever sees their content; a wrong card can be hidden; offering
   descriptions change only when a person approves.
+- **Sign-in and access**: sign in with an InfoBeans Google account; access by invitation on
+  **User Management** (admins and managers), with roles, Request access for newcomers, and who did
+  what recorded on uploads, decisions, searches, jobs and AI calls.
 - **AI governance**: control checks that run without keys (`backend/governance_checks/`), a
   hand-written eval set and reports (`backend/evals/`), prompt and model versions on every
   AI-written row, and per-call cost metering (`backend/scripts/usage_report.py`).
 
-Not built yet: contact verification (email and phone checks), sending through Gmail, sign-in and
-access control, and reporting on template performance. See [`docs/roadmap.md`](docs/roadmap.md).
+Not built yet: contact verification (email and phone checks), sending through Gmail, separation
+between organisations, and reporting on template performance. See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Stack
 
@@ -93,6 +96,16 @@ cd ../frontend && npm install && npm run dev   # frontend
 ```
 
 - The frontend dev server proxies `/api` to `http://localhost:8003`, so the API has to run on 8003.
+- **Sign-in** ([ADR 0017](docs/decisions/0017-sign-in-and-access.md)) needs a Firebase project,
+  once, with an InfoBeans Google account:
+  1. console.firebase.google.com: create a project; Authentication, Sign-in method: enable Google.
+  2. In Google Cloud console, same project: OAuth consent screen (Audience), user type Internal.
+  3. Firebase Project settings, Your apps: add a Web app and copy `apiKey`, `authDomain`,
+     `projectId` and `appId`.
+  4. `backend/.env`: `FIREBASE_PROJECT_ID`, `AUTH_ALLOWED_DOMAINS=infobeans.com` and
+     `AUTH_BOOTSTRAP_ADMINS=<your email>` (you become the first admin). `frontend/.env.local`: copy
+     `frontend/.env.example` and fill in the four `VITE_FIREBASE_*` values. Both are git-ignored.
+  5. Sign in, then give others access on **User Management**. No email is sent; tell them.
 - The **worker does not reload itself**: restart it after changing backend code. The API does reload.
 - Without the worker running, discovery, Quick Check, the offerings check, draft jobs and
   document reading stay "pending".

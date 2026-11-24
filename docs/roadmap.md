@@ -483,11 +483,29 @@ Rules, status of each control and the check that enforces it are in [`ai-governa
 - First reports: `knowledge_cards` 8/9 (one offering description left out "Azure"),
   `picture_description` 6/6.
 
+## Sign-in, Access and Roles (Phase 9) — **Done**
+
+- **Sign in with Google** through Firebase Authentication, InfoBeans accounts only
+  ([ADR 0017](decisions/0017-sign-in-and-access.md)). The API checks each request's token against
+  Google's certificates; no service-account key.
+- **Invite only.** Admins and managers give access by email and role on **User Management**; no
+  email is sent. Someone without access sees the app frame with only the Dashboard and can
+  **Request access**; requests wait on User Management with a badge. The first admin comes from
+  `AUTH_BOOTSTRAP_ADMINS`.
+- **Roles** in one table: reps are kept out of User Management and costs; managers cannot make,
+  change or deactivate admins; nobody changes their own role. People are deactivated, never deleted.
+- **Who did what** on uploads, the document history, review decisions, searches, jobs and AI calls.
+- A governance check calls every endpoint without signing in and fails if any lets it through.
+- New top bar (wordmark, New search, account menu) and a Profile page.
+- Open: email to admins about access requests (needs an approved mailbox); restricting the
+  Firebase web key and adding the real domain at deployment.
+
 ## Planned Next
 
-- **Sign-in with Firebase Authentication**: the API verifies the Firebase ID token on each request
-  and maps it to the `users` row (already in Postgres, ADR 0016); sign-in limited to the InfoBeans
-  domain; "who did it" filled on review decisions, document uploads and audit lines.
+- **Gmail**: send from the app and see replies. Needs its own Google consent with offline access
+  (sign-in does not give lasting mailbox access), stored encrypted; its own ADR.
+- **Separate organisations** before anyone outside InfoBeans uses the app, and per-person visibility
+  if reps should see only their own work.
 
 - **Fit for sales and customer-success reps**: plan the daily routine of each role and cut the steps
   between "I have a company or a list" and "I sent a good email". To be scoped from how each role
@@ -501,8 +519,8 @@ Rules, status of each control and the check that enforces it are in [`ai-governa
 - Branding and positioning (briefing material is kept locally and is not committed).
 - A graph view over knowledge cards (clients, industries, offerings), built from the columns the
   cards already keep. The vector index is done (Phase 8).
-- Deployment (hosted API, worker and database) together with sign-in, access control, spend caps
-  and separate keys.
+- Deployment (hosted API, worker and database) with spend caps and separate keys; sign-in and
+  access control are done (Phase 9).
 
 ## Known mismatches vs. the meeting notes
 
@@ -520,7 +538,8 @@ Called out explicitly here so they don't get silently carried forward:
   states, for Quick Look or for "Not a fit"; the design is described in `architecture.md` for now.
   AI governance has its own record ([ADR 0014](decisions/0014-ai-governance.md)), which used that
   number so 0012 and 0013 stay free; Phase 8 added [ADR 0015](decisions/0015-documents-knowledge-base.md)
-  and [ADR 0016](decisions/0016-database-foundation.md).
+  and [ADR 0016](decisions/0016-database-foundation.md), Phase 9
+  [ADR 0017](decisions/0017-sign-in-and-access.md).
 - Two code comments reference ADRs that were never actually written: `context_dev.py` cites
   "docs/decisions/0012-context-dev-evaluation.md" and `qualification/ranking.py` cites "ADR 0005/
   0013" for the Priority Score — only `0001` to `0011` and `0014` exist in `docs/decisions/` today. Both decisions were

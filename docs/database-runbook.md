@@ -111,6 +111,20 @@ Azure Database for PostgreSQL, Google Cloud SQL and others):
 - **The app role** gets the new tables automatically (default privileges in
   `infra/db/create_app_role.sql`).
 
+## People and access (Phase 9)
+
+- `users` holds everyone who may sign in (invitations have no `firebase_uid` yet) and
+  `access_requests` the requests from people without access. Both are kept by
+  `scripts/reset_test_data.py`.
+- **Locked out of admin?** Every admin was deactivated or demoted by mistake: as the owner, run
+  `UPDATE users SET role = 'admin', status = 'active' WHERE email = '<your email>';`, or add your
+  email to `AUTH_BOOTSTRAP_ADMINS` and remove your `users` row so the next sign-in recreates it
+  (removing the row also removes the link to your history, so prefer the UPDATE).
+- **Who did it:** `jobs.created_by`, `api_usage.user_id`, `documents.uploaded_by`,
+  `document_audit.user_id`, `review_decisions.user_id` and `ingestion_runs.created_by_user_id`.
+  Cost per person: `SELECT u.email, round(sum(a.est_cost_usd)::numeric, 4) FROM api_usage a JOIN
+  users u ON u.id = a.user_id GROUP BY u.email ORDER BY 2 DESC;`
+
 ## Known traps
 
 - **Do not reuse a data directory across images.** Alpine (musl) and Debian (glibc) sort text
