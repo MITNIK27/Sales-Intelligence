@@ -7,6 +7,8 @@ from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.role_relevance.role_relevance_generator import GeminiRoleRelevanceGenerator
 from app.modules.role_relevance.schemas import (
     RoleCategoryCreate,
@@ -36,7 +38,12 @@ category_router = APIRouter(prefix="/role-categories", tags=["role-relevance"])
 company_router = APIRouter(prefix="/companies", tags=["role-relevance"])
 
 
-@category_router.post("", response_model=RoleCategoryOut, status_code=201)
+@category_router.post(
+    "",
+    response_model=RoleCategoryOut,
+    status_code=201,
+    dependencies=[Depends(require(Action.ROLE_CATEGORIES_MANAGE))],
+)
 async def create_category_endpoint(
     body: RoleCategoryCreate, session: AsyncSession = Depends(get_db)
 ) -> RoleCategoryOut:
@@ -73,7 +80,11 @@ async def get_category_endpoint(
     return RoleCategoryOut.model_validate(category)
 
 
-@category_router.patch("/{category_id}", response_model=RoleCategoryOut)
+@category_router.patch(
+    "/{category_id}",
+    response_model=RoleCategoryOut,
+    dependencies=[Depends(require(Action.ROLE_CATEGORIES_MANAGE))],
+)
 async def update_category_endpoint(
     category_id: uuid.UUID, body: RoleCategoryUpdate, session: AsyncSession = Depends(get_db)
 ) -> RoleCategoryOut:
@@ -86,7 +97,11 @@ async def update_category_endpoint(
     return RoleCategoryOut.model_validate(category)
 
 
-@category_router.delete("/{category_id}", status_code=204)
+@category_router.delete(
+    "/{category_id}",
+    status_code=204,
+    dependencies=[Depends(require(Action.ROLE_CATEGORIES_MANAGE))],
+)
 async def delete_category_endpoint(
     category_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> None:

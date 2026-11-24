@@ -6,11 +6,13 @@ import {
   Send,
   Target,
   Upload,
+  UserCog,
   Users,
   Zap,
   type LucideIcon,
 } from "lucide-react";
 
+import { ACTIONS } from "@/auth/types";
 import { OFFERINGS_LABEL } from "@/lib/offerings";
 
 export interface NavItem {
@@ -18,6 +20,8 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   end?: boolean;
+  // Shown only to roles allowed this action (Phase 9); no action means everyone signed in.
+  action?: string;
 }
 
 // Grouped by how the product is used: the daily workflow first, then one-time setup, then tools.
@@ -39,6 +43,12 @@ export const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { to: "/products", label: OFFERINGS_LABEL, icon: Package },
       { to: "/role-categories", label: "Role Categories", icon: Target },
       { to: "/documents", label: "Documents", icon: FileText },
+      {
+        to: "/users",
+        label: "User Management",
+        icon: UserCog,
+        action: ACTIONS.usersManage,
+      },
     ],
   },
   {

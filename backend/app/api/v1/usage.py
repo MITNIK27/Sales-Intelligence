@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.usage.service import summarize_usage
 
 router = APIRouter(prefix="/usage", tags=["usage"])
@@ -29,7 +31,9 @@ class UsageSummaryOut(BaseModel):
     total_est_cost_usd: float
 
 
-@router.get("/summary", response_model=UsageSummaryOut)
+@router.get(
+    "/summary", response_model=UsageSummaryOut, dependencies=[Depends(require(Action.USAGE_VIEW))]
+)
 async def get_usage_summary(
     days: int = Query(30, ge=1, le=365), session: AsyncSession = Depends(get_db)
 ) -> UsageSummaryOut:

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import SessionLocal
 from app.modules.jobs.models import STATUS_DONE, STATUS_FAILED, STATUS_PENDING, STATUS_RUNNING, Job
+from app.modules.usage.context import current_user_id
 
 # A `running` job whose worker died (crash, kill, power loss) would otherwise sit stuck forever
 # with nothing to notice or retry it. This is a coarse threshold, not a true heartbeat — a
@@ -23,6 +24,7 @@ async def enqueue_job(
         job_type=job_type,
         payload=payload,
         ingestion_run_id=_run_id(payload),
+        created_by=current_user_id(),  # who asked; the worker runs the job as them
     )
     session.add(job)
     await session.flush()

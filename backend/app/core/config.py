@@ -14,7 +14,25 @@ class Settings(BaseSettings):
     # actual application log lines (requests, job lifecycle, errors) in the terminal. Turn on
     # only when actively debugging a query itself.
     sql_echo: bool = False
-    secret_key: str = "changeme"
+
+    # Phase 9: sign-in is Firebase Authentication with Google accounts. The backend checks each
+    # request's Firebase ID token against Google's public keys, which needs only the project ID (no
+    # service-account key). Unset: every signed-in route answers 401 "sign-in is not configured".
+    firebase_project_id: str | None = None
+    # Comma-separated email domains allowed to sign in at all (an invitation is still required).
+    auth_allowed_domains: str = "infobeans.com"
+    # Comma-separated emails that become admins on their first sign-in without an invitation: how
+    # the first admin gets in. Everyone else is invited from the Users page.
+    auth_bootstrap_admins: str = ""
+
+    @property
+    def allowed_domains(self) -> list[str]:
+        domains = self.auth_allowed_domains.split(",")
+        return [d.strip().lower().lstrip("@") for d in domains if d.strip()]
+
+    @property
+    def bootstrap_admins(self) -> list[str]:
+        return [e.strip().lower() for e in self.auth_bootstrap_admins.split(",") if e.strip()]
 
     database_url: str = "postgresql+asyncpg://sales_intel:sales_intel@localhost:5435/sales_intel"
     # Alembic uses this when set (on a hosted database, the direct connection with the schema

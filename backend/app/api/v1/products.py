@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.llm.structured import LLMError, build_structured_llm
 from app.modules.offerings.profile import (
     PROFILE_EDITED,
@@ -29,7 +31,12 @@ from app.modules.products.service import (
 router = APIRouter(prefix="/products", tags=["products"])
 
 
-@router.post("", response_model=ProductOut, status_code=201)
+@router.post(
+    "",
+    response_model=ProductOut,
+    status_code=201,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def create_product_endpoint(
     body: ProductCreate, session: AsyncSession = Depends(get_db)
 ) -> ProductOut:
@@ -74,7 +81,11 @@ async def get_product_endpoint(
     return ProductOut.model_validate(product)
 
 
-@router.patch("/{product_id}", response_model=ProductOut)
+@router.patch(
+    "/{product_id}",
+    response_model=ProductOut,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def update_product_endpoint(
     product_id: uuid.UUID, body: ProductUpdate, session: AsyncSession = Depends(get_db)
 ) -> ProductOut:
@@ -87,7 +98,11 @@ async def update_product_endpoint(
     return ProductOut.model_validate(product)
 
 
-@router.put("/{product_id}/buyer-profile", response_model=ProductOut)
+@router.put(
+    "/{product_id}/buyer-profile",
+    response_model=ProductOut,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def save_buyer_profile_endpoint(
     product_id: uuid.UUID, body: BuyerProfile, session: AsyncSession = Depends(get_db)
 ) -> ProductOut:
@@ -101,7 +116,11 @@ async def save_buyer_profile_endpoint(
     return ProductOut.model_validate(product)
 
 
-@router.post("/{product_id}/buyer-profile/generate", response_model=ProductOut)
+@router.post(
+    "/{product_id}/buyer-profile/generate",
+    response_model=ProductOut,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def generate_buyer_profile_endpoint(
     product_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> ProductOut:
@@ -117,7 +136,9 @@ async def generate_buyer_profile_endpoint(
     return ProductOut.model_validate(product)
 
 
-@router.delete("/{product_id}", status_code=204)
+@router.delete(
+    "/{product_id}", status_code=204, dependencies=[Depends(require(Action.OFFERINGS_MANAGE))]
+)
 async def delete_product_endpoint(
     product_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> None:

@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.enrichment.schemas import (
     BulkConfirmRequest,
     BulkConfirmStarted,
@@ -16,7 +18,12 @@ from app.modules.orchestrator.service import JOB_TYPE_BULK_CONFIRM
 router = APIRouter(prefix="/enrichment", tags=["enrichment"])
 
 
-@router.post("/scrape-all", response_model=ScrapeAllStarted, status_code=202)
+@router.post(
+    "/scrape-all",
+    response_model=ScrapeAllStarted,
+    status_code=202,
+    dependencies=[Depends(require(Action.BULK_JOBS))],
+)
 async def scrape_all_endpoint(session: AsyncSession = Depends(get_db)) -> ScrapeAllStarted:
     enqueued_count = await start_bulk_scrape(session, DEFAULT_ORGANIZATION_ID)
     await session.commit()
@@ -31,7 +38,12 @@ async def needs_review_endpoint(
     return [NeedsReviewItem.model_validate(e) for e in entries]
 
 
-@router.post("/needs-review/confirm-bulk", response_model=BulkConfirmStarted, status_code=202)
+@router.post(
+    "/needs-review/confirm-bulk",
+    response_model=BulkConfirmStarted,
+    status_code=202,
+    dependencies=[Depends(require(Action.BULK_JOBS))],
+)
 async def confirm_needs_review_bulk_endpoint(
     body: BulkConfirmRequest, session: AsyncSession = Depends(get_db)
 ) -> BulkConfirmStarted:

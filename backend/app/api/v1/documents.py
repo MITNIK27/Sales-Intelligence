@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.documents import cards, retrieval, service
 from app.modules.documents.embedding import embeddings_available
 from app.modules.documents.reading import DocumentReadError
@@ -96,7 +98,12 @@ _REFUSALS = (
 )
 
 
-@router.post("", response_model=DocumentDetail, status_code=202)
+@router.post(
+    "",
+    response_model=DocumentDetail,
+    status_code=202,
+    dependencies=[Depends(require(Action.DOCUMENTS_MANAGE))],
+)
 async def upload_document(
     file: UploadFile = File(...),
     name: str | None = Form(default=None),
@@ -202,7 +209,11 @@ async def get_document_pages(
         raise _refusal(exc) from exc
 
 
-@router.patch("/{document_id}", response_model=DocumentDetail)
+@router.patch(
+    "/{document_id}",
+    response_model=DocumentDetail,
+    dependencies=[Depends(require(Action.DOCUMENTS_MANAGE))],
+)
 async def update_document(
     document_id: uuid.UUID, body: DocumentUpdate, session: AsyncSession = Depends(get_db)
 ) -> DocumentDetail:
@@ -220,7 +231,12 @@ async def update_document(
     return updated
 
 
-@router.post("/{document_id}/versions", response_model=DocumentDetail, status_code=202)
+@router.post(
+    "/{document_id}/versions",
+    response_model=DocumentDetail,
+    status_code=202,
+    dependencies=[Depends(require(Action.DOCUMENTS_MANAGE))],
+)
 async def upload_new_version(
     document_id: uuid.UUID,
     file: UploadFile = File(...),
@@ -243,7 +259,12 @@ async def upload_new_version(
     return created
 
 
-@router.post("/{document_id}/reprocess", response_model=DocumentDetail, status_code=202)
+@router.post(
+    "/{document_id}/reprocess",
+    response_model=DocumentDetail,
+    status_code=202,
+    dependencies=[Depends(require(Action.DOCUMENTS_MANAGE))],
+)
 async def reprocess_document(
     document_id: uuid.UUID,
     describe_pictures: bool = True,
@@ -259,7 +280,12 @@ async def reprocess_document(
     return queued
 
 
-@router.post("/{document_id}/summarise", response_model=DocumentDetail, status_code=202)
+@router.post(
+    "/{document_id}/summarise",
+    response_model=DocumentDetail,
+    status_code=202,
+    dependencies=[Depends(require(Action.DOCUMENTS_MANAGE))],
+)
 async def summarise_document(
     document_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> DocumentDetail:
@@ -274,7 +300,11 @@ async def summarise_document(
     return detail
 
 
-@router.patch("/{document_id}/cards/{card_id}", response_model=KnowledgeCardOut)
+@router.patch(
+    "/{document_id}/cards/{card_id}",
+    response_model=KnowledgeCardOut,
+    dependencies=[Depends(require(Action.DOCUMENTS_MANAGE))],
+)
 async def update_card(
     document_id: uuid.UUID,
     card_id: uuid.UUID,
@@ -292,7 +322,9 @@ async def update_card(
     return updated
 
 
-@router.delete("/{document_id}", status_code=204)
+@router.delete(
+    "/{document_id}", status_code=204, dependencies=[Depends(require(Action.DOCUMENTS_DELETE))]
+)
 async def delete_document(document_id: uuid.UUID, session: AsyncSession = Depends(get_db)) -> None:
     try:
         await service.delete_document(session, DEFAULT_ORGANIZATION_ID, document_id)

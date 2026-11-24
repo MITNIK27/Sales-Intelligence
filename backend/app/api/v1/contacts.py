@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.contacts.schemas import (
     ContactChannelOut,
     ContactOut,
@@ -112,7 +114,12 @@ async def verify_contact_channel_endpoint(
     return ContactChannelOut.model_validate(channel)
 
 
-@router.post("/verify-all", response_model=ScrapeJobStarted, status_code=202)
+@router.post(
+    "/verify-all",
+    response_model=ScrapeJobStarted,
+    status_code=202,
+    dependencies=[Depends(require(Action.BULK_JOBS))],
+)
 async def verify_all_contacts_endpoint(
     session: AsyncSession = Depends(get_db),
 ) -> ScrapeJobStarted:

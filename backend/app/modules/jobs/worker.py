@@ -119,6 +119,7 @@ async def _process_one_job(job: Job) -> None:
                 job_id=job.id,
                 task=job.job_type,
                 run_id=_as_uuid((job.payload or {}).get("ingestion_run_id")),
+                user_id=job.created_by,
             ):
                 result = await handler(session, job_in_session, progress_callback)
             await mark_job_done(session, job_in_session, result)

@@ -21,6 +21,8 @@ class ApiUsage(Base, TimestampMixin):
     run_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
     company_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
     opportunity_id: Mapped[uuid.UUID | None] = mapped_column()
+    # The person whose action led to the call (Phase 9), a plain id like the others.
+    user_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
 
     provider: Mapped[str] = mapped_column(String(20), index=True)  # gemini|groq|serper|contextdev
     kind: Mapped[str] = mapped_column(String(10))  # llm | search | credits | embedding

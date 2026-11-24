@@ -1,6 +1,9 @@
 # Env / secrets
 .env
 *.env.local
+# Vite reads frontend/.env.local, .env.development, .env.production...; only the example is shared.
+frontend/.env.*
+!frontend/.env.example
 
 # Python
 __pycache__/

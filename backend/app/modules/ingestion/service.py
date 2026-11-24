@@ -15,6 +15,7 @@ from app.modules.ingestion.membership import (
 from app.modules.ingestion.models import SOURCE_TYPE_CSV, STATUS_PENDING, IngestionRun
 from app.modules.jobs.models import Job
 from app.modules.jobs.service import enqueue_job
+from app.modules.usage.context import current_user_id
 
 JOB_TYPE_INGEST_CSV = "ingest_csv"
 
@@ -30,6 +31,7 @@ async def start_csv_ingestion(
         organization_id=organization_id,
         source_type=SOURCE_TYPE_CSV,
         status=STATUS_PENDING,
+        created_by_user_id=current_user_id(),
     )
     session.add(run)
     await session.flush()

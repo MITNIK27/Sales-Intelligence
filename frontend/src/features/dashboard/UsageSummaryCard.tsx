@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 
 import { apiGet } from "@/api/client";
 import type { UsageSummary } from "@/api/types";
+import { useAuth } from "@/auth/AuthProvider";
+import { ACTIONS } from "@/auth/types";
 import { byProvider, formatCost } from "@/features/dashboard/usage";
 import { formatNumber } from "@/lib/format";
 
@@ -10,14 +12,17 @@ import { formatNumber } from "@/lib/format";
 // budget is visible before it is needed); it is not a bill. A failed load just hides the card.
 export function UsageSummaryCard() {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  // Cost is for admins and managers (Phase 9); reps do not see this card.
+  const allowed = useAuth().can(ACTIONS.usageView);
 
   useEffect(() => {
+    if (!allowed) return;
     apiGet<UsageSummary>("/usage/summary?days=30")
       .then(setUsage)
       .catch(() => undefined);
-  }, []);
+  }, [allowed]);
 
-  if (!usage || usage.lines.length === 0) return null;
+  if (!allowed || !usage || usage.lines.length === 0) return null;
   return (
     <div
       className="border-t border-border pt-4 text-sm"

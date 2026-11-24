@@ -6,6 +6,8 @@ import {
   useSearchParams,
 } from "react-router-dom";
 
+import { RequireAccess, RequireAction, SignInPage } from "@/auth/AccessScreens";
+import { ACTIONS } from "@/auth/types";
 import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { CompaniesListPage } from "@/features/companies/CompaniesListPage";
 import { CompanyDetailPage } from "@/features/companies/CompanyDetailPage";
@@ -18,6 +20,8 @@ import { ProductsListPage } from "@/features/products/ProductsListPage";
 import { QuickLookPage } from "@/features/quicklook/QuickLookPage";
 import { RoleCategoryFormPage } from "@/features/role_categories/RoleCategoryFormPage";
 import { RoleCategoryListPage } from "@/features/role_categories/RoleCategoryListPage";
+import { ProfilePage } from "@/features/users/ProfilePage";
+import { UsersPage } from "@/features/users/UsersPage";
 import { AppLayout } from "@/layout/AppLayout";
 
 // One page serves both views, so an old or shared /searches/:id link lands on the dashboard scoped
@@ -38,27 +42,49 @@ function ToOutreach({ view }: { view: "drafts" | "follow-ups" }) {
 export function App() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/searches/:runId" element={<SearchRedirect />} />
-        <Route path="/upload" element={<UploadPage />} />
-        <Route path="/documents" element={<DocumentsPage />} />
-        <Route path="/companies" element={<CompaniesListPage />} />
-        <Route path="/companies/:companyId" element={<CompanyDetailPage />} />
-        <Route path="/outreach" element={<OutreachPage />} />
-        <Route path="/drafts" element={<ToOutreach view="drafts" />} />
-        <Route path="/follow-ups" element={<ToOutreach view="follow-ups" />} />
-        <Route path="/market-discovery" element={<MarketDiscoveryPage />} />
-        <Route path="/products" element={<ProductsListPage />} />
-        <Route path="/products/new" element={<ProductFormPage />} />
-        <Route path="/products/:productId/edit" element={<ProductFormPage />} />
-        <Route path="/qualification/check" element={<QuickLookPage />} />
-        <Route path="/role-categories" element={<RoleCategoryListPage />} />
-        <Route path="/role-categories/new" element={<RoleCategoryFormPage />} />
-        <Route
-          path="/role-categories/:roleCategoryId/edit"
-          element={<RoleCategoryFormPage />}
-        />
+      <Route path="/sign-in" element={<SignInPage />} />
+      {/* Everything else needs a signed-in person with access (Phase 9). */}
+      <Route element={<RequireAccess />}>
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/searches/:runId" element={<SearchRedirect />} />
+          <Route path="/upload" element={<UploadPage />} />
+          <Route path="/documents" element={<DocumentsPage />} />
+          <Route path="/companies" element={<CompaniesListPage />} />
+          <Route path="/companies/:companyId" element={<CompanyDetailPage />} />
+          <Route path="/outreach" element={<OutreachPage />} />
+          <Route path="/drafts" element={<ToOutreach view="drafts" />} />
+          <Route
+            path="/follow-ups"
+            element={<ToOutreach view="follow-ups" />}
+          />
+          <Route path="/market-discovery" element={<MarketDiscoveryPage />} />
+          <Route path="/products" element={<ProductsListPage />} />
+          <Route path="/products/new" element={<ProductFormPage />} />
+          <Route
+            path="/products/:productId/edit"
+            element={<ProductFormPage />}
+          />
+          <Route path="/qualification/check" element={<QuickLookPage />} />
+          <Route path="/role-categories" element={<RoleCategoryListPage />} />
+          <Route
+            path="/role-categories/new"
+            element={<RoleCategoryFormPage />}
+          />
+          <Route
+            path="/role-categories/:roleCategoryId/edit"
+            element={<RoleCategoryFormPage />}
+          />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route
+            path="/users"
+            element={
+              <RequireAction action={ACTIONS.usersManage}>
+                <UsersPage />
+              </RequireAction>
+            }
+          />
+        </Route>
       </Route>
     </Routes>
   );

@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
 from app.modules.ai_recommendation.gemini_client import GeminiClientError
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.ingestion.market_discovery import (
     confirm_market_discovery,
     get_default_market_description_parser,
@@ -121,7 +123,12 @@ async def confirm_market_discovery_endpoint(
     return MarketDiscoveryStarted(job_id=job.id)
 
 
-@router.post("/{run_id}/qualify-companies", response_model=MarketDiscoveryStarted, status_code=202)
+@router.post(
+    "/{run_id}/qualify-companies",
+    response_model=MarketDiscoveryStarted,
+    status_code=202,
+    dependencies=[Depends(require(Action.BULK_JOBS))],
+)
 async def qualify_run_companies_endpoint(
     run_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> MarketDiscoveryStarted:

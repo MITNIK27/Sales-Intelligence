@@ -4,6 +4,8 @@ import { Link, NavLink } from "react-router-dom";
 
 import { apiGet } from "@/api/client";
 import type { FollowUpItem } from "@/api/types";
+import { useAuth } from "@/auth/AuthProvider";
+import { ACTIONS } from "@/auth/types";
 import { Logo } from "@/components/Logo";
 import { APP_VERSION } from "@/lib/app-meta";
 import { NAV_GROUPS } from "@/lib/nav";
@@ -12,16 +14,24 @@ import { cn } from "@/lib/utils";
 export function AppSidebar({
   collapsed,
   onToggle,
+  limited = false,
 }: {
   collapsed: boolean;
   onToggle: () => void;
+  // Signed in without access yet: only the Dashboard is listed, and no counts are fetched.
+  limited?: boolean;
 }) {
   // Proactive reminder surfacing (Phase C) — a due-count badge on Follow-ups so a rep sees there's
   // something to act on without having to think to click in and check.
   const [dueFollowUpCount, setDueFollowUpCount] = useState<number | null>(null);
   const [draftsToReview, setDraftsToReview] = useState<number | null>(null);
+  // People waiting for access, for those who can let them in (Phase 9).
+  const [accessRequests, setAccessRequests] = useState<number | null>(null);
+  const { can } = useAuth();
+  const managesUsers = can(ACTIONS.usersManage);
 
   useEffect(() => {
+    if (limited) return;
     apiGet<FollowUpItem[]>("/contacts/follow-ups")
       .then((items) => setDueFollowUpCount(items.length))
       .catch(() => {
@@ -32,9 +42,19 @@ export function AppSidebar({
       .catch(() => {
         // Supplementary — a failure here shouldn't affect the rest of the nav.
       });
-  }, []);
+  }, [limited]);
+
+  useEffect(() => {
+    if (!managesUsers) return;
+    apiGet<{ pending: number }>("/users/access-requests/count")
+      .then((r) => setAccessRequests(r.pending))
+      .catch(() => {
+        // Supplementary — a failure here shouldn't affect the rest of the nav.
+      });
+  }, [managesUsers]);
 
   const badgeFor = (to: string): number | null => {
+    if (to === "/users") return accessRequests;
     if (to === "/outreach") {
       return draftsToReview === null && dueFollowUpCount === null
         ? null
@@ -80,7 +100,10 @@ export function AppSidebar({
           collapsed ? "px-2" : "px-3",
         )}
       >
-        {NAV_GROUPS.map((group, groupIndex) => (
+        {(limited
+          ? [{ label: "Workspace", items: NAV_GROUPS[0].items.slice(0, 1) }]
+          : NAV_GROUPS
+        ).map((group, groupIndex) => (
           <div key={group.label} className={cn(groupIndex > 0 && "mt-4")}>
             {collapsed ? (
               groupIndex > 0 && (
@@ -94,51 +117,53 @@ export function AppSidebar({
                 {group.label}
               </h4>
             )}
-            {group.items.map((item) => {
-              const badge = badgeFor(item.to);
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  title={collapsed ? item.label : undefined}
-                  aria-label={collapsed ? item.label : undefined}
-                  className={({ isActive }) =>
-                    cn(
-                      "relative flex w-full items-center text-sm text-white/75 transition-colors duration-200",
-                      collapsed
-                        ? "justify-center px-0 py-2.5"
-                        : "gap-3 px-3 py-2.5",
-                      "hover:bg-white/8 hover:text-white",
-                      // selection = crimson tint, NO indicator bar
-                      isActive && "bg-primary/25 font-semibold text-white",
-                    )
-                  }
-                >
-                  <item.icon
-                    className={cn(
-                      "shrink-0 opacity-85",
-                      collapsed ? "size-5" : "size-4",
-                    )}
-                  />
-                  {!collapsed && (
-                    <span className="flex-1 truncate">{item.label}</span>
-                  )}
-                  {!!badge && (
-                    <span
+            {group.items
+              .filter((item) => !item.action || can(item.action))
+              .map((item) => {
+                const badge = badgeFor(item.to);
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.end}
+                    title={collapsed ? item.label : undefined}
+                    aria-label={collapsed ? item.label : undefined}
+                    className={({ isActive }) =>
+                      cn(
+                        "relative flex w-full items-center text-sm text-white/75 transition-colors duration-200",
+                        collapsed
+                          ? "justify-center px-0 py-2.5"
+                          : "gap-3 px-3 py-2.5",
+                        "hover:bg-white/8 hover:text-white",
+                        // selection = crimson tint, NO indicator bar
+                        isActive && "bg-primary/25 font-semibold text-white",
+                      )
+                    }
+                  >
+                    <item.icon
                       className={cn(
-                        "flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground",
-                        collapsed &&
-                          "absolute right-1 top-0.5 h-4 min-w-4 px-1 text-[10px]",
+                        "shrink-0 opacity-85",
+                        collapsed ? "size-5" : "size-4",
                       )}
-                      aria-label={`${badge} waiting`}
-                    >
-                      {badge}
-                    </span>
-                  )}
-                </NavLink>
-              );
-            })}
+                    />
+                    {!collapsed && (
+                      <span className="flex-1 truncate">{item.label}</span>
+                    )}
+                    {!!badge && (
+                      <span
+                        className={cn(
+                          "flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground",
+                          collapsed &&
+                            "absolute right-1 top-0.5 h-4 min-w-4 px-1 text-[10px]",
+                        )}
+                        aria-label={`${badge} waiting`}
+                      >
+                        {badge}
+                      </span>
+                    )}
+                  </NavLink>
+                );
+              })}
           </div>
         ))}
       </nav>

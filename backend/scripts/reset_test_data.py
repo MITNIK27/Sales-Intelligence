@@ -67,6 +67,7 @@ KEEP_TABLES = (
     "role_categories",
     "organizations",
     "users",
+    "access_requests",
     "api_usage",
     "review_decisions",
     "documents",

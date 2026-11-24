@@ -17,6 +17,9 @@ class UsageContext:
     company_id: uuid.UUID | None = None
     opportunity_id: uuid.UUID | None = None
     task: str | None = None
+    # The signed-in person whose action this is (Phase 9): set by the sign-in check for a request,
+    # and by the worker from `jobs.created_by` for a job. Also read to fill "who did it" columns.
+    user_id: uuid.UUID | None = None
 
 
 _current: ContextVar[UsageContext | None] = ContextVar("usage_context", default=None)
@@ -24,6 +27,11 @@ _current: ContextVar[UsageContext | None] = ContextVar("usage_context", default=
 
 def current_usage_context() -> UsageContext:
     return _current.get() or UsageContext()
+
+
+def current_user_id() -> uuid.UUID | None:
+    """The person whose action this is, or None (scheduled work, scripts, tests)."""
+    return current_usage_context().user_id
 
 
 @contextmanager

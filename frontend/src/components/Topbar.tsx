@@ -3,16 +3,16 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { apiGet } from "@/api/client";
+import { UserMenu } from "@/components/UserMenu";
 import { Button } from "@/components/ui/button";
 import { APP_NAME } from "@/lib/app-meta";
 
 type Health = "checking" | "online" | "offline";
 
-// The product header. Left: the product name. Right: the one action useful from every page (start
-// a new search) and, while developing or if the system cannot be reached, its status. A healthy
-// production system shows no status at all. The gradient (white fading into the page's warm tint,
-// with a crimson-to-amber line along the bottom) is the only decoration; nothing else is added.
-export function Topbar() {
+// The product header: white, with a hairline and a soft shadow so it sits above the cream page. Left: the product's
+// wordmark. Right: the server status (while developing, or when it cannot be reached), the one
+// action useful from every page (start a new search) and your account.
+export function Topbar({ limited = false }: { limited?: boolean }) {
   const [health, setHealth] = useState<Health>("checking");
 
   useEffect(() => {
@@ -35,20 +35,23 @@ export function Topbar() {
   const showStatus = import.meta.env.DEV || health === "offline";
 
   return (
-    <header className="relative col-start-2 row-start-1 flex h-15 items-center justify-between gap-6 bg-linear-to-r from-card via-card to-accent px-8 shadow-sm">
-      <p className="min-w-0 truncate bg-linear-to-r from-foreground to-primary bg-clip-text text-lg font-bold tracking-tight text-transparent">
-        {APP_NAME}
-      </p>
+    <header className="col-start-2 row-start-1 flex h-15 items-center justify-between gap-6 border-b border-border bg-card shadow-[0_1px_3px_rgb(47_47_57/0.06)] px-8">
+      <Wordmark />
 
-      <div className="flex shrink-0 items-center gap-4">
+      <div className="flex shrink-0 items-center gap-3">
         {showStatus && (
-          <div
-            className="flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs font-medium text-muted-foreground backdrop-blur"
+          <span
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
             role="status"
             aria-live="polite"
+            title={
+              health === "offline"
+                ? "The server cannot be reached"
+                : "Shown while developing"
+            }
           >
             <span
-              className={`inline-block size-2 rounded-full ${
+              className={`inline-block size-1.5 rounded-full ${
                 health === "online"
                   ? "bg-success"
                   : health === "offline"
@@ -62,23 +65,33 @@ export function Topbar() {
               : health === "offline"
                 ? "Unreachable"
                 : "Checking"}
-          </div>
+          </span>
         )}
-        <Button
-          asChild
-          size="sm"
-          className="rounded-full bg-linear-to-r from-primary to-[#ff5a3c] px-4 shadow-sm hover:brightness-95"
-        >
-          <Link to="/market-discovery">
-            <Plus className="size-4" /> New search
-          </Link>
-        </Button>
+        {!limited && (
+          <Button asChild size="sm" className="h-8 rounded-md px-3">
+            <Link to="/market-discovery">
+              <Plus className="size-4" /> New search
+            </Link>
+          </Button>
+        )}
+        <span className="h-6 w-px bg-border" aria-hidden="true" />
+        <UserMenu limited={limited} />
       </div>
-
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 bg-linear-to-r from-primary via-[#ff5a3c] to-[#ffb347]"
-      />
     </header>
+  );
+}
+
+// The product's name as a mark, in Instrument Serif (used nowhere else): "Sales" upright,
+// "Intelligence" italic in InfoBeans crimson. No tile or gradient.
+function Wordmark() {
+  return (
+    <Link
+      to="/"
+      aria-label={`${APP_NAME} home`}
+      className="flex items-baseline gap-1.5 whitespace-nowrap font-['Instrument_Serif',serif] rounded-sm leading-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+    >
+      <span className="text-[26px] text-foreground">Sales</span>
+      <span className="text-[26px] italic text-primary-text">Intelligence</span>
+    </Link>
   );
 }

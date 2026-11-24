@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Outlet } from "react-router-dom";
 
 import { AppFooter } from "@/components/AppFooter";
@@ -8,7 +9,15 @@ import { usePersistentState } from "@/lib/usePersistentState";
 const SIDEBAR_WIDTH = 248;
 const SIDEBAR_WIDTH_COLLAPSED = 64;
 
-export function AppLayout() {
+// The app frame. `limited` is for someone signed in without access yet: the menu shows only the
+// Dashboard and the page is the card given as `children` (asking for access).
+export function AppLayout({
+  limited = false,
+  children,
+}: {
+  limited?: boolean;
+  children?: ReactNode;
+}) {
   // Remembered across pages and refreshes, so a rep who prefers more room keeps it.
   const [collapsed, setCollapsed] = usePersistentState(
     "ui.sidebarCollapsed",
@@ -26,11 +35,12 @@ export function AppLayout() {
       <AppSidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(!collapsed)}
+        limited={limited}
       />
-      <Topbar />
+      <Topbar limited={limited} />
       <div className="relative col-start-2 row-start-2 flex min-h-0 flex-col overflow-y-auto">
         <main className="mx-auto w-full max-w-[1760px] flex-1 px-8 py-6">
-          <Outlet />
+          {children ?? <Outlet />}
         </main>
         <AppFooter />
       </div>

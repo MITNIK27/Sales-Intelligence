@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.offerings.coverage import get_coverage, request_extraction
 from app.modules.offerings.models import OfferingProposal
 from app.modules.offerings.review import (
@@ -59,7 +61,12 @@ def _to_out(
     )
 
 
-@router.post("/sync", response_model=SyncStarted, status_code=202)
+@router.post(
+    "/sync",
+    response_model=SyncStarted,
+    status_code=202,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def start_sync_endpoint(session: AsyncSession = Depends(get_db)) -> SyncStarted:
     job = await start_sync(session, DEFAULT_ORGANIZATION_ID)
     await session.commit()
@@ -76,7 +83,12 @@ async def coverage_endpoint(session: AsyncSession = Depends(get_db)) -> Coverage
     return CoverageOut(**await get_coverage(session, DEFAULT_ORGANIZATION_ID))
 
 
-@router.post("/coverage/check", response_model=SyncStarted, status_code=202)
+@router.post(
+    "/coverage/check",
+    response_model=SyncStarted,
+    status_code=202,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def check_page_endpoint(
     body: CheckPageRequest, session: AsyncSession = Depends(get_db)
 ) -> SyncStarted:
@@ -105,7 +117,11 @@ async def list_proposals_endpoint(
     return ProposalList(items=items, total=len(items))
 
 
-@router.post("/proposals/decide", response_model=BulkDecisionResult)
+@router.post(
+    "/proposals/decide",
+    response_model=BulkDecisionResult,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def decide_proposals_endpoint(
     body: BulkDecisionRequest, session: AsyncSession = Depends(get_db)
 ) -> BulkDecisionResult:
@@ -120,7 +136,11 @@ async def decide_proposals_endpoint(
     return BulkDecisionResult(decided=decided, not_found=not_found)
 
 
-@router.post("/proposals/{proposal_id}/approve", response_model=ProposalOut)
+@router.post(
+    "/proposals/{proposal_id}/approve",
+    response_model=ProposalOut,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def approve_proposal_endpoint(
     proposal_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> ProposalOut:
@@ -131,7 +151,11 @@ async def approve_proposal_endpoint(
     return _to_out(proposal, None)
 
 
-@router.post("/proposals/{proposal_id}/reject", response_model=ProposalOut)
+@router.post(
+    "/proposals/{proposal_id}/reject",
+    response_model=ProposalOut,
+    dependencies=[Depends(require(Action.OFFERINGS_MANAGE))],
+)
 async def reject_proposal_endpoint(
     proposal_id: uuid.UUID, session: AsyncSession = Depends(get_db)
 ) -> ProposalOut:

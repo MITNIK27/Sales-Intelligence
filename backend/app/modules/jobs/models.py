@@ -31,5 +31,9 @@ class Job(Base, TimestampMixin):
     progress: Mapped[dict[str, Any] | None] = mapped_column(JsonB)
     result: Mapped[dict[str, Any] | None] = mapped_column(JsonB)
     error: Mapped[str | None] = mapped_column(String)
+    # The person whose action queued it (Phase 9); empty for scheduled work and older jobs.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), index=True
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

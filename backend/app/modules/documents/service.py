@@ -60,6 +60,7 @@ from app.modules.documents.schemas import (
 from app.modules.jobs.models import Job
 from app.modules.jobs.service import enqueue_job
 from app.modules.products.models import Product
+from app.modules.usage.context import current_user_id
 
 JOB_TYPE_INGEST_DOCUMENT = "ingest_document"
 
@@ -210,6 +211,7 @@ async def record_audit(
             document_name=document.name[:255],
             action=action,
             detail=detail[:500] if detail else None,
+            user_id=current_user_id(),  # the signed-in person (Phase 9)
             created_at=datetime.now(UTC),
         )
     )
@@ -277,7 +279,11 @@ async def create_document(
     await _refuse_duplicate(session, organization_id, digest)
     offering_ids = await _offerings(session, organization_id, product_ids or [])
 
-    document = Document(organization_id=organization_id, name=display_name(name, filename))
+    document = Document(
+        organization_id=organization_id,
+        name=display_name(name, filename),
+        uploaded_by=current_user_id(),
+    )
     session.add(document)
     await session.flush()
     _, job = await _queue_version(

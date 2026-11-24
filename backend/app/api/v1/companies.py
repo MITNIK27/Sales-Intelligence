@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.auth.deps import require
+from app.modules.auth.permissions import Action
 from app.modules.companies.models import Company
 from app.modules.companies.schemas import (
     CompanyBulkDismissRequest,
@@ -94,7 +96,11 @@ async def list_companies_endpoint(
     return CompanyList(items=items, total=total, limit=limit, offset=offset)
 
 
-@router.post("/dismiss", response_model=CompanyBulkDismissResult)
+@router.post(
+    "/dismiss",
+    response_model=CompanyBulkDismissResult,
+    dependencies=[Depends(require(Action.BULK_DISMISS))],
+)
 async def dismiss_companies_endpoint(
     body: CompanyBulkDismissRequest, session: AsyncSession = Depends(get_db)
 ) -> CompanyBulkDismissResult:

@@ -87,6 +87,7 @@ async def record_usage(
             run_id=ctx.run_id,
             company_id=ctx.company_id,
             opportunity_id=ctx.opportunity_id,
+            user_id=ctx.user_id,
             provider=provider,
             kind=kind,
             model=model,

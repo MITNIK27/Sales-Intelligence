@@ -51,6 +51,7 @@ from app.modules.ingestion.models import (
     IngestionRun,
 )
 from app.modules.jobs.models import Job
+from app.modules.usage.context import current_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ async def start_market_discovery_parse(
         status=STATUS_AWAITING_CONFIRMATION,
         raw_input=raw_input,
         parsed_fields=criteria.model_dump(),
+        created_by_user_id=current_user_id(),
     )
     session.add(run)
     await session.flush()

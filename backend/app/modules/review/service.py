@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.companies.models import Company
 from app.modules.contacts.models import Contact
 from app.modules.review.models import ReviewDecision
+from app.modules.usage.context import current_user_id
 
 SUBJECT_COMPANY = "company"
 SUBJECT_CONTACT = "contact"
@@ -77,6 +78,7 @@ def record_review_decision(
         snapshot=snapshot,
         reason_code=reason_code,
         note=note,
+        user_id=current_user_id(),  # the signed-in person who decided (Phase 9)
     )
     session.add(row)
     return row
