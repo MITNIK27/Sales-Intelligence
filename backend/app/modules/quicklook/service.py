@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from bs4 import BeautifulSoup
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.companies.models import (
@@ -30,7 +30,7 @@ from app.modules.opportunity.discovery import offering_areas
 from app.modules.opportunity.research.types import ResearchSources
 from app.modules.products.models import STATUS_ACTIVE, Product
 from app.modules.qualification.service import add_company_criteria
-from app.modules.quicklook.models import CompanySnapshot
+from app.modules.quicklook.models import CompanySnapshot, QuickCheckEntry
 from app.modules.quicklook.prompts import PROMPT_VERSION
 from app.modules.quicklook.research import gather_research
 from app.modules.quicklook.resolve import Candidate, build_candidates, name_tokens, pick
@@ -42,6 +42,7 @@ from app.modules.quicklook.snapshot import (
     build_summary,
     offerings_fingerprint,
 )
+from app.modules.usage.context import current_user_id
 
 SNAPSHOT_MAX_AGE = timedelta(days=7)
 SEARCH_RESULTS = 10
@@ -302,6 +303,15 @@ async def look_up(
     fingerprint = offerings_fingerprint(offerings, focus, criteria, library)
     existing = await _find_snapshot(session, organization_id, chosen_domain)
     if existing is not None and not refresh and _is_fresh(existing, fingerprint):
+        record_check(
+            session,
+            existing,
+            asked=name,
+            focus=focus,
+            criteria=criteria,
+            cached=True,
+            refreshed=False,
+        )
         return LookupOutcome(STATUS_READY, existing, cached=True, notes=notes)
 
     evidence, evidence_notes = await _gather_evidence(fetcher, results, chosen_name, chosen_domain)
@@ -334,7 +344,194 @@ async def look_up(
     snapshot.updated_at = datetime.now(UTC)
     session.add(snapshot)
     await session.flush()
+    record_check(
+        session,
+        snapshot,
+        asked=name,
+        focus=focus,
+        criteria=criteria,
+        cached=False,
+        refreshed=refresh,
+    )
     return LookupOutcome(STATUS_READY, snapshot, notes=notes)
+
+
+# --- history -------------------------------------------------------------------------------------
+
+HISTORY_PAGE = 20
+HISTORY_PER_COMPANY = 50
+
+
+class HistoryNotFoundError(LookupError):
+    pass
+
+
+def record_check(
+    session: AsyncSession,
+    snapshot: CompanySnapshot,
+    *,
+    asked: str | None,
+    focus: str | None,
+    criteria: list[str],
+    cached: bool,
+    refreshed: bool,
+) -> QuickCheckEntry:
+    """Keep this check, with a copy of the answer as it is now, for the person who ran it."""
+    summary = dict(snapshot.summary or {})
+    entry = QuickCheckEntry(
+        organization_id=snapshot.organization_id,
+        user_id=current_user_id(),
+        snapshot_id=snapshot.id,
+        domain=snapshot.domain,
+        name=snapshot.name,
+        asked=(asked or "").strip()[:255] or None,
+        focus=focus,
+        criteria=list(criteria),
+        call=str(summary.get("call") or "unclear"),
+        summary=summary,
+        sources=list(snapshot.sources or []),
+        cached=cached,
+        refreshed=refreshed,
+        model_used=snapshot.model_used,
+        prompt_version=snapshot.prompt_version,
+    )
+    session.add(entry)
+    return entry
+
+
+def _visible(organization_id: uuid.UUID, user_id: uuid.UUID | None) -> ColumnElement[bool]:
+    """A person sees their own checks, plus those made before history was kept (no person)."""
+    mine = (
+        or_(QuickCheckEntry.user_id == user_id, QuickCheckEntry.user_id.is_(None))
+        if user_id is not None
+        else QuickCheckEntry.user_id.is_(None)
+    )
+    return and_(QuickCheckEntry.organization_id == organization_id, mine)
+
+
+def _like(text: str) -> str:
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+@dataclass
+class CheckedCompany:
+    domain: str
+    name: str
+    last_checked_at: datetime
+    checks: int
+    last_call: str
+    last_focus: str | None
+    existing_company_id: uuid.UUID | None
+
+
+async def list_checked_companies(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    query: str | None = None,
+    limit: int = HISTORY_PAGE,
+    offset: int = 0,
+) -> tuple[list[CheckedCompany], int]:
+    """The companies this person checked, most recent first, one row each."""
+    conditions = [_visible(organization_id, user_id)]
+    text = " ".join((query or "").split())
+    if text:
+        pattern = _like(text.lower())
+        conditions.append(
+            or_(
+                func.lower(QuickCheckEntry.name).like(pattern, escape="\\"),
+                QuickCheckEntry.domain.like(pattern, escape="\\"),
+            )
+        )
+    last = func.max(QuickCheckEntry.created_at).label("last")
+    grouped = (
+        select(QuickCheckEntry.domain, last, func.count().label("checks"))
+        .where(*conditions)
+        .group_by(QuickCheckEntry.domain)
+    )
+    total = (
+        await session.execute(select(func.count()).select_from(grouped.subquery()))
+    ).scalar_one()
+    page = (
+        await session.execute(
+            grouped.order_by(last.desc(), QuickCheckEntry.domain).limit(limit).offset(offset)
+        )
+    ).all()
+    domains = [row.domain for row in page]
+    if not domains:
+        return [], total
+
+    latest: dict[str, QuickCheckEntry] = {}
+    entries = (
+        await session.execute(
+            select(QuickCheckEntry)
+            .where(conditions[0], QuickCheckEntry.domain.in_(domains))
+            .order_by(QuickCheckEntry.created_at.desc())
+        )
+    ).scalars()
+    for entry in entries:
+        latest.setdefault(entry.domain, entry)
+    companies = dict(
+        (
+            await session.execute(
+                select(func.lower(Company.domain), Company.id).where(
+                    Company.organization_id == organization_id,
+                    func.lower(Company.domain).in_(domains),
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    return [
+        CheckedCompany(
+            domain=row.domain,
+            name=latest[row.domain].name,
+            last_checked_at=row.last,
+            checks=row.checks,
+            last_call=latest[row.domain].call,
+            last_focus=latest[row.domain].focus,
+            existing_company_id=companies.get(row.domain),
+        )
+        for row in page
+    ], total
+
+
+async def checks_for_company(
+    session: AsyncSession, organization_id: uuid.UUID, user_id: uuid.UUID | None, domain: str
+) -> list[QuickCheckEntry]:
+    """This person's checks of one website, newest first."""
+    return list(
+        (
+            await session.execute(
+                select(QuickCheckEntry)
+                .where(_visible(organization_id, user_id), QuickCheckEntry.domain == domain.lower())
+                .order_by(QuickCheckEntry.created_at.desc())
+                .limit(HISTORY_PER_COMPANY)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def get_check(
+    session: AsyncSession,
+    organization_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    entry_id: uuid.UUID,
+) -> QuickCheckEntry:
+    entry = (
+        await session.execute(
+            select(QuickCheckEntry).where(
+                _visible(organization_id, user_id), QuickCheckEntry.id == entry_id
+            )
+        )
+    ).scalar_one_or_none()
+    if entry is None:
+        raise HistoryNotFoundError("That check is not in your history.")
+    return entry
 
 
 def _knowledge_question(name: str, evidence: list[Evidence], focus: str | None) -> str:

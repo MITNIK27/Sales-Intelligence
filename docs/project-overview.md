@@ -1,6 +1,6 @@
 # Project Overview
 
-_Last updated: 2026-11-16._
+_Last updated: 2026-11-24._
 
 ## What it is
 
@@ -67,6 +67,8 @@ InfoBeans' sales team first; the data model is multi-tenant so it could later se
   weekly check, a review list for what was found, and "What was checked" showing every page looked
   at and why something may be missing.
 - **Role Categories**: the rules the system judges roles against.
+- **Documents**: upload our own decks, PDFs, Word files and text, which are read, kept in the database (not as files) and searchable by words and by meaning. They feed fit judgments, recommendations, area suggestions and Quick Check, which cite them. Summaries, knowledge cards and offering suggestions are written from them.
+- **Sign-in and User Management**: sign in with an InfoBeans Google account. Access is by invitation, someone without one can request access, and admins and managers give roles (rep, manager, admin). A Profile page and an account menu are in the top bar. Costs are visible only to roles allowed to see them, and the app records who did what.
 - **Upload CSV**, **Quick Check**: the two other ways in.
 
 ## How it decides, and why you can trust it
@@ -91,12 +93,12 @@ InfoBeans' sales team first; the data model is multi-tenant so it could later se
 
 - Contact details are found but not verified (no email or phone validity check yet).
 - Sending is manual; there is no Gmail integration.
-- No sign-in or access control yet, so it runs on a trusted network only.
+- Sending is still manual and there is no Gmail integration yet. Sign-in with InfoBeans Google accounts, invite-only access and roles are in place, but the app is for one organisation only.
 - Free-tier limits cap how many companies are drafted per run.
 - Most language tasks still use Gemini; Groq is used by the offerings importer.
 - Reporting on which email wording works best is not built, although the data is captured.
-- The eval set is small (37 cases, nine tasks) and accuracy against real labelled companies is not
-  measured yet; five tasks are waiting for a first report.
+- The eval set is small (68 cases, thirteen tasks) and accuracy against real labelled companies is
+  not measured yet; three tasks are waiting for a first report.
 - CI effectively runs only the governance checks, because the unit and frontend tests are
   git-ignored. Hiring coverage in opportunity research is partial (many companies use their own
   career sites).

@@ -4,8 +4,8 @@ import { Link } from "react-router-dom";
 
 import { apiGet } from "@/api/client";
 import { UserMenu } from "@/components/UserMenu";
+import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/button";
-import { APP_NAME } from "@/lib/app-meta";
 
 type Health = "checking" | "online" | "offline";
 
@@ -83,15 +83,3 @@ export function Topbar({ limited = false }: { limited?: boolean }) {
 
 // The product's name as a mark, in Instrument Serif (used nowhere else): "Sales" upright,
 // "Intelligence" italic in InfoBeans crimson. No tile or gradient.
-function Wordmark() {
-  return (
-    <Link
-      to="/"
-      aria-label={`${APP_NAME} home`}
-      className="flex items-baseline gap-1.5 whitespace-nowrap font-['Instrument_Serif',serif] rounded-sm leading-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-    >
-      <span className="text-[26px] text-foreground">Sales</span>
-      <span className="text-[26px] italic text-primary-text">Intelligence</span>
-    </Link>
-  );
-}

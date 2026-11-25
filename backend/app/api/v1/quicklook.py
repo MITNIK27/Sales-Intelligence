@@ -1,13 +1,17 @@
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.tenancy import DEFAULT_ORGANIZATION_ID
 from app.db.session import get_db
+from app.modules.auth.deps import signed_in
+from app.modules.auth.models import User
 from app.modules.companies.service import normalize_domain, split_company_input
 from app.modules.enrichment.providers.search_serper import SerperSearchProvider
 from app.modules.enrichment.providers.website_scraper import WebsiteScraperProvider
@@ -18,6 +22,11 @@ from app.modules.opportunity.research.types import ResearchSources
 from app.modules.quicklook.models import CompanySnapshot
 from app.modules.quicklook.schemas import (
     CandidateOut,
+    CheckAnswerOut,
+    CheckedCompanyList,
+    CheckedCompanyOut,
+    CheckEntryOut,
+    CompanyChecksOut,
     CriterionResultOut,
     OfferingFitOut,
     QuickLookRequest,
@@ -28,12 +37,17 @@ from app.modules.quicklook.schemas import (
     WorkingOnOut,
 )
 from app.modules.quicklook.service import (
+    HISTORY_PAGE,
+    HistoryNotFoundError,
     PageFetcher,
     Searcher,
     SnapshotNotFoundError,
+    checks_for_company,
     existing_company_dismissal,
     existing_company_id,
+    get_check,
     get_snapshot,
+    list_checked_companies,
     look_up,
     save_as_company,
 )
@@ -74,11 +88,35 @@ async def get_deps() -> AsyncIterator[QuickLookDeps]:
 async def _snapshot_out(
     session: AsyncSession, snapshot: CompanySnapshot, cached: bool
 ) -> SnapshotOut:
-    summary = snapshot.summary or {}
-    return SnapshotOut(
-        id=snapshot.id,
+    return await _answer_out(
+        session,
+        snapshot_id=snapshot.id,
+        organization_id=snapshot.organization_id,
         domain=snapshot.domain,
         name=snapshot.name,
+        summary=snapshot.summary or {},
+        sources=snapshot.sources or [],
+        updated_at=snapshot.updated_at,
+        cached=cached,
+    )
+
+
+async def _answer_out(
+    session: AsyncSession,
+    *,
+    snapshot_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    domain: str,
+    name: str,
+    summary: dict[str, Any],
+    sources: list[dict[str, Any]],
+    updated_at: datetime,
+    cached: bool,
+) -> SnapshotOut:
+    return SnapshotOut(
+        id=snapshot_id,
+        domain=domain,
+        name=name,
         what_they_do=summary.get("what_they_do"),
         industry=summary.get("industry"),
         size_hint=summary.get("size_hint"),
@@ -90,14 +128,12 @@ async def _snapshot_out(
         focus=summary.get("focus"),
         criteria=[CriterionResultOut(**c) for c in summary.get("criteria", [])],
         knowledge=summary.get("knowledge") or [],
-        sources=snapshot.sources or [],
-        updated_at=snapshot.updated_at,
+        sources=sources,
+        updated_at=updated_at,
         cached=cached,
-        existing_company_id=await existing_company_id(
-            session, snapshot.organization_id, snapshot.domain
-        ),
+        existing_company_id=await existing_company_id(session, organization_id, domain),
         existing_company_dismissed_reason=await existing_company_dismissal(
-            session, snapshot.organization_id, snapshot.domain
+            session, organization_id, domain
         ),
     )
 
@@ -150,6 +186,83 @@ async def quick_look_endpoint(
             for c in outcome.candidates
         ],
         notes=outcome.notes,
+    )
+
+
+# The history routes come before "/{snapshot_id}", which would otherwise claim "/history".
+
+
+@router.get("/history", response_model=CheckedCompanyList)
+async def history_endpoint(
+    q: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=HISTORY_PAGE, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_db),
+    user: User = Depends(signed_in),
+) -> CheckedCompanyList:
+    """The companies this person checked, most recent first."""
+    items, total = await list_checked_companies(
+        session, DEFAULT_ORGANIZATION_ID, user.id, q, limit, offset
+    )
+    return CheckedCompanyList(
+        items=[CheckedCompanyOut(**asdict(item)) for item in items], total=total
+    )
+
+
+@router.get("/history/checks", response_model=CompanyChecksOut)
+async def company_checks_endpoint(
+    domain: str = Query(max_length=255),
+    session: AsyncSession = Depends(get_db),
+    user: User = Depends(signed_in),
+) -> CompanyChecksOut:
+    """Every check this person ran on one website, newest first."""
+    entries = await checks_for_company(session, DEFAULT_ORGANIZATION_ID, user.id, domain)
+    if not entries:
+        raise HTTPException(status_code=404, detail="You have not checked this company.")
+    return CompanyChecksOut(
+        domain=entries[0].domain,
+        name=entries[0].name,
+        entries=[
+            CheckEntryOut(
+                id=e.id,
+                checked_at=e.created_at,
+                asked=e.asked,
+                focus=e.focus,
+                criteria=e.criteria or [],
+                call=e.call,
+                call_reason=str((e.summary or {}).get("call_reason") or ""),
+                cached=e.cached,
+                refreshed=e.refreshed,
+            )
+            for e in entries
+        ],
+    )
+
+
+@router.get("/history/entries/{entry_id}", response_model=CheckAnswerOut)
+async def check_answer_endpoint(
+    entry_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+    user: User = Depends(signed_in),
+) -> CheckAnswerOut:
+    """An earlier check's answer as it was given then."""
+    try:
+        entry = await get_check(session, DEFAULT_ORGANIZATION_ID, user.id, entry_id)
+    except HistoryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    answer = await _answer_out(
+        session,
+        snapshot_id=entry.snapshot_id,
+        organization_id=entry.organization_id,
+        domain=entry.domain,
+        name=entry.name,
+        summary=entry.summary or {},
+        sources=entry.sources or [],
+        updated_at=entry.created_at,
+        cached=True,
+    )
+    return CheckAnswerOut(
+        entry_id=entry.id, checked_at=entry.created_at, criteria=entry.criteria or [], answer=answer
     )
 
 

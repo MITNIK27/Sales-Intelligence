@@ -1,6 +1,6 @@
 # Architecture
 
-_Last updated: 2026-11-16._
+_Last updated: 2026-11-24._
 
 ## Overview
 
@@ -182,8 +182,10 @@ is ambiguous. `research.py` gathers news, jobs and web evidence, time-boxed and 
 `snapshot.py` has the model suggest which offerings fit, with quoted sources; code verifies each
 quote and computes the yes / maybe / no call. `service.py` writes a `company_snapshots` row, cached
 per domain and invalidated when Our Offerings changes (`offerings_hash`). Nothing reaches the
-Companies list until `POST /quick-look/save` turns the snapshot into a company. The page route is
-`/qualification/check` and the component is `QuickLookPage`.
+Companies list until `POST /quick-look/save` turns the snapshot into a company. Every check is also
+kept in `quick_check_history` with a copy of its answer, and the page lists each person's own
+earlier checks below the search. The page route is `/qualification/check` and the component is
+`QuickLookPage`.
 
 ## Documents Knowledge Base (Phase 8)
 `modules/documents/` turns our own files into knowledge the AI flows can cite
@@ -242,6 +244,11 @@ api/client.ts ──────────────────────
 - **Who did it**: `signed_in` puts the person in the request context (`usage/context.py`); audit
   lines, review decisions, runs, jobs and usage rows read it, and the worker restores it from
   `jobs.created_by`.
+- **Idle sign-out** (`src/auth/idle.ts`): after 60 minutes without a click or key press (any tab
+  counts; a warning shows 2 minutes before) the person is signed out and the screen is locked with
+  the page still loaded underneath, so signing in again as the same person loses nothing. A
+  remembered sign-in unused for longer than that (browser closed) asks to sign in again. Firebase
+  ID tokens last an hour and are renewed silently; the server keeps no session.
 - **Frontend** (`src/auth/`): `AuthProvider` (Firebase identity plus `/auth/me`), the sign-in page,
   the access gate around the app, the account menu, Profile and User Management.
 
@@ -294,12 +301,14 @@ G1 to G10; decision record [ADR 0014](decisions/0014-ai-governance.md)). Two pie
   a new AI-written table lacks `model_used` and `prompt_version` (G9), the "not a fit" reasons on
   the screen and the server differ (G4), or a prompt version has no current eval report (G5). Four
   more test the eval harness itself with fakes.
-- `backend/evals/` is the eval harness: nine tasks (Quick Look, qualification, drafts, offering
-  extraction, recommendations, opportunity assessment, offering fit, contact relevance, role
-  relevance) with 37 hand-written cases (injection, grounding, a few accuracy checks), graders,
-  committed reports in `evals/reports/`, and a runner (`python -m evals.run`, a dry run by default,
-  `--yes` to call real models, `--repeat`). Four tasks have reports; five wait for a first run with
-  real models, listed in `AWAITING_FIRST_REPORT`, and that list may only shrink. Accuracy against
+- `backend/evals/` is the eval harness: thirteen tasks (Quick Look, qualification, drafts, the draft
+  rewrite, offering extraction, recommendations, opportunity assessment, offering fit, area
+  suggestions, knowledge cards, picture descriptions, contact relevance, role relevance) with 68
+  hand-written cases (injection, grounding, a few accuracy checks), graders, committed reports in
+  `evals/reports/`, and a runner (`python -m evals.run`, a dry run by default, `--yes` to call real
+  models, `--repeat`). Ten tasks have reports (latest per task: 57 of 58 cases passed); three
+  (opportunity assessment, contact relevance, role relevance) wait for a first run with real
+  models, listed in `AWAITING_FIRST_REPORT`, and that list may only shrink. Accuracy against
   real labelled companies needs labels from the team and is not measured yet.
 
 **CI** (`.github/workflows/ci.yml`) runs on push to main and on pull requests: `ruff`, `mypy` and

@@ -1,3 +1,5 @@
+import { describePlaces, splitPlaces } from "@/features/enrichment/places";
+
 // The criteria a person types for one Market Discovery search. Each can also be a "must have" for
 // this search, which drops a company that clearly fails it; every company the search finds also
 // keeps the criteria on its page. With nothing ticked nothing is excluded.
@@ -41,15 +43,8 @@ export function seedRequirements(
       mustHave: true,
     });
   }
-  if (location.trim()) {
-    seeds.push({
-      id: newRequirementId(),
-      name: "Operates in the target location",
-      description: `The company has its headquarters or significant operations in ${location.trim()}.`,
-      include: true,
-      mustHave: true,
-    });
-  }
+  const places = splitPlaces(location);
+  if (places.length > 0) seeds.push(locationRequirement(places));
   if (employeeSizeRange.trim()) {
     seeds.push({
       id: newRequirementId(),
@@ -60,6 +55,48 @@ export function seedRequirements(
     });
   }
   return seeds;
+}
+
+const LOCATION_NAME = "Operates in the target location";
+
+export function locationDescription(places: string[]): string {
+  return `The company has its headquarters or significant operations in ${describePlaces(places)}.`;
+}
+
+function locationRequirement(places: string[]): Requirement {
+  return {
+    id: newRequirementId(),
+    name: LOCATION_NAME,
+    description: locationDescription(places),
+    include: true,
+    mustHave: true,
+  };
+}
+
+// Keeps the location check in step with the places chosen, so adding France after the search was
+// read does not leave a must-have that still says Germany only. A check the person has edited is
+// left alone; the automatic one is updated, added when the first place is added, and removed when
+// the last place is.
+export function syncLocationRequirement(
+  requirements: Requirement[],
+  before: string[],
+  after: string[],
+): Requirement[] {
+  const index = requirements.findIndex(
+    (r) =>
+      r.name === LOCATION_NAME &&
+      r.description === (before.length ? locationDescription(before) : ""),
+  );
+  if (index === -1) {
+    const anyLocation = requirements.some((r) => r.name === LOCATION_NAME);
+    return before.length === 0 && after.length > 0 && !anyLocation
+      ? [...requirements, locationRequirement(after)]
+      : requirements;
+  }
+  if (after.length === 0) return requirements.filter((_, i) => i !== index);
+  return requirements.map((r, i) =>
+    i === index ? { ...r, description: locationDescription(after) } : r,
+  );
 }
 
 export function toRequestCriteria(

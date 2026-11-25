@@ -1,5 +1,6 @@
 import {
   CheckCircle2,
+  Clock,
   Compass,
   Loader2,
   Lock,
@@ -13,7 +14,9 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 
 import { apiPost } from "@/api/client";
 import { useAuth } from "@/auth/AuthProvider";
+import { countdown } from "@/auth/idle";
 import { Logo } from "@/components/Logo";
+import { Wordmark } from "@/components/Wordmark";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { AppLayout } from "@/layout/AppLayout";
@@ -64,12 +67,17 @@ export function SignInPage() {
 
   const problem =
     error ?? (phase === "refused" || phase === "error" ? message : null);
+  // Not a problem, just why they are here (signed out after being idle).
+  const notice = !problem && phase === "signed_out" ? message : null;
 
   return (
     <main className="grid min-h-screen bg-background lg:grid-cols-[1.1fr_1fr]">
       {/* Brand side: the dark of the sidebar, plain. */}
       <section className="relative hidden overflow-hidden bg-sidebar p-12 text-white lg:flex lg:flex-col lg:justify-between">
-        <Logo on="dark" className="relative h-11" />
+        {/* Same height as the wordmark row on the right, so the two logos line up. */}
+        <div className="relative flex h-20 items-center justify-center">
+          <Logo on="dark" className="h-[72px]" />
+        </div>
         <div className="relative max-w-md">
           <h2 className="text-4xl font-bold leading-tight">
             Find the right companies.
@@ -92,10 +100,14 @@ export function SignInPage() {
         </p>
       </section>
 
-      {/* Sign-in side */}
-      <section className="flex items-center justify-center px-4 py-12">
-        <div className="w-full max-w-sm">
-          <Logo className="mb-10 h-10 lg:hidden" />
+      {/* Sign-in side: the product's wordmark on the same line as the InfoBeans logo, the form
+          centred below it. */}
+      <section className="flex min-h-screen flex-col px-4 py-12 lg:p-12">
+        <div className="flex h-20 items-center justify-center">
+          <Wordmark size="xl" link={false} />
+        </div>
+        <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center py-10">
+          <Logo className="mb-8 h-12 self-start lg:hidden" />
           <h1 className="text-3xl font-bold">Welcome</h1>
           <p className="mt-2 text-muted-foreground">
             Sign in to {APP_NAME} with your InfoBeans Google account.
@@ -123,6 +135,16 @@ export function SignInPage() {
               )}
               {working ? "Waiting for Google…" : "Continue with Google"}
             </button>
+          )}
+
+          {notice && (
+            <p
+              role="status"
+              className="mt-4 flex items-start gap-2 border-l-2 border-border bg-card px-3 py-2 text-sm text-muted-foreground"
+            >
+              <Clock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+              {notice}
+            </p>
           )}
 
           {problem && (
@@ -318,6 +340,17 @@ export function RequireAccess() {
   const { phase } = useAuth();
   const location = useLocation();
   if (phase === "loading") return <Waiting />;
+  // Signed out for being idle: the page stays mounted (so nothing typed is lost) but hidden.
+  if (phase === "locked")
+    return (
+      <>
+        {/* `inert` keeps keyboard focus out of the hidden page (React 18 has no type for it). */}
+        <div aria-hidden="true" {...({ inert: "" } as object)}>
+          <Outlet />
+        </div>
+        <LockScreen />
+      </>
+    );
   if (phase === "no_access")
     return (
       <AppLayout limited>
@@ -338,7 +371,121 @@ export function RequireAccess() {
         state={{ from: location.pathname + location.search }}
       />
     );
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <IdleWarning />
+    </>
+  );
+}
+
+// --- idle sign-out -------------------------------------------------------------------------------
+
+// Shown in the last two minutes before the idle sign-out. Any click or key press also keeps the
+// person signed in; the button is the obvious way.
+function IdleWarning() {
+  const { idleLeftMs, stayActive } = useAuth();
+  if (idleLeftMs === null) return null;
+  return (
+    <div
+      role="alertdialog"
+      aria-labelledby="idle-title"
+      aria-describedby="idle-text"
+      className="fixed bottom-6 right-6 z-50 w-[min(24rem,calc(100vw-2rem))] border border-border bg-card p-5 shadow-lg"
+    >
+      <p id="idle-title" className="flex items-center gap-2 font-bold">
+        <Clock className="size-4 text-primary" aria-hidden="true" />
+        Still there?
+      </p>
+      <p id="idle-text" className="mt-1 text-sm text-muted-foreground">
+        You will be signed out in{" "}
+        <span className="font-semibold tabular-nums text-foreground">
+          {countdown(idleLeftMs)}
+        </span>{" "}
+        because nothing has happened for a while. Your work stays on this page.
+      </p>
+      <Button type="button" className="mt-4 w-full" onClick={stayActive}>
+        Stay signed in
+      </Button>
+    </div>
+  );
+}
+
+// Over the app after an idle sign-out. The app underneath is hidden but still there, so signing in
+// again as the same person carries on exactly where they were.
+function LockScreen() {
+  const { me, message, signIn, signOut } = useAuth();
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const unlock = async () => {
+    setError(null);
+    setWorking(true);
+    try {
+      await signIn();
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "";
+      if (
+        code !== "auth/popup-closed-by-user" &&
+        code !== "auth/cancelled-popup-request"
+      )
+        setError(
+          code === "auth/popup-blocked"
+            ? "Your browser blocked the Google window. Allow pop-ups for this site and try again."
+            : "Sign-in did not finish. Try again.",
+        );
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="lock-title"
+      className="fixed inset-0 z-50 grid place-items-center bg-background px-4"
+    >
+      <div className="w-full max-w-sm border border-border bg-card p-8 shadow-sm">
+        <Wordmark link={false} />
+        <h1 id="lock-title" className="mt-6 text-2xl font-bold">
+          Signed out
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">{message}</p>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Your work on this page is kept. Searches you started keep running.
+        </p>
+        <button
+          type="button"
+          onClick={() => void unlock()}
+          disabled={working}
+          className="mt-6 flex h-11 w-full items-center justify-center gap-3 rounded-md border border-border bg-card text-sm font-semibold text-foreground transition-colors duration-150 hover:border-foreground/30 hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-wait disabled:opacity-70 motion-reduce:transition-none"
+        >
+          {working ? (
+            <Loader2
+              className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none"
+              aria-hidden="true"
+            />
+          ) : (
+            <GoogleMark />
+          )}
+          {working ? "Waiting for Google…" : "Continue with Google"}
+        </button>
+        {error && (
+          <p className="mt-3 text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="mt-4 text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          {me?.email ? `Not ${me.email}? ` : ""}Use another account
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // Around a page only some roles may use: anyone else is sent home instead of seeing refusals.

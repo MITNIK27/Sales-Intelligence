@@ -1,6 +1,6 @@
 # Sales Intelligence — Deep Context Brief
 
-*As of 2026-11-16, branch `feat/SI-governance` (latest commit `0ba10bf`, Phase 7).*
+*As of 2026-11-24, branch `feat/SI-governance` (latest commit `6ce1447`, Phase 9c).*
 
 This is the long, single-file brief: what the product is, how each stage works, how it decides, and
 what is and is not built. It is meant to be handed to a person or to Claude as full context (for
@@ -32,8 +32,8 @@ Around them: a **Company Brief** (per company and business area), **Not a fit** 
 sticks), **Drafts** and **Follow-ups**, **Our Offerings** (what InfoBeans sells, kept in step with
 its website by proposals a person approves), and a read-only **leadership dashboard**.
 
-Who it is for: InfoBeans' own sales team today (one organization, no sign-in yet, trusted network
-only). The stated intent is to prove it internally, then take it to market as a standalone product
+Who it is for: InfoBeans' own sales team today (one organization; sign-in with InfoBeans Google
+accounts, invite-only access and roles are in place). The stated intent is to prove it internally, then take it to market as a standalone product
 for any B2B sales team; the data model is multi-tenant from day one for that reason.
 
 ## 2. Architecture
@@ -67,7 +67,8 @@ pipeline stages in order, deciding what runs next from each stage's real outcome
 
 **Other modules**: `quicklook/` (Quick Check), `opportunity/` (areas, evidence, assessments, offering
 fit, area suggestions), `offerings/` (website importer), `review/` (log of human decisions),
-`usage/` (per-call cost and tokens), `dashboard/` (read-only), `credits/`, `auth/`.
+`usage/` (per-call cost and tokens), `dashboard/` (read-only), `credits/`, `documents/` (the
+knowledge base: upload, read, embed, search, summarise), `auth/` (sign-in, invitations, roles).
 
 ## 3. The One-Prompt Pipeline, stage by stage
 
@@ -182,6 +183,18 @@ prerequisite skips only that stage and is reported; it never aborts the run.
 - **Needs Review and bulk confirm**: uncertain companies and contacts are flagged, not trusted;
   bulk confirm clears a batch and resumes role classification and drafting.
 
+- **Documents knowledge base** (`modules/documents/`, Phase 8): upload decks, PDFs, Word files and
+  text (5 MB and 300 pages each). They are read by our own code, split into passages and kept in
+  PostgreSQL with pgvector (no original file is stored, so the database and its backups are the only
+  copy). Search combines words and meaning. Passages feed fit judgments, recommendations, area
+  suggestions and Quick Check, and the model must cite them. Summaries, knowledge cards and offering
+  suggestions are written from them by a Gemini-only chain, because documents may hold personal data.
+- **Sign-in and access** (`modules/auth/`, Phase 9): Google sign-in through Firebase proves who
+  someone is; our database decides what they may do. Invite-only, with a Request access path. Every
+  API route requires a signed-in active person (a governance check calls every endpoint unsigned and
+  fails if one answers). Roles live in one permission table; people are deactivated, never deleted;
+  documents, review decisions, jobs and model calls record who did them. No email is sent yet.
+
 ## 5. How it decides, and why you can trust it
 
 - **The model judges, code decides.** Verdicts, priorities, scores and offering bands come from code
@@ -234,17 +247,20 @@ screens for current values.
 | New run screen and finish summary | Done |
 | Leadership dashboard and cost panel | Done |
 | AI governance G1 to G10 and key-free checks | Built; some gaps open (see `ai-governance.md`) |
-| Evals | 37 cases, nine tasks; four reports committed, five tasks awaiting a first report |
+| Documents knowledge base (upload, search, summaries, cards, used in flows) | Done (Phase 8) |
+| Sign-in, invite-only access, roles, who-did-what | Done (Phase 9) |
+| Evals | 68 cases, thirteen tasks; ten have reports (latest per task 57 of 58 cases passed), three awaiting a first report |
 | Contact verification (email and phone validity) | Not built |
 | Gmail send, LinkedIn | Not built, deliberately scoped ([ADR 0011](docs/decisions/0011-linkedin-gmail-integration-scope.md)) |
-| Sign-in, access control, spend ceiling, deployment | Deferred until there is reason to pursue SaaS |
+| Gmail send and replies | Next; needs its own Google consent and an ADR |
+| Spend ceiling, separate organisations, deployment | Deployment requested on InfoBeans infrastructure; the rest deferred until there is reason to pursue SaaS |
 | Domain-agnostic generalization (Phase D) | Deliberately deferred |
 
 ## 8. Known gaps worth tracking
 
-- **No sign-in or access control**: do not expose it publicly as it is.
+- **One organisation only.** Sign-in and roles exist, but there is no separation between organisations, so it is not ready for anyone outside InfoBeans.
 - **Contact details are found, not verified.** There is no email or phone validity check.
-- **Accuracy is unmeasured against real labelled companies**; the eval set is small and five tasks
+- **Accuracy is unmeasured against real labelled companies**; the eval set is small and three tasks
   have no first report yet.
 - **CI runs only the governance checks**: `backend/tests/` and the frontend test files are
   git-ignored, so unit and frontend tests are not part of CI.

@@ -37,7 +37,15 @@ import { RoleCategoryMultiSelect } from "@/components/RoleCategoryMultiSelect";
 import { FormSection } from "@/components/FormSection";
 import { MarketFitRequirements } from "@/features/enrichment/MarketFitRequirements";
 import {
+  describePlaces,
+  joinPlaces,
+  splitPlaces,
+} from "@/features/enrichment/places";
+import { PlacesInput } from "@/features/enrichment/PlacesInput";
+import {
+  criteriaSummary,
   seedRequirements,
+  syncLocationRequirement,
   toRequestCriteria,
   type Requirement,
 } from "@/features/enrichment/runCriteria";
@@ -323,8 +331,22 @@ export function MarketDiscoveryPage() {
         `/market-discovery/${runId}/confirm`,
         body,
       );
+      // Fetch the job once before swapping the form for the progress panel, so the page goes
+      // straight from "Starting…" to the progress, with no empty moment while the first poll waits.
+      let first: JobStatus | null = null;
+      try {
+        first = await apiGet<JobStatus>(`/jobs/${started.job_id}`);
+      } catch {
+        // The panel shows "Getting your search ready" until the next poll answers.
+      }
+      setJob(first);
       setJobId(started.job_id);
       startPolling(started.job_id, runId);
+      window.requestAnimationFrame(() =>
+        document
+          .getElementById("run-progress")
+          ?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "failed to start discovery",
@@ -387,6 +409,31 @@ export function MarketDiscoveryPage() {
   // criteria existed yet at confirm time) — only offer the manual catch-up button in that case.
   const showManualQualifyButton =
     pipelineResult !== null && pipelineResult.qualification.ran !== true;
+
+  const places = splitPlaces(location);
+  function changePlaces(next: string[]) {
+    setRequirements((current) =>
+      syncLocationRequirement(current, places, next),
+    );
+    setLocation(joinPlaces(next));
+  }
+
+  // One line saying what is being searched, shown on a closed panel and above the progress.
+  const searchSummary = [
+    industryKeywords.trim() || "Any industry",
+    places.length ? describePlaces(places) : "Anywhere",
+    employeeSizeRange.trim()
+      ? `${employeeSizeRange.trim()} employees`
+      : "Any size",
+  ].join(" · ");
+  const focusSummary = [
+    selectedProductIds.length === 0
+      ? "No offering chosen"
+      : `${selectedProductIds.length} offering${selectedProductIds.length === 1 ? "" : "s"} chosen`,
+    selectedRoleCategoryIds.length === 0
+      ? "all roles"
+      : `${selectedRoleCategoryIds.length} role${selectedRoleCategoryIds.length === 1 ? "" : "s"} to focus on`,
+  ].join(", ");
 
   return (
     <div>
@@ -492,6 +539,8 @@ export function MarketDiscoveryPage() {
             icon={Search}
             title="Your search details"
             description="This is what we understood from your description. Change anything that is wrong, or leave a field empty to not filter on it."
+            collapsible
+            closedSummary={searchSummary}
           >
             <div className="flex flex-col gap-1.5">
               <Label
@@ -517,18 +566,20 @@ export function MarketDiscoveryPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="location" className="flex items-center gap-2">
-                  Where
+                  Where the companies are
                   {confidence.location === "could_not_determine" && (
                     <CouldNotDetermineBadge />
                   )}
                 </Label>
-                <Input
+                <PlacesInput
                   id="location"
-                  type="text"
-                  value={location}
-                  placeholder="City, country or region"
-                  onChange={(e) => setLocation(e.target.value)}
+                  places={places}
+                  onChange={changePlaces}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Countries, regions or cities. Press Enter after each one.
+                  Leave empty to search anywhere.
+                </p>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label
@@ -559,6 +610,8 @@ export function MarketDiscoveryPage() {
             title="Checks for every company"
             optional
             description="Optional. Each company is checked against these and keeps them on its page. Mark a check as must have to drop companies that clearly fail it."
+            collapsible
+            closedSummary={criteriaSummary(requirements)}
           >
             <MarketFitRequirements
               value={requirements}
@@ -571,6 +624,8 @@ export function MarketDiscoveryPage() {
             title="Offerings and people to focus on"
             optional
             description="Not needed to find companies. Choose these if you want fit checks and drafts built around specific offerings and roles."
+            collapsible
+            closedSummary={`${focusSummary}.`}
           >
             <div className="flex flex-col gap-1.5">
               <Label>Offerings to pitch</Label>
@@ -623,9 +678,9 @@ export function MarketDiscoveryPage() {
           </FormSection>
 
           <div className="flex flex-wrap items-center justify-between gap-4 border border-border bg-card px-5 py-4 shadow-xs">
-            <p className="max-w-xl text-sm text-muted-foreground">
+            <p className="min-w-0 flex-1 text-sm text-muted-foreground">
               The search runs in the background, so you can keep using the app.
-              Progress shows below once it starts.
+              Progress shows below.
             </p>
             <Button
               type="button"
@@ -645,8 +700,20 @@ export function MarketDiscoveryPage() {
         </section>
       )}
 
+      {jobId && !job && (
+        <Card id="run-progress" className="mt-6 scroll-mt-6" aria-busy="true">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg font-bold">
+              <Loader2 className="size-4 animate-spin text-primary motion-reduce:animate-none" />
+              Getting your search ready
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">{searchSummary}</p>
+          </CardHeader>
+        </Card>
+      )}
+
       {job && (
-        <Card className="mt-6">
+        <Card id="run-progress" className="mt-6 scroll-mt-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg font-bold">
               {runInProgress && (
@@ -658,6 +725,9 @@ export function MarketDiscoveryPage() {
                   ? "Search complete"
                   : `Progress: ${jobStatusLabel(job.status)}`}
             </CardTitle>
+            {runId && (
+              <p className="text-sm text-muted-foreground">{searchSummary}</p>
+            )}
           </CardHeader>
           <CardContent>
             {(job.status === "running" || job.status === "pending") && (

@@ -399,7 +399,8 @@ into structured search criteria. Extract exactly these three fields:
 
 - industry_keywords: short keywords/phrases describing the industry or business type (e.g. \
 ["SaaS", "fintech"]). Empty list if none can be determined.
-- location: a city, region, or country. null if none is mentioned.
+- location: a city, region, or country. If several places are mentioned, give each one, \
+separated by "; " (e.g. "Germany; France"). null if none is mentioned.
 - employee_size_range: a headcount range as free text (e.g. "50-200", "11-50"). null if none \
 is mentioned.
 

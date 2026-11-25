@@ -17,6 +17,17 @@ import {
   signInWithGoogle,
   signOutOfGoogle,
 } from "@/auth/firebase";
+import {
+  IDLE_LIMIT_MS,
+  IDLE_WARNING_MS,
+  clearIdleSignedOut,
+  idleFor,
+  isIdleExpired,
+  lastActive,
+  markActive,
+  markIdleSignedOut,
+  wasIdleSignedOut,
+} from "@/auth/idle";
 import type { Me } from "@/auth/types";
 
 // Where the person stands. "granted" is the only phase in which the app itself is shown.
@@ -28,6 +39,9 @@ export type AuthPhase =
   | "no_access" // allowed account, no invitation yet
   | "disabled"
   | "granted"
+  // Signed out after an hour without activity, with the app still on screen behind a sign-in
+  // panel, so nothing typed is lost; signing in again as the same person carries on.
+  | "locked"
   | "error";
 
 interface AuthState {
@@ -41,7 +55,18 @@ interface AuthValue extends AuthState {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
+  // Time left before the idle sign-out, only while the warning is due (null otherwise).
+  idleLeftMs: number | null;
+  stayActive: () => void;
 }
+
+export const IDLE_MESSAGE =
+  "You were signed out after 60 minutes without activity. Sign in to carry on.";
+
+// What counts as someone using the app. Mouse movement alone does not.
+const ACTIVITY_EVENTS = ["pointerdown", "keydown", "wheel", "touchstart"];
+// Activity is written to storage at most this often.
+const ACTIVITY_WRITE_MS = 5000;
 
 const AuthContext = createContext<AuthValue | null>(null);
 
@@ -55,6 +80,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   // The account last seen; undefined until Firebase has reported once.
   const uid = useRef<string | null | undefined>(undefined);
+  // The account whose screen is locked, so only that person unlocks it in place.
+  const lockedUid = useRef<string | null>(null);
+  const phaseRef = useRef<AuthPhase>(state.phase);
+  useEffect(() => {
+    phaseRef.current = state.phase;
+  }, [state.phase]);
+  const [idleLeftMs, setIdleLeftMs] = useState<number | null>(null);
 
   const loadMe = useCallback(async () => {
     try {
@@ -85,15 +117,94 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return onIdTokenChanged(auth, (user) => {
       const next = user?.uid ?? null;
       if (next === uid.current) return;
+      const firstReport = uid.current === undefined;
+      const previous = uid.current ?? null;
       uid.current = next;
+
       if (!user) {
-        setState({ phase: "signed_out", me: null, message: null });
+        // Signed out for being idle (here or in another tab): lock the screen and keep the page.
+        if (
+          wasIdleSignedOut() &&
+          (phaseRef.current === "granted" || phaseRef.current === "locked")
+        ) {
+          lockedUid.current = lockedUid.current ?? previous;
+          setState((s) => ({ ...s, phase: "locked", message: IDLE_MESSAGE }));
+          return;
+        }
+        setState((s) => ({
+          phase: "signed_out",
+          me: null,
+          message: s.phase === "signed_out" ? s.message : null,
+        }));
         return;
       }
-      setState((s) => ({ ...s, phase: "loading" }));
+
+      // A sign-in remembered by the browser, but unused for longer than the limit (for example the
+      // browser was closed for the afternoon): ask to sign in again. Nothing is on screen yet, so
+      // there is nothing to keep.
+      if (firstReport && isIdleExpired()) {
+        uid.current = null;
+        clearIdleSignedOut();
+        setState({ phase: "signed_out", me: null, message: IDLE_MESSAGE });
+        void signOutOfGoogle();
+        return;
+      }
+
+      // Someone else unlocked a locked screen: start clean so nothing of the last person's work
+      // stays on screen.
+      if (lockedUid.current && lockedUid.current !== next) {
+        window.location.assign("/");
+        return;
+      }
+      lockedUid.current = null;
+      if (phaseRef.current !== "locked")
+        setState((s) => ({ ...s, phase: "loading" }));
       void loadMe();
     });
   }, [loadMe]);
+
+  // While someone is using the app: note their activity and sign them out after the idle limit,
+  // with a warning shortly before. Storage is shared, so activity in any tab counts.
+  const granted = state.phase === "granted";
+  useEffect(() => {
+    if (!granted) {
+      setIdleLeftMs(null);
+      return;
+    }
+    if (lastActive() === null) markActive();
+    let lastWrite = 0;
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastWrite < ACTIVITY_WRITE_MS) return;
+      lastWrite = now;
+      markActive(now);
+    };
+    ACTIVITY_EVENTS.forEach((name) =>
+      window.addEventListener(name, onActivity, { passive: true }),
+    );
+    const timer = window.setInterval(() => {
+      const left = IDLE_LIMIT_MS - idleFor();
+      if (left <= 0) {
+        markIdleSignedOut();
+        lockedUid.current = uid.current ?? null;
+        setState((s) => ({ ...s, phase: "locked", message: IDLE_MESSAGE }));
+        void signOutOfGoogle();
+        return;
+      }
+      setIdleLeftMs(left <= IDLE_WARNING_MS ? left : null);
+    }, 1000);
+    return () => {
+      ACTIVITY_EVENTS.forEach((name) =>
+        window.removeEventListener(name, onActivity),
+      );
+      window.clearInterval(timer);
+    };
+  }, [granted]);
+
+  const stayActive = useCallback(() => {
+    markActive();
+    setIdleLeftMs(null);
+  }, []);
 
   useEffect(() => {
     // The API said the sign-in is no longer accepted (expired, or the account was removed).
@@ -112,12 +223,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = useCallback(async () => {
-    setState((s) => ({ ...s, message: null }));
+    setState((s) => ({
+      ...s,
+      message: s.phase === "locked" ? s.message : null,
+    }));
     await signInWithGoogle();
+    // Signed in: the idle clock starts again and the other tabs stop showing the lock.
+    markActive();
+    clearIdleSignedOut();
   }, []);
 
   const signOut = useCallback(async () => {
     uid.current = null;
+    lockedUid.current = null;
+    clearIdleSignedOut();
     await signOutOfGoogle();
     setState({ phase: "signed_out", me: null, message: null });
   }, []);
@@ -126,12 +245,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       can: (action: string) =>
-        state.phase === "granted" && (state.me?.actions ?? []).includes(action),
+        // While locked the page behind stays as it was, so a role-only page is not sent home.
+        (state.phase === "granted" || state.phase === "locked") &&
+        (state.me?.actions ?? []).includes(action),
       signIn,
       signOut,
       refresh: loadMe,
+      idleLeftMs,
+      stayActive,
     }),
-    [state, signIn, signOut, loadMe],
+    [state, signIn, signOut, loadMe, idleLeftMs, stayActive],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

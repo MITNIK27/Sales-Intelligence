@@ -4,6 +4,24 @@ name -> resolved company), so a caller can never confuse a half-processed result
 
 from dataclasses import dataclass, field
 
+# Several places in one search are sent as one `location` string separated by this, e.g.
+# "Germany; France; Pune". A comma is not used because "Pune, India" is one place.
+PLACE_SEPARATOR = ";"
+MAX_PLACES = 5
+
+
+def split_places(location: str | None) -> list[str]:
+    """The places in a `location` string, tidied, without repeats (ignoring case), at most
+    `MAX_PLACES`."""
+    places: list[str] = []
+    seen: set[str] = set()
+    for part in (location or "").split(PLACE_SEPARATOR):
+        place = " ".join(part.split())
+        if place and place.lower() not in seen:
+            seen.add(place.lower())
+            places.append(place)
+    return places[:MAX_PLACES]
+
 
 @dataclass(frozen=True)
 class MarketCriteria:
@@ -12,8 +30,12 @@ class MarketCriteria:
     Market Discovery run reaches the agent, the user has already confirmed these fields."""
 
     industry_keywords: list[str]
+    # One place, or several separated by `PLACE_SEPARATOR`.
     location: str | None = None
     employee_size_range: str | None = None
+
+    def places(self) -> list[str]:
+        return split_places(self.location)
 
 
 @dataclass(frozen=True)

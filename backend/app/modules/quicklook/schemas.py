@@ -102,6 +102,53 @@ class QuickLookResponse(BaseModel):
     notes: list[str] = []
 
 
+class CheckedCompanyOut(BaseModel):
+    """A company in the person's Quick Check history: one row per website."""
+
+    domain: str
+    name: str
+    last_checked_at: datetime
+    checks: int
+    last_call: str
+    last_focus: str | None = None
+    existing_company_id: uuid.UUID | None = None
+
+
+class CheckedCompanyList(BaseModel):
+    items: list[CheckedCompanyOut]
+    total: int
+
+
+class CheckEntryOut(BaseModel):
+    """One check of a company: when, what was asked, and the call it got then."""
+
+    id: uuid.UUID
+    checked_at: datetime
+    asked: str | None = None
+    focus: str | None = None
+    criteria: list[str] = []
+    call: str
+    call_reason: str = ""
+    cached: bool
+    refreshed: bool
+
+
+class CompanyChecksOut(BaseModel):
+    domain: str
+    name: str
+    entries: list[CheckEntryOut]
+
+
+class CheckAnswerOut(BaseModel):
+    """An earlier check's answer exactly as it was given. `answer.id` is the company's current
+    snapshot, so saving it works as from a fresh look-up."""
+
+    entry_id: uuid.UUID
+    checked_at: datetime
+    criteria: list[str] = []
+    answer: SnapshotOut
+
+
 class SaveRequest(BaseModel):
     snapshot_id: uuid.UUID
     go_deeper: bool = False

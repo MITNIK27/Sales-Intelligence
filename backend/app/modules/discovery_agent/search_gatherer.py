@@ -31,12 +31,27 @@ _QUERY_TEMPLATES = (
 )
 
 
+# With several places, each place gets its own searches (a query naming five countries at once
+# returns pages about one or two of them). Fewer angles per place keeps the total bounded: at most
+# 3 x MAX_PLACES queries instead of 5.
+_PER_PLACE_TEMPLATES = _QUERY_TEMPLATES[:3]
+
+
 def _build_queries(criteria: MarketCriteria) -> list[str]:
     keywords = " ".join(criteria.industry_keywords) or "companies"
-    location_suffix = f" in {criteria.location}" if criteria.location else ""
+    places = criteria.places()
+    if len(places) <= 1:
+        location_suffix = f" in {places[0]}" if places else ""
+        return [
+            template.format(keywords=keywords, location_suffix=location_suffix)
+            for template in _QUERY_TEMPLATES
+        ]
+    # Angle by angle, place by place, so the results (kept in query order) mix the places and no
+    # single place fills the run's limit by coming first.
     return [
-        template.format(keywords=keywords, location_suffix=location_suffix)
-        for template in _QUERY_TEMPLATES
+        template.format(keywords=keywords, location_suffix=f" in {place}")
+        for template in _PER_PLACE_TEMPLATES
+        for place in places
     ]
 
 

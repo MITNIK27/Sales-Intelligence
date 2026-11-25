@@ -1,6 +1,6 @@
 # Data Model
 
-_Last updated: 2026-11-16._
+_Last updated: 2026-11-24._
 
 ## Entities
 
@@ -388,6 +388,20 @@ offerings it was judged against, so changing Our Offerings makes the snapshot st
 - `id`, `organization_id` (FK), `domain`, `name`, `summary` (JSON), `sources` (JSON list),
   `offerings_hash`, `model_used`, `prompt_version`, `created_at`
 
+### QuickCheckEntry (table `quick_check_history`)
+One Quick Check a person ran, with a copy of the answer they got. The snapshot keeps only the
+latest answer per website (a refresh or a new focus replaces it), so this is what lets a person see
+what they checked before and what it said then. Each person sees only their own checks; rows with
+no `user_id` were made before history was kept (the migration copies every existing snapshot in as
+one) and are shown to everyone. Shown on the Quick Check page under "Your earlier checks"
+(`GET /quick-look/history`, `/history/checks?domain=`, `/history/entries/{id}`). Wiped with the
+snapshots by `scripts/reset_test_data.py`; removed with its snapshot (cascade).
+
+- `id`, `organization_id` (FK), `user_id` (FK users, set null), `snapshot_id` (FK
+  company_snapshots, cascade), `domain`, `name`, `asked` (what was typed), `focus`, `criteria`
+  (JSON list of the questions asked), `call`, `summary` and `sources` (JSON, the answer as given),
+  `cached` (a saved answer was shown), `refreshed`, `model_used`, `prompt_version`, `created_at`
+
 ### ReviewDecision (table `review_decisions`)
 Append-only record of what a person decided about something the system flagged (control G4 in
 [`ai-governance.md`](ai-governance.md)). Written by `modules/review/` when a flagged company or
@@ -462,6 +476,7 @@ Recommendation 1──* Draft            (nullable — grounding, not required)
 Organization 1──* CreditTransaction
 Organization 1──* Job
 Organization 1──* CompanySnapshot    (one per domain; not a Company until saved)
+CompanySnapshot 1──* QuickCheckEntry (each check, with the answer then; per person)
 ReviewDecision *──1 Company/Contact  (by id only, no foreign key; append-only log)
 ApiUsage       *──1 Job/Run/Company  (by id only, no foreign key; append-only log)
 ```

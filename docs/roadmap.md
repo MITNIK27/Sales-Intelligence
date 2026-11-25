@@ -453,9 +453,9 @@ Rules, status of each control and the check that enforces it are in [`ai-governa
 
 - Phase 0 to 1: the controls and key-free checks (`backend/governance_checks/`); every Gemini call through `generate_structured()` with an output cap and a repair retry; cached and thinking tokens logged; `model_used` and `prompt_version` on every AI-written row; model calls from web routes named `api:<route>`.
 - Phase 2: outside text fenced in every prompt (`llm/untrusted.py`); finished drafts checked for invented figures and past-work claims (`draft/claims.py`, "Check before sending").
-- Phase 3: the eval harness (`backend/evals/`, 37 cases, nine tasks, reports, `--repeat`, spreadsheet labels); the review decision log (`modules/review/`); every measured prompt version needs an eval report.
+- Phase 3: the eval harness (`backend/evals/`, now 68 cases and thirteen tasks, reports, `--repeat`, spreadsheet labels); the review decision log (`modules/review/`); every measured prompt version needs an eval report.
 - Phase 4a: "Not a fit" (above). Phase 5 prep and 6: failure reasons stored on failed calls (`api_usage.error`), the Gemini price check, clean types and CI, and the reusable `ai-project-governance` skill (`docs/skills/`).
-- **Open:** reports for the five newest eval tasks; accuracy against real labelled companies (needs labels from the team); temperature 0 for judgments (an experiment, to be measured); a spending ceiling (deferred to a paid key); confirming Groq's terms before it may see personal data; the Market Discovery judge (Phase 4b).
+- **Open:** first reports for the three tasks still without one (opportunity assessment, contact relevance, role relevance); accuracy against real labelled companies (needs labels from the team); temperature 0 for judgments (an experiment, to be measured); a spending ceiling (deferred to a paid key); confirming Groq's terms before it may see personal data; the Market Discovery judge (Phase 4b).
 
 ## Database Foundation and Documents Knowledge Base (Phase 8) — **Done**
 
@@ -512,7 +512,7 @@ Rules, status of each control and the check that enforces it are in [`ai-governa
   actually works.
 - Move the other Gemini call sites behind the structured LLM seam, Groq first, one task at a time
   after a side-by-side comparison on real data (all already go through `generate_structured()`).
-- Close the AI governance open items (see "AI Governance" above): first eval reports for five tasks,
+- Close the AI governance open items (see "AI Governance" above): first eval reports for the three tasks without one,
   labelled-company accuracy, and the Market Discovery judge.
 - Make CI mean something: the unit and frontend tests are git-ignored, so CI runs only the
   governance checks.

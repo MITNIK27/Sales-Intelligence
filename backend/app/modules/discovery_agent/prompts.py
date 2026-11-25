@@ -53,6 +53,15 @@ not force results to fill a quota.
 """
 
 
+def describe_places(criteria: MarketCriteria) -> str:
+    places = criteria.places()
+    if not places:
+        return "not specified"
+    if len(places) == 1:
+        return places[0]
+    return f"any one of {', '.join(places)} (a company in any of these places fits)"
+
+
 def _format_search_results(results: list[RawSearchResult]) -> str:
     if not results:
         return "(no search results were found)"
@@ -65,7 +74,7 @@ def _format_search_results(results: list[RawSearchResult]) -> str:
 def build_extraction_prompt(criteria: MarketCriteria, search_results: list[RawSearchResult]) -> str:
     return _PROMPT.format(
         industry_keywords=", ".join(criteria.industry_keywords) or "not specified",
-        location=criteria.location or "not specified",
+        location=describe_places(criteria),
         employee_size_range=criteria.employee_size_range or "not specified",
         search_results=wrap_untrusted(_format_search_results(search_results), "search results"),
     )

@@ -14,6 +14,14 @@ export const CALL_TITLE: Record<Call, string> = {
   unclear: "Not enough information to say",
 };
 
+// The same call, short enough for a list row.
+export const CALL_SHORT: Record<Call, string> = {
+  yes: "Worth pitching",
+  maybe: "Maybe",
+  no: "No clear opening",
+  unclear: "Not enough information",
+};
+
 export const CALL_TONE: Record<Call, Tone> = {
   yes: "good",
   maybe: "watch",

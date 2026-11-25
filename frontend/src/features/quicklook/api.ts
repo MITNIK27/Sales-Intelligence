@@ -1,5 +1,5 @@
 import type { KnowledgeRef } from "@/api/types";
-import { apiPost } from "@/api/client";
+import { apiGet, apiPost } from "@/api/client";
 
 export type Call = "yes" | "maybe" | "no" | "unclear";
 export type OfferingBand = "strong" | "potential" | "weak";
@@ -92,6 +92,68 @@ export type SaveResponse = {
   created: boolean;
   job_id: string | null;
 };
+
+// --- history: the person's own earlier checks -------------------------------------------------
+
+export type CheckedCompany = {
+  domain: string;
+  name: string;
+  last_checked_at: string;
+  checks: number;
+  last_call: Call;
+  last_focus: string | null;
+  existing_company_id: string | null;
+};
+
+export type CheckedCompanyList = { items: CheckedCompany[]; total: number };
+
+export type CheckEntry = {
+  id: string;
+  checked_at: string;
+  asked: string | null;
+  focus: string | null;
+  criteria: string[];
+  call: Call;
+  call_reason: string;
+  cached: boolean;
+  refreshed: boolean;
+};
+
+export type CompanyChecks = {
+  domain: string;
+  name: string;
+  entries: CheckEntry[];
+};
+
+export type CheckAnswer = {
+  entry_id: string;
+  checked_at: string;
+  criteria: string[];
+  answer: Snapshot;
+};
+
+export function checkedCompanies(
+  query: string,
+  offset: number,
+  limit = 20,
+): Promise<CheckedCompanyList> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(offset),
+  });
+  if (query.trim()) params.set("q", query.trim());
+  return apiGet<CheckedCompanyList>(`/quick-look/history?${params}`);
+}
+
+export function companyChecks(domain: string): Promise<CompanyChecks> {
+  return apiGet<CompanyChecks>(
+    `/quick-look/history/checks?domain=${encodeURIComponent(domain)}`,
+  );
+}
+
+export function checkAnswer(entryId: string): Promise<CheckAnswer> {
+  return apiGet<CheckAnswer>(`/quick-look/history/entries/${entryId}`);
+}
 
 export function quickLook(body: QuickLookRequest): Promise<QuickLookResponse> {
   return apiPost<QuickLookResponse>("/quick-look", body);

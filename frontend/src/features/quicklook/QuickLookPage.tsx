@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   Circle,
+  History,
   Loader2,
   Search,
   SlidersHorizontal,
@@ -15,12 +16,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  checkAnswer,
   quickLook,
   saveSnapshot,
   type Candidate,
   type QuickLookRequest,
   type Snapshot,
 } from "@/features/quicklook/api";
+import { QuickCheckHistory } from "@/features/quicklook/QuickCheckHistory";
+import { formatDateTime } from "@/lib/format";
 import { AdvancedOptions } from "@/features/quicklook/AdvancedOptions";
 import { LOOKUP_STEPS, lookupStep } from "@/features/quicklook/callStyle";
 import { CandidatePicker } from "@/features/quicklook/CandidatePicker";
@@ -34,9 +38,12 @@ import { SnapshotCard } from "@/features/quicklook/SnapshotCard";
 import { usePersistentState } from "@/lib/usePersistentState";
 import { cn } from "@/lib/utils";
 
+// An answer from the person's history, shown as it was given then.
+type Earlier = { entryId: string; checkedAt: string; criteria: string[] };
+
 type View =
   | { kind: "idle" }
-  | { kind: "ready"; snapshot: Snapshot; notes: string[] }
+  | { kind: "ready"; snapshot: Snapshot; notes: string[]; earlier?: Earlier }
   | { kind: "choose"; candidates: Candidate[]; intro: string; notes: string[] }
   | { kind: "not_found"; notes: string[] };
 
@@ -100,6 +107,9 @@ export function QuickLookPage() {
   // Websites the person rejected for this search, so they are not offered again.
   const avoid = useRef<string[]>([]);
   const asked = useRef("");
+  // Bumped after each answer, so the history list below picks up the new check.
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const [openingEarlier, setOpeningEarlier] = useState(false);
 
   useEffect(() => {
     if (!looking) return;
@@ -112,6 +122,8 @@ export function QuickLookPage() {
     request: QuickLookRequest,
     intro?: string,
     quiet?: string,
+    // The extras to use instead of what is in Advanced (checking an earlier answer again).
+    using: Extras = extras,
   ) {
     setError(null);
     setQuietNote(quiet ?? null);
@@ -121,8 +133,8 @@ export function QuickLookPage() {
       const answer = await quickLook({
         ...request,
         avoid: avoid.current,
-        focus: extras.focus.trim() || undefined,
-        criteria: allCriteria(extras),
+        focus: using.focus.trim() || undefined,
+        criteria: allCriteria(using),
       });
       if (answer.status === "ready" && answer.snapshot) {
         setView({
@@ -130,6 +142,7 @@ export function QuickLookPage() {
           snapshot: answer.snapshot,
           notes: answer.notes,
         });
+        setHistoryVersion((v) => v + 1);
       } else if (answer.status === "needs_choice") {
         setView({
           kind: "choose",
@@ -200,17 +213,72 @@ export function QuickLookPage() {
     }
   }
 
-  function refresh(snapshot: Snapshot) {
+  // The extras an earlier answer was given for, so checking it again asks the same questions.
+  function extrasOf(snapshot: Snapshot, earlier: Earlier): Extras {
+    return { focus: snapshot.focus ?? "", custom: earlier.criteria };
+  }
+
+  function refresh(snapshot: Snapshot, earlier?: Earlier) {
     setWorking("refresh");
+    const using = earlier ? extrasOf(snapshot, earlier) : extras;
+    if (earlier) setExtras(using);
     void run(
       { company: snapshot.name, domain: snapshot.domain, refresh: true },
       undefined,
       "Refreshing the answer…",
+      using,
     );
   }
 
+  // Back to the latest answer for an earlier check (free when it is still fresh).
+  function latest(snapshot: Snapshot, earlier: Earlier) {
+    const using = extrasOf(snapshot, earlier);
+    setExtras(using);
+    asked.current = snapshot.name;
+    avoid.current = [];
+    void run(
+      { company: snapshot.name, domain: snapshot.domain },
+      undefined,
+      "Getting the latest answer…",
+      using,
+    );
+  }
+
+  async function openEarlier(entryId: string) {
+    setError(null);
+    setOpeningEarlier(true);
+    try {
+      const found = await checkAnswer(entryId);
+      setSavedCompanyId(null);
+      setCompany(found.answer.name);
+      asked.current = found.answer.name;
+      avoid.current = [];
+      setView({
+        kind: "ready",
+        snapshot: found.answer,
+        notes: [],
+        earlier: {
+          entryId: found.entry_id,
+          checkedAt: found.checked_at,
+          criteria: found.criteria,
+        },
+      });
+      document
+        .getElementById("quick-check-top")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "That check could not be opened.",
+      );
+    } finally {
+      setOpeningEarlier(false);
+    }
+  }
+
+  const earlier = view.kind === "ready" ? view.earlier : undefined;
+
   return (
-    <div>
+    <div id="quick-check-top" className="scroll-mt-6">
       <PageHeader
         title="Quick Check"
         description="Type a company name. You get a short answer on what they do and whether they are worth pitching."
@@ -297,6 +365,33 @@ export function QuickLookPage() {
               {quietNote}
             </p>
           )}
+          {earlier && !quietNote && (
+            <div
+              role="status"
+              className="mt-6 flex flex-wrap items-center gap-3 border border-border border-l-4 border-l-primary bg-secondary/70 px-4 py-3 text-sm"
+            >
+              <History
+                className="size-4 shrink-0 text-primary"
+                aria-hidden="true"
+              />
+              <p className="min-w-0 flex-1">
+                This is the answer you got on{" "}
+                <span className="font-semibold">
+                  {formatDateTime(earlier.checkedAt)}
+                </span>
+                . Things may have changed since.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => latest(view.snapshot, earlier)}
+                disabled={looking}
+              >
+                See the latest answer
+              </Button>
+            </div>
+          )}
           <SnapshotCard
             snapshot={view.snapshot}
             notes={view.notes}
@@ -305,7 +400,7 @@ export function QuickLookPage() {
               savedCompanyId,
               onGoDeeper: () => void save(view.snapshot, true),
               onSave: () => void save(view.snapshot, false),
-              onRefresh: () => refresh(view.snapshot),
+              onRefresh: () => refresh(view.snapshot, earlier),
               onNotThisOne: () => notThisOne(view.snapshot),
             }}
           />
@@ -349,6 +444,20 @@ export function QuickLookPage() {
           />
         </>
       )}
+
+      <div
+        className={cn(
+          "transition-opacity duration-150",
+          openingEarlier && "pointer-events-none opacity-60",
+        )}
+        aria-busy={openingEarlier || undefined}
+      >
+        <QuickCheckHistory
+          version={historyVersion}
+          openEntryId={earlier?.entryId ?? null}
+          onOpen={(entryId) => void openEarlier(entryId)}
+        />
+      </div>
     </div>
   );
 }

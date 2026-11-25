@@ -439,7 +439,7 @@ function GiveAccessForm({
       </h2>
       <div className="mt-3 flex flex-wrap items-end gap-3">
         <label className="flex min-w-64 flex-1 flex-col gap-1 text-sm">
-          <span className="font-semibold">Their InfoBeans email</span>
+          <span className="font-semibold">InfoBeans email</span>
           <Input
             type="email"
             value={email}
